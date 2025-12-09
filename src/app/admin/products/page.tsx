@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { Search } from 'lucide-react'
 
 type Category = {
   id: string
@@ -44,6 +45,7 @@ export default function ProductsPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string>('')
+  const [searchQuery, setSearchQuery] = useState<string>('')  // 🔍 NOUVEAU
   const [activeTab, setActiveTab] = useState<'info' | 'propositions'>('info')
   
   // Form state
@@ -298,9 +300,15 @@ export default function ProductsPage() {
     if (!error) loadData()
   }
 
-  const filteredProducts = selectedCategory
-    ? products.filter(p => p.category_id === selectedCategory)
-    : products
+  // 🔍 FILTRAGE MIS À JOUR - Catégorie + Recherche
+  const filteredProducts = products.filter(p => {
+    const matchesCategory = selectedCategory ? p.category_id === selectedCategory : true
+    const matchesSearch = searchQuery 
+      ? p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.description?.toLowerCase().includes(searchQuery.toLowerCase())
+      : true
+    return matchesCategory && matchesSearch
+  })
 
   // Propositions non encore assignées
   const availablePropositions = optionGroups.filter(
@@ -323,8 +331,29 @@ export default function ProductsPage() {
         </button>
       </div>
 
-      {/* Filtre catégorie */}
+      {/* 🔍 FILTRES - Recherche + Catégorie */}
       <div className="flex items-center gap-4 mb-6">
+        {/* Champ de recherche */}
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+          <input
+            type="text"
+            placeholder="Rechercher un produit..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        
+        {/* Filtre catégorie */}
         <select
           value={selectedCategory}
           onChange={(e) => setSelectedCategory(e.target.value)}
@@ -335,6 +364,7 @@ export default function ProductsPage() {
             <option key={cat.id} value={cat.id}>{cat.name}</option>
           ))}
         </select>
+        
         <span className="text-gray-500">{filteredProducts.length} produits</span>
       </div>
 
@@ -344,7 +374,17 @@ export default function ProductsPage() {
       ) : filteredProducts.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 text-center">
           <span className="text-5xl block mb-4">🍔</span>
-          <p className="text-gray-500">Aucun produit</p>
+          <p className="text-gray-500">
+            {searchQuery ? `Aucun produit trouvé pour "${searchQuery}"` : 'Aucun produit'}
+          </p>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="mt-4 text-orange-500 hover:underline"
+            >
+              Effacer la recherche
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
