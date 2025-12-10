@@ -59,7 +59,13 @@ export default function ProductsPage() {
     vat_takeaway: 6,
     is_available: true,
     is_active: true,
+    image_url: '' as string | null,
   })
+  
+  // Image upload
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
   
   // Propositions assignées au produit
   const [assignedPropositions, setAssignedPropositions] = useState<{id: string, option_group_id: string, display_order: number}[]>([])
@@ -116,6 +122,8 @@ export default function ProductsPage() {
 
   function openModal(product?: Product) {
     setActiveTab('info')
+    setImageFile(null)
+    setImagePreview(null)
     
     if (product) {
       setEditingProduct(product)
@@ -129,7 +137,9 @@ export default function ProductsPage() {
         vat_takeaway: product.vat_takeaway || 6,
         is_available: product.is_available,
         is_active: product.is_active,
+        image_url: product.image_url,
       })
+      setImagePreview(product.image_url)
       // Charger les propositions assignées
       const assigned = (product.product_option_groups || [])
         .sort((a, b) => a.display_order - b.display_order)
@@ -151,12 +161,57 @@ export default function ProductsPage() {
         vat_takeaway: 6,
         is_available: true,
         is_active: true,
+        image_url: null,
       })
       setAssignedPropositions([])
     }
     
     setFormError('')
     setShowModal(true)
+  }
+
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) {
+      setImageFile(file)
+      // Créer une preview
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  async function uploadImage(productId: string): Promise<string | null> {
+    if (!imageFile) return form.image_url || null
+    
+    setUploadingImage(true)
+    
+    try {
+      const fileExt = imageFile.name.split('.').pop()
+      const fileName = `${productId}.${fileExt}`
+      const filePath = `${establishmentId}/${fileName}`
+      
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(filePath, imageFile, { upsert: true })
+      
+      if (uploadError) throw uploadError
+      
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('product-images')
+        .getPublicUrl(filePath)
+      
+      return publicUrl
+    } catch (error: any) {
+      console.error('Upload error:', error)
+      return form.image_url || null
+    } finally {
+      setUploadingImage(false)
+    }
   }
 
   async function saveProduct(e: React.FormEvent) {
@@ -177,8 +232,14 @@ export default function ProductsPage() {
     
     try {
       let productId = editingProduct?.id
+      let imageUrl = form.image_url
       
       if (editingProduct) {
+        // Upload image si nouvelle
+        if (imageFile) {
+          imageUrl = await uploadImage(editingProduct.id)
+        }
+        
         // Update
         const { error } = await supabase
           .from('products')
@@ -192,6 +253,7 @@ export default function ProductsPage() {
             vat_takeaway: form.vat_takeaway,
             is_available: form.is_available,
             is_active: form.is_active,
+            image_url: imageUrl,
           })
           .eq('id', editingProduct.id)
         
@@ -205,7 +267,7 @@ export default function ProductsPage() {
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-|-$/g, '')
         
-        // Insert
+        // Insert d'abord sans image pour avoir l'ID
         const { data, error } = await supabase
           .from('products')
           .insert({
@@ -226,6 +288,18 @@ export default function ProductsPage() {
         
         if (error) throw error
         productId = data.id
+        
+        // Upload image si présente
+        if (imageFile && productId) {
+          imageUrl = await uploadImage(productId)
+          // Mettre à jour le produit avec l'URL de l'image
+          if (imageUrl) {
+            await supabase
+              .from('products')
+              .update({ image_url: imageUrl })
+              .eq('id', productId)
+          }
+        }
       }
       
       // Sauvegarder les propositions assignées
@@ -495,6 +569,52 @@ export default function ProductsPage() {
               
               {activeTab === 'info' ? (
                 <form id="product-form" onSubmit={saveProduct} className="space-y-4">
+                  {/* Image upload */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Photo du produit</label>
+                    <div className="flex items-start gap-4">
+                      {/* Preview */}
+                      <div className="w-32 h-32 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-300">
+                        {imagePreview ? (
+                          <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-4xl">🍔</span>
+                        )}
+                      </div>
+                      
+                      {/* Upload button */}
+                      <div className="flex-1">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageSelect}
+                          className="hidden"
+                          id="image-upload"
+                        />
+                        <label
+                          htmlFor="image-upload"
+                          className="inline-block px-4 py-2 bg-gray-100 text-gray-700 rounded-xl cursor-pointer hover:bg-gray-200 transition-colors"
+                        >
+                          📷 {imagePreview ? 'Changer l\'image' : 'Ajouter une image'}
+                        </label>
+                        {imagePreview && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setImageFile(null)
+                              setImagePreview(null)
+                              setForm({ ...form, image_url: null })
+                            }}
+                            className="ml-2 px-3 py-2 text-red-500 hover:bg-red-50 rounded-xl"
+                          >
+                            🗑️ Supprimer
+                          </button>
+                        )}
+                        <p className="text-xs text-gray-400 mt-2">JPG, PNG ou WebP. Max 5MB.</p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Nom *</label>
                     <input
@@ -710,10 +830,10 @@ export default function ProductsPage() {
                 type="submit"
                 form="product-form"
                 onClick={activeTab === 'propositions' ? saveProduct : undefined}
-                disabled={saving}
+                disabled={saving || uploadingImage}
                 className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold hover:bg-orange-600 disabled:opacity-50"
               >
-                {saving ? 'Sauvegarde...' : '💾 Enregistrer'}
+                {uploadingImage ? '📷 Upload...' : saving ? 'Sauvegarde...' : '💾 Enregistrer'}
               </button>
             </div>
           </div>
