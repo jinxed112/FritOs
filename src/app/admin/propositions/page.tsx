@@ -64,6 +64,8 @@ export default function PropositionsPage() {
     selection_type: 'single' as 'single' | 'multi',
     min_selections: 0,
     max_selections: null as number | null,
+    default_price_mode: 'product' as 'product' | 'free' | 'custom',
+    default_price: 0,
   })
   
   // Add product modal
@@ -147,6 +149,8 @@ export default function PropositionsPage() {
         selection_type: group.selection_type,
         min_selections: group.min_selections,
         max_selections: group.max_selections,
+        default_price_mode: 'product',
+        default_price: 0,
       })
     } else {
       setEditingGroup(null)
@@ -156,6 +160,8 @@ export default function PropositionsPage() {
         selection_type: 'single',
         min_selections: 0,
         max_selections: null,
+        default_price_mode: 'product',
+        default_price: 0,
       })
     }
     setFormError('')
@@ -321,6 +327,41 @@ export default function PropositionsPage() {
     if (!error) loadData()
   }
 
+  async function applyPriceToAll(groupId: string, mode: 'free' | 'product' | 'custom', customPrice?: number) {
+    const group = groups.find(g => g.id === groupId)
+    if (!group || group.option_group_items.length === 0) return
+    
+    const confirmed = confirm(
+      mode === 'free' 
+        ? `Mettre tous les ${group.option_group_items.length} items en GRATUIT ?`
+        : mode === 'product'
+        ? `Remettre tous les ${group.option_group_items.length} items au prix produit ?`
+        : `Mettre tous les ${group.option_group_items.length} items à ${customPrice?.toFixed(2)}€ ?`
+    )
+    
+    if (!confirmed) return
+    
+    setSaving(true)
+    
+    try {
+      const priceOverride = mode === 'free' ? 0 : mode === 'product' ? null : customPrice
+      
+      const { error } = await supabase
+        .from('option_group_items')
+        .update({ price_override: priceOverride })
+        .eq('option_group_id', groupId)
+      
+      if (error) throw error
+      
+      loadData()
+    } catch (error: any) {
+      console.error('Erreur:', error)
+      alert('Erreur: ' + error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // Filtrer les produits pour le modal d'ajout
   const filteredProducts = products.filter(p => {
     const matchesCategory = !selectedCategory || p.category_id === selectedCategory
@@ -427,6 +468,52 @@ export default function PropositionsPage() {
                         ➕ Ajouter produits
                       </button>
                     </div>
+                    
+                    {/* Boutons Appliquer à tous */}
+                    {group.option_group_items.length > 0 && (
+                      <div className="flex items-center gap-2 mb-4 p-3 bg-blue-50 rounded-xl">
+                        <span className="text-sm text-blue-700 font-medium">Appliquer à tous :</span>
+                        <button
+                          onClick={() => applyPriceToAll(group.id, 'free')}
+                          disabled={saving}
+                          className="text-sm bg-green-100 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-200 disabled:opacity-50"
+                        >
+                          🆓 Gratuit
+                        </button>
+                        <button
+                          onClick={() => applyPriceToAll(group.id, 'product')}
+                          disabled={saving}
+                          className="text-sm bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                        >
+                          💰 Prix produit
+                        </button>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            step="0.10"
+                            min="0"
+                            placeholder="1.00"
+                            id={`custom-price-${group.id}`}
+                            className="w-20 text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-right"
+                          />
+                          <button
+                            onClick={() => {
+                              const input = document.getElementById(`custom-price-${group.id}`) as HTMLInputElement
+                              const price = parseFloat(input?.value || '0')
+                              if (price > 0) {
+                                applyPriceToAll(group.id, 'custom', price)
+                              } else {
+                                alert('Entrez un prix valide')
+                              }
+                            }}
+                            disabled={saving}
+                            className="text-sm bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg hover:bg-orange-200 disabled:opacity-50"
+                          >
+                            Prix fixe €
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     
                     {group.option_group_items.length === 0 ? (
                       <p className="text-gray-400 text-sm text-center py-4">
