@@ -447,8 +447,18 @@ export default function KioskPage() {
     }))
   }
 
-  function getCartTotal(): number {
+  function getCartSubtotal(): number {
+    // Prix de base (prix affiché = TTC à emporter)
     return cart.reduce((sum, item) => sum + (item.price + item.options_total) * item.quantity, 0)
+  }
+
+  function getCartTotal(): number {
+    const subtotal = getCartSubtotal()
+    // Sur place : +6% pour compenser la TVA plus élevée
+    if (orderType === 'eat_in') {
+      return subtotal * 1.06
+    }
+    return subtotal
   }
 
   function getVatRate(): number {
@@ -554,8 +564,9 @@ export default function KioskPage() {
     
     try {
       const vatRate = getVatRate()
-      const total = getCartTotal()
-      const totalWithVat = total * (1 + vatRate / 100)
+      const totalTTC = getCartTotal() // Le prix est déjà TTC
+      const taxAmount = totalTTC * vatRate / (100 + vatRate) // TVA incluse dans le prix
+      const subtotalHT = totalTTC - taxAmount
       
       // Créer la commande en statut "pending payment"
       const { data: order, error: orderError } = await supabase
@@ -564,9 +575,9 @@ export default function KioskPage() {
           establishment_id: establishmentId,
           order_type: orderType,
           status: 'pending',
-          subtotal: total,
-          tax_amount: total * vatRate / 100,
-          total_amount: totalWithVat,
+          subtotal: subtotalHT,
+          tax_amount: taxAmount,
+          total_amount: totalTTC,
           source: 'kiosk',
           payment_method: 'card',
           payment_status: 'pending',
@@ -596,8 +607,8 @@ export default function KioskPage() {
       
       if (itemsError) throw itemsError
       
-      // Lancer le paiement Viva
-      await initiateVivaPayment(order.id, totalWithVat)
+      // Lancer le paiement Viva avec le montant TTC
+      await initiateVivaPayment(order.id, totalTTC)
       
     } catch (error) {
       console.error('Erreur:', error)
@@ -631,7 +642,7 @@ export default function KioskPage() {
           
           <div className="bg-white/20 rounded-3xl p-8 inline-block mb-8">
             <p className="text-xl mb-2">Montant à payer</p>
-            <p className="text-6xl font-bold">{(getCartTotal() * (1 + getVatRate() / 100)).toFixed(2)} €</p>
+            <p className="text-6xl font-bold">{getCartTotal().toFixed(2)} €</p>
           </div>
           
           <div className="flex justify-center gap-2">
@@ -706,7 +717,7 @@ export default function KioskPage() {
             >
               <span className="text-7xl block mb-4">🍽️</span>
               <span className="text-2xl font-bold text-gray-800 block">Sur place</span>
-              <span className="text-gray-500">TVA 12%</span>
+              <span className="text-orange-500 font-semibold">+6% (TVA 12%)</span>
             </button>
             
             <button
@@ -715,7 +726,7 @@ export default function KioskPage() {
             >
               <span className="text-7xl block mb-4">🥡</span>
               <span className="text-2xl font-bold text-gray-800 block">À emporter</span>
-              <span className="text-gray-500">TVA 6%</span>
+              <span className="text-green-600 font-semibold">Prix affiché (TVA 6%)</span>
             </button>
           </div>
         </div>
@@ -912,16 +923,25 @@ export default function KioskPage() {
           <div className="p-6 border-t">
             <div className="flex justify-between mb-2">
               <span className="text-gray-600">Sous-total</span>
-              <span className="font-bold">{getCartTotal().toFixed(2)} €</span>
+              <span className="font-bold">{getCartSubtotal().toFixed(2)} €</span>
             </div>
-            <div className="flex justify-between mb-4">
-              <span className="text-gray-600">TVA ({getVatRate()}%)</span>
-              <span>{(getCartTotal() * getVatRate() / 100).toFixed(2)} €</span>
+            
+            {orderType === 'eat_in' && (
+              <div className="flex justify-between mb-2 text-orange-600">
+                <span>Supplément sur place (+6%)</span>
+                <span>+{(getCartSubtotal() * 0.06).toFixed(2)} €</span>
+              </div>
+            )}
+            
+            <div className="flex justify-between mb-2 text-sm text-gray-500">
+              <span>dont TVA ({getVatRate()}%)</span>
+              <span>{(getCartTotal() * getVatRate() / (100 + getVatRate())).toFixed(2)} €</span>
             </div>
-            <div className="flex justify-between mb-6 text-xl">
-              <span className="font-bold">Total</span>
+            
+            <div className="flex justify-between mb-6 text-xl border-t pt-4 mt-2">
+              <span className="font-bold">À payer</span>
               <span className="font-bold text-orange-500">
-                {(getCartTotal() * (1 + getVatRate() / 100)).toFixed(2)} €
+                {getCartTotal().toFixed(2)} €
               </span>
             </div>
             
