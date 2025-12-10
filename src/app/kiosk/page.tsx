@@ -180,7 +180,7 @@ export default function KioskPage() {
           display_order,
           option_group:option_groups (
             id, name, selection_type, min_selections, max_selections,
-            option_group_items (
+            option_group_items!option_group_items_option_group_id_fkey (
               id, product_id, price_override, is_default, triggers_option_group_id,
               product:products (id, name, price, image_url)
             )
@@ -205,7 +205,7 @@ export default function KioskPage() {
           display_order,
           option_group:option_groups (
             id, name, selection_type, min_selections, max_selections,
-            option_group_items (
+            option_group_items!option_group_items_option_group_id_fkey (
               id, product_id, price_override, is_default, triggers_option_group_id,
               product:products (id, name, price, image_url)
             )
@@ -221,17 +221,20 @@ export default function KioskPage() {
     console.log('Products data:', productsData?.length)
 
     // Charger TOUS les option_groups pour les triggers
-    const { data: allOptionGroupsData } = await supabase
+    const { data: allOptionGroupsData, error: ogError } = await supabase
       .from('option_groups')
       .select(`
         id, name, selection_type, min_selections, max_selections,
-        option_group_items (
+        option_group_items!option_group_items_option_group_id_fkey (
           id, product_id, price_override, is_default, triggers_option_group_id,
           product:products (id, name, price, image_url)
         )
       `)
       .eq('establishment_id', establishmentId)
       .eq('is_active', true)
+
+    console.log('Option groups error:', ogError)
+    console.log('Option groups data:', allOptionGroupsData?.length)
 
     // DEBUG: Voir ce qui est chargé
     console.log('=== DEBUG KIOSK DATA ===')
