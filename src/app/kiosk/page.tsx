@@ -167,8 +167,11 @@ export default function KioskPage() {
   }, [orderNumber])
 
   async function loadData() {
+    console.log('=== LOADING DATA ===')
+    console.log('Establishment ID:', establishmentId)
+    
     // Charger catégories visibles sur borne avec leurs propositions
-    const { data: categoriesData } = await supabase
+    const { data: categoriesData, error: catError } = await supabase
       .from('categories')
       .select(`
         id, name, image_url,
@@ -189,8 +192,11 @@ export default function KioskPage() {
       .eq('visible_on_kiosk', true)
       .order('display_order')
 
+    console.log('Categories error:', catError)
+    console.log('Categories data:', categoriesData?.length)
+
     // Charger produits avec leurs propositions
-    const { data: productsData } = await supabase
+    const { data: productsData, error: prodError } = await supabase
       .from('products')
       .select(`
         id, name, description, price, image_url, category_id, is_available,
@@ -210,6 +216,9 @@ export default function KioskPage() {
       .eq('is_active', true)
       .eq('is_available', true)
       .order('display_order')
+
+    console.log('Products error:', prodError)
+    console.log('Products data:', productsData?.length)
 
     // Charger TOUS les option_groups pour les triggers
     const { data: allOptionGroupsData } = await supabase
