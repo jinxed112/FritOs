@@ -1092,7 +1092,24 @@ export default function KioskPage() {
                   disabled={!canProceed()}
                   className="px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50"
                 >
-                  {currentPropositionIndex === currentPropositions.length - 1 ? 'Ajouter →' : 'Suivant →'}
+                  {(() => {
+                    // Vérifier si on est à la dernière proposition ET si l'item sélectionné n'a pas de trigger
+                    const isLastProposition = currentPropositionIndex === currentPropositions.length - 1
+                    if (!isLastProposition) return 'Suivant →'
+                    
+                    // Vérifier si un item sélectionné dans le groupe actuel a un trigger
+                    const currentGroup = currentPropositions[currentPropositionIndex]
+                    if (currentGroup) {
+                      const selectedInGroup = selectedOptions.filter(o => o.option_group_id === currentGroup.id)
+                      const hasTriggeredItem = selectedInGroup.some(selected => {
+                        const item = currentGroup.option_group_items.find(i => i.id === selected.item_id)
+                        return item?.triggers_option_group_id
+                      })
+                      if (hasTriggeredItem) return 'Suivant →'
+                    }
+                    
+                    return 'Ajouter →'
+                  })()}
                 </button>
               </div>
             )}
