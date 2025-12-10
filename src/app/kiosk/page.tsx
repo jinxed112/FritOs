@@ -400,6 +400,9 @@ export default function KioskPage() {
               ...currentPropositions.slice(currentPropositionIndex + 1),
             ]
             setCurrentPropositions(newPropositions)
+            // Passer à la proposition suivante (qui est le trigger)
+            setCurrentPropositionIndex(currentPropositionIndex + 1)
+            return // Important: ne pas continuer vers addToCart
           }
         }
       }
