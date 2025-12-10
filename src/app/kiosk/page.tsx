@@ -370,16 +370,22 @@ export default function KioskPage() {
       const triggeredGroupIds: string[] = []
       selectedInCurrentGroup.forEach(selected => {
         const item = currentGroup.option_group_items.find(i => i.id === selected.item_id)
+        console.log('Selected item:', item?.product?.name, 'triggers:', item?.triggers_option_group_id)
         if (item?.triggers_option_group_id) {
           triggeredGroupIds.push(item.triggers_option_group_id)
         }
       })
+      
+      console.log('Triggered group IDs:', triggeredGroupIds)
+      console.log('All option groups available:', allOptionGroups.map(g => ({ id: g.id, name: g.name, items: g.option_group_items?.length })))
       
       // Si on a des triggers, insérer les propositions déclenchées juste après la position actuelle
       if (triggeredGroupIds.length > 0) {
         const triggeredGroups = triggeredGroupIds
           .map(id => allOptionGroups.find(g => g.id === id))
           .filter((g): g is OptionGroup => g !== undefined && g.option_group_items.length > 0)
+        
+        console.log('Triggered groups found:', triggeredGroups.map(g => g?.name))
         
         if (triggeredGroups.length > 0) {
           // Vérifier que ces groupes ne sont pas déjà dans la liste
