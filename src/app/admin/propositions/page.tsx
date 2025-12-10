@@ -89,17 +89,21 @@ export default function PropositionsPage() {
     setLoading(true)
     
     // Charger les groupes avec leurs items
-    const { data: groupsData } = await supabase
+    const { data: groupsData, error } = await supabase
       .from('option_groups')
       .select(`
         *,
-        option_group_items (
+        option_group_items!option_group_items_option_group_id_fkey (
           *,
           product:products (id, name, price, category_id, image_url)
         )
       `)
       .eq('establishment_id', establishmentId)
       .order('display_order')
+    
+    if (error) {
+      console.error('Error loading option_groups:', error)
+    }
     
     // Charger tous les produits
     const { data: productsData } = await supabase
