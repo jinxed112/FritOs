@@ -10,6 +10,7 @@ type OptionGroupItem = {
   product_id: string
   price_override: number | null
   is_default: boolean
+  triggers_option_group_id: string | null
   product: {
     id: string
     name: string
@@ -80,6 +81,7 @@ type OrderType = 'eat_in' | 'takeaway'
 export default function KioskPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [allOptionGroups, setAllOptionGroups] = useState<OptionGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   
@@ -93,6 +95,7 @@ export default function KioskPage() {
   const [currentPropositions, setCurrentPropositions] = useState<OptionGroup[]>([])
   const [currentPropositionIndex, setCurrentPropositionIndex] = useState(0)
   const [selectedOptions, setSelectedOptions] = useState<SelectedOption[]>([])
+  const [basePropositions, setBasePropositions] = useState<OptionGroup[]>([]) // Propositions de base (sans triggers)
   
   // Cart
   const [cart, setCart] = useState<CartItem[]>([])
@@ -175,7 +178,7 @@ export default function KioskPage() {
           option_group:option_groups (
             id, name, selection_type, min_selections, max_selections,
             option_group_items (
-              id, product_id, price_override, is_default,
+              id, product_id, price_override, is_default, triggers_option_group_id,
               product:products (id, name, price, image_url)
             )
           )
@@ -197,7 +200,7 @@ export default function KioskPage() {
           option_group:option_groups (
             id, name, selection_type, min_selections, max_selections,
             option_group_items (
-              id, product_id, price_override, is_default,
+              id, product_id, price_override, is_default, triggers_option_group_id,
               product:products (id, name, price, image_url)
             )
           )
@@ -208,8 +211,36 @@ export default function KioskPage() {
       .eq('is_available', true)
       .order('display_order')
 
+    // Charger TOUS les option_groups pour les triggers
+    const { data: allOptionGroups } = await supabase
+      .from('option_groups')
+      .select(`
+        id, name, selection_type, min_selections, max_selections,
+        option_group_items (
+          id, product_id, price_override, is_default, triggers_option_group_id,
+          product:products (id, name, price, image_url)
+        )
+      `)
+      .eq('establishment_id', establishmentId)
+      .eq('is_active', true)
+
+    // DEBUG: Voir ce qui est chargé
+    console.log('=== DEBUG KIOSK DATA ===')
+    console.log('Products loaded:', productsData?.length)
+    console.log('All option groups loaded:', allOptionGroups?.length)
+    productsData?.forEach(p => {
+      console.log(`Product: ${p.name}`)
+      console.log(`  - product_option_groups:`, p.product_option_groups)
+      p.product_option_groups?.forEach((pog: any) => {
+        console.log(`    - Option Group: ${pog.option_group?.name}`)
+        console.log(`      - Items:`, pog.option_group?.option_group_items?.length || 0)
+      })
+    })
+    console.log('=== END DEBUG ===')
+
     setCategories((categoriesData || []) as any)
     setProducts((productsData || []) as any)
+    setAllOptionGroups((allOptionGroups || []) as any)
     
     if (categoriesData && categoriesData.length > 0) {
       setSelectedCategory(categoriesData[0].id)
@@ -265,6 +296,7 @@ export default function KioskPage() {
   function closeProductModal() {
     setSelectedProduct(null)
     setCurrentPropositions([])
+    setBasePropositions([])
     setCurrentPropositionIndex(0)
     setSelectedOptions([])
   }
@@ -317,6 +349,44 @@ export default function KioskPage() {
   }
 
   function nextProposition() {
+    // Vérifier si l'item sélectionné dans la proposition actuelle a un trigger
+    const currentGroup = currentPropositions[currentPropositionIndex]
+    if (currentGroup) {
+      const selectedInCurrentGroup = selectedOptions.filter(o => o.option_group_id === currentGroup.id)
+      
+      // Chercher les triggers pour les items sélectionnés
+      const triggeredGroupIds: string[] = []
+      selectedInCurrentGroup.forEach(selected => {
+        const item = currentGroup.option_group_items.find(i => i.id === selected.item_id)
+        if (item?.triggers_option_group_id) {
+          triggeredGroupIds.push(item.triggers_option_group_id)
+        }
+      })
+      
+      // Si on a des triggers, insérer les propositions déclenchées juste après la position actuelle
+      if (triggeredGroupIds.length > 0) {
+        const triggeredGroups = triggeredGroupIds
+          .map(id => allOptionGroups.find(g => g.id === id))
+          .filter((g): g is OptionGroup => g !== undefined && g.option_group_items.length > 0)
+        
+        if (triggeredGroups.length > 0) {
+          // Vérifier que ces groupes ne sont pas déjà dans la liste
+          const existingIds = new Set(currentPropositions.map(p => p.id))
+          const newGroups = triggeredGroups.filter(g => !existingIds.has(g.id))
+          
+          if (newGroups.length > 0) {
+            // Insérer après la position actuelle
+            const newPropositions = [
+              ...currentPropositions.slice(0, currentPropositionIndex + 1),
+              ...newGroups,
+              ...currentPropositions.slice(currentPropositionIndex + 1),
+            ]
+            setCurrentPropositions(newPropositions)
+          }
+        }
+      }
+    }
+    
     if (currentPropositionIndex < currentPropositions.length - 1) {
       setCurrentPropositionIndex(currentPropositionIndex + 1)
     } else {
@@ -326,6 +396,8 @@ export default function KioskPage() {
 
   function prevProposition() {
     if (currentPropositionIndex > 0) {
+      // Si on revient en arrière, enlever les propositions triggered qui suivent
+      // (optionnel - pour simplifier on peut laisser)
       setCurrentPropositionIndex(currentPropositionIndex - 1)
     }
   }

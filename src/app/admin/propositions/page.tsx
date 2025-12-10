@@ -24,6 +24,7 @@ type OptionGroupItem = {
   max_quantity: number
   display_order: number
   is_active: boolean
+  triggers_option_group_id: string | null
   product: Product
 }
 
@@ -307,6 +308,19 @@ export default function PropositionsPage() {
     }
   }
 
+  async function updateItemTrigger(itemId: string, triggersOptionGroupId: string | null) {
+    const { error } = await supabase
+      .from('option_group_items')
+      .update({ triggers_option_group_id: triggersOptionGroupId })
+      .eq('id', itemId)
+    
+    if (error) {
+      alert('Erreur: ' + error.message)
+    } else {
+      loadData()
+    }
+  }
+
   async function toggleGroupActive(group: OptionGroup) {
     const { error } = await supabase
       .from('option_groups')
@@ -524,76 +538,110 @@ export default function PropositionsPage() {
                         {group.option_group_items.map(item => {
                           const displayPrice = item.price_override !== null ? item.price_override : item.product.price
                           const isIncluded = item.price_override === 0
+                          const triggeredGroup = item.triggers_option_group_id 
+                            ? groups.find(g => g.id === item.triggers_option_group_id)
+                            : null
                           
                           return (
-                            <div key={item.id} className="bg-white rounded-xl p-3 flex items-center gap-3">
-                              {/* Image */}
-                              <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-xl">
-                                {item.product.image_url ? (
-                                  <img src={item.product.image_url} alt="" className="w-full h-full object-cover rounded-lg" />
-                                ) : '🍽️'}
+                            <div key={item.id} className="bg-white rounded-xl p-3">
+                              <div className="flex items-center gap-3">
+                                {/* Image */}
+                                <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-xl flex-shrink-0">
+                                  {item.product.image_url ? (
+                                    <img src={item.product.image_url} alt="" className="w-full h-full object-cover rounded-lg" />
+                                  ) : '🍽️'}
+                                </div>
+                                
+                                {/* Nom */}
+                                <div className="flex-1 min-w-0">
+                                  <span className="font-medium">{item.product.name}</span>
+                                  {item.is_default && (
+                                    <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded">
+                                      Par défaut
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                {/* Prix */}
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <select
+                                    value={item.price_override === null ? 'product' : item.price_override === 0 ? 'free' : 'custom'}
+                                    onChange={(e) => {
+                                      const val = e.target.value
+                                      if (val === 'product') updateItemPrice(item.id, null)
+                                      else if (val === 'free') updateItemPrice(item.id, 0)
+                                      else updateItemPrice(item.id, item.product.price)
+                                    }}
+                                    className="text-sm border border-gray-200 rounded-lg px-2 py-1"
+                                  >
+                                    <option value="product">Prix produit ({item.product.price.toFixed(2)}€)</option>
+                                    <option value="free">Inclus (gratuit)</option>
+                                    <option value="custom">Prix custom</option>
+                                  </select>
+                                  
+                                  {item.price_override !== null && item.price_override !== 0 && (
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={item.price_override}
+                                      onChange={(e) => updateItemPrice(item.id, parseFloat(e.target.value) || 0)}
+                                      className="w-20 text-sm border border-gray-200 rounded-lg px-2 py-1 text-right"
+                                    />
+                                  )}
+                                  
+                                  <span className={`font-bold min-w-[70px] text-right ${isIncluded ? 'text-green-600' : 'text-orange-500'}`}>
+                                    {isIncluded ? 'Inclus' : `+${displayPrice.toFixed(2)}€`}
+                                  </span>
+                                </div>
+                                
+                                {/* Actions */}
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  <button
+                                    onClick={() => toggleItemDefault(item.id, !item.is_default)}
+                                    className={`w-8 h-8 rounded-lg text-sm ${
+                                      item.is_default ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'
+                                    }`}
+                                    title="Par défaut"
+                                  >
+                                    ⭐
+                                  </button>
+                                  <button
+                                    onClick={() => removeItem(item.id)}
+                                    className="w-8 h-8 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-500"
+                                    title="Retirer"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
                               </div>
                               
-                              {/* Nom */}
-                              <div className="flex-1">
-                                <span className="font-medium">{item.product.name}</span>
-                                {item.is_default && (
-                                  <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded">
-                                    Par défaut
+                              {/* Ligne 2: Déclenche proposition */}
+                              <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2">
+                                <span className="text-sm text-gray-500">🔗 Déclenche :</span>
+                                <select
+                                  value={item.triggers_option_group_id || ''}
+                                  onChange={(e) => updateItemTrigger(item.id, e.target.value || null)}
+                                  className={`text-sm border rounded-lg px-2 py-1 flex-1 ${
+                                    item.triggers_option_group_id 
+                                      ? 'border-purple-300 bg-purple-50 text-purple-700' 
+                                      : 'border-gray-200'
+                                  }`}
+                                >
+                                  <option value="">Aucune proposition</option>
+                                  {groups
+                                    .filter(g => g.id !== group.id) // Ne pas pouvoir se déclencher soi-même
+                                    .map(g => (
+                                      <option key={g.id} value={g.id}>
+                                        {g.name} ({g.selection_type === 'single' ? 'choix unique' : 'choix multiple'})
+                                      </option>
+                                    ))
+                                  }
+                                </select>
+                                {triggeredGroup && (
+                                  <span className="text-xs bg-purple-100 text-purple-600 px-2 py-1 rounded">
+                                    → {triggeredGroup.name}
                                   </span>
                                 )}
-                              </div>
-                              
-                              {/* Prix */}
-                              <div className="flex items-center gap-2">
-                                <select
-                                  value={item.price_override === null ? 'product' : item.price_override === 0 ? 'free' : 'custom'}
-                                  onChange={(e) => {
-                                    const val = e.target.value
-                                    if (val === 'product') updateItemPrice(item.id, null)
-                                    else if (val === 'free') updateItemPrice(item.id, 0)
-                                    else updateItemPrice(item.id, item.product.price)
-                                  }}
-                                  className="text-sm border border-gray-200 rounded-lg px-2 py-1"
-                                >
-                                  <option value="product">Prix produit ({item.product.price.toFixed(2)}€)</option>
-                                  <option value="free">Inclus (gratuit)</option>
-                                  <option value="custom">Prix custom</option>
-                                </select>
-                                
-                                {item.price_override !== null && item.price_override !== 0 && (
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    value={item.price_override}
-                                    onChange={(e) => updateItemPrice(item.id, parseFloat(e.target.value) || 0)}
-                                    className="w-20 text-sm border border-gray-200 rounded-lg px-2 py-1 text-right"
-                                  />
-                                )}
-                                
-                                <span className={`font-bold min-w-[70px] text-right ${isIncluded ? 'text-green-600' : 'text-orange-500'}`}>
-                                  {isIncluded ? 'Inclus' : `+${displayPrice.toFixed(2)}€`}
-                                </span>
-                              </div>
-                              
-                              {/* Actions */}
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => toggleItemDefault(item.id, !item.is_default)}
-                                  className={`w-8 h-8 rounded-lg text-sm ${
-                                    item.is_default ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'
-                                  }`}
-                                  title="Par défaut"
-                                >
-                                  ⭐
-                                </button>
-                                <button
-                                  onClick={() => removeItem(item.id)}
-                                  className="w-8 h-8 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-500"
-                                  title="Retirer"
-                                >
-                                  ✕
-                                </button>
                               </div>
                             </div>
                           )
