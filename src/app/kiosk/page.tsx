@@ -212,7 +212,7 @@ export default function KioskPage() {
       .order('display_order')
 
     // Charger TOUS les option_groups pour les triggers
-    const { data: allOptionGroups } = await supabase
+    const { data: allOptionGroupsData } = await supabase
       .from('option_groups')
       .select(`
         id, name, selection_type, min_selections, max_selections,
@@ -227,7 +227,7 @@ export default function KioskPage() {
     // DEBUG: Voir ce qui est chargé
     console.log('=== DEBUG KIOSK DATA ===')
     console.log('Products loaded:', productsData?.length)
-    console.log('All option groups loaded:', allOptionGroups?.length)
+    console.log('All option groups loaded:', allOptionGroupsData?.length)
     productsData?.forEach(p => {
       console.log(`Product: ${p.name}`)
       console.log(`  - product_option_groups:`, p.product_option_groups)
@@ -240,7 +240,7 @@ export default function KioskPage() {
 
     setCategories((categoriesData || []) as any)
     setProducts((productsData || []) as any)
-    setAllOptionGroups((allOptionGroups || []) as any)
+    setAllOptionGroups((allOptionGroupsData || []) as any)
     
     if (categoriesData && categoriesData.length > 0) {
       setSelectedCategory(categoriesData[0].id)
