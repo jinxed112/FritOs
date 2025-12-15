@@ -17,6 +17,7 @@ const navigation = [
   { name: 'Clients', href: '/admin/customers', icon: '👥' },
   { name: 'Devices', href: '/admin/devices', icon: '📱' },
   { name: 'Rapports', href: '/admin/reports', icon: '📈' },
+  { name: 'Rapports Z', href: '/admin/reports/z-history', icon: '🔒' },
   { name: 'Paramètres', href: '/admin/settings', icon: '⚙️' },
 ]
 

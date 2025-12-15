@@ -75,6 +75,7 @@ export interface Database {
           image_url: string | null
           display_order: number
           is_active: boolean
+          visible_on_kiosk: boolean
           created_at: string
           updated_at: string
         }
@@ -87,6 +88,7 @@ export interface Database {
           image_url?: string | null
           display_order?: number
           is_active?: boolean
+          visible_on_kiosk?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -99,6 +101,7 @@ export interface Database {
           image_url?: string | null
           display_order?: number
           is_active?: boolean
+          visible_on_kiosk?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -113,8 +116,8 @@ export interface Database {
           description: string | null
           image_url: string | null
           price: number
-          vat_rate_eat_in: number
-          vat_rate_takeaway: number
+          vat_eat_in: number
+          vat_takeaway: number
           cost_price: number | null
           display_order: number
           is_available: boolean
@@ -136,8 +139,8 @@ export interface Database {
           description?: string | null
           image_url?: string | null
           price: number
-          vat_rate_eat_in?: number
-          vat_rate_takeaway?: number
+          vat_eat_in?: number
+          vat_takeaway?: number
           cost_price?: number | null
           display_order?: number
           is_available?: boolean
@@ -159,8 +162,8 @@ export interface Database {
           description?: string | null
           image_url?: string | null
           price?: number
-          vat_rate_eat_in?: number
-          vat_rate_takeaway?: number
+          vat_eat_in?: number
+          vat_takeaway?: number
           cost_price?: number | null
           display_order?: number
           is_available?: boolean
@@ -179,71 +182,47 @@ export interface Database {
           id: string
           establishment_id: string
           order_number: string
-          order_type: 'kiosk' | 'counter' | 'pickup' | 'delivery'
-          eat_in: boolean
+          order_type: 'kiosk' | 'counter' | 'pickup' | 'delivery' | 'eat_in' | 'takeaway'
           status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'completed' | 'cancelled' | 'refunded'
           customer_name: string | null
           customer_phone: string | null
           customer_email: string | null
           customer_id: string | null
-          delivery_address_id: string | null
-          delivery_notes: string | null
-          delivery_fee: number
-          scheduled_time: string | null
-          prepared_at: string | null
-          completed_at: string | null
           subtotal: number
           discount_amount: number
-          vat_amount: number
-          total: number
-          promo_code_id: string | null
-          promo_discount: number
-          loyalty_points_earned: number
-          loyalty_points_used: number
-          loyalty_discount: number
+          tax_amount: number
+          total_amount: number
           payment_method: 'card' | 'cash' | 'online' | 'mixed' | null
           payment_status: 'pending' | 'paid' | 'partial' | 'refunded' | 'failed'
+          source: string | null
           source_device_id: string | null
           created_by: string | null
           notes: string | null
           metadata: Json
-          order_date: string
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
           establishment_id: string
-          order_number: string
-          order_type: 'kiosk' | 'counter' | 'pickup' | 'delivery'
-          eat_in?: boolean
+          order_number?: string
+          order_type: 'kiosk' | 'counter' | 'pickup' | 'delivery' | 'eat_in' | 'takeaway'
           status?: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'completed' | 'cancelled' | 'refunded'
           customer_name?: string | null
           customer_phone?: string | null
           customer_email?: string | null
           customer_id?: string | null
-          delivery_address_id?: string | null
-          delivery_notes?: string | null
-          delivery_fee?: number
-          scheduled_time?: string | null
-          prepared_at?: string | null
-          completed_at?: string | null
           subtotal: number
           discount_amount?: number
-          vat_amount?: number
-          total: number
-          promo_code_id?: string | null
-          promo_discount?: number
-          loyalty_points_earned?: number
-          loyalty_points_used?: number
-          loyalty_discount?: number
+          tax_amount?: number
+          total_amount: number
           payment_method?: 'card' | 'cash' | 'online' | 'mixed' | null
           payment_status?: 'pending' | 'paid' | 'partial' | 'refunded' | 'failed'
+          source?: string | null
           source_device_id?: string | null
           created_by?: string | null
           notes?: string | null
           metadata?: Json
-          order_date?: string
           created_at?: string
           updated_at?: string
         }
@@ -251,40 +230,148 @@ export interface Database {
           id?: string
           establishment_id?: string
           order_number?: string
-          order_type?: 'kiosk' | 'counter' | 'pickup' | 'delivery'
-          eat_in?: boolean
+          order_type?: 'kiosk' | 'counter' | 'pickup' | 'delivery' | 'eat_in' | 'takeaway'
           status?: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'completed' | 'cancelled' | 'refunded'
           customer_name?: string | null
           customer_phone?: string | null
           customer_email?: string | null
           customer_id?: string | null
-          delivery_address_id?: string | null
-          delivery_notes?: string | null
-          delivery_fee?: number
-          scheduled_time?: string | null
-          prepared_at?: string | null
-          completed_at?: string | null
           subtotal?: number
           discount_amount?: number
-          vat_amount?: number
-          total?: number
-          promo_code_id?: string | null
-          promo_discount?: number
-          loyalty_points_earned?: number
-          loyalty_points_used?: number
-          loyalty_discount?: number
+          tax_amount?: number
+          total_amount?: number
           payment_method?: 'card' | 'cash' | 'online' | 'mixed' | null
           payment_status?: 'pending' | 'paid' | 'partial' | 'refunded' | 'failed'
+          source?: string | null
           source_device_id?: string | null
           created_by?: string | null
           notes?: string | null
           metadata?: Json
-          order_date?: string
           created_at?: string
           updated_at?: string
         }
       }
-      // ... autres tables (simplifiées pour commencer)
+      order_items: {
+        Row: {
+          id: string
+          order_id: string
+          product_id: string | null
+          product_name: string
+          quantity: number
+          unit_price: number
+          vat_rate: number
+          options_selected: string | null
+          options_total: number
+          line_total: number
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          order_id: string
+          product_id?: string | null
+          product_name: string
+          quantity: number
+          unit_price: number
+          vat_rate?: number
+          options_selected?: string | null
+          options_total?: number
+          line_total?: number
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          order_id?: string
+          product_id?: string | null
+          product_name?: string
+          quantity?: number
+          unit_price?: number
+          vat_rate?: number
+          options_selected?: string | null
+          options_total?: number
+          line_total?: number
+          notes?: string | null
+          created_at?: string
+        }
+      }
+      z_reports: {
+        Row: {
+          id: string
+          establishment_id: string
+          report_number: number
+          period_start: string
+          period_end: string
+          orders_count: number
+          total_ht: number
+          total_tva: number
+          total_ttc: number
+          eat_in_count: number
+          eat_in_total: number
+          takeaway_count: number
+          takeaway_total: number
+          cash_count: number
+          cash_total: number
+          card_count: number
+          card_total: number
+          vat_breakdown: Json
+          source_breakdown: Json
+          top_products: Json
+          closed_by: string | null
+          closed_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          establishment_id: string
+          report_number: number
+          period_start: string
+          period_end: string
+          orders_count?: number
+          total_ht?: number
+          total_tva?: number
+          total_ttc?: number
+          eat_in_count?: number
+          eat_in_total?: number
+          takeaway_count?: number
+          takeaway_total?: number
+          cash_count?: number
+          cash_total?: number
+          card_count?: number
+          card_total?: number
+          vat_breakdown?: Json
+          source_breakdown?: Json
+          top_products?: Json
+          closed_by?: string | null
+          closed_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          establishment_id?: string
+          report_number?: number
+          period_start?: string
+          period_end?: string
+          orders_count?: number
+          total_ht?: number
+          total_tva?: number
+          total_ttc?: number
+          eat_in_count?: number
+          eat_in_total?: number
+          takeaway_count?: number
+          takeaway_total?: number
+          cash_count?: number
+          cash_total?: number
+          card_count?: number
+          card_total?: number
+          vat_breakdown?: Json
+          source_breakdown?: Json
+          top_products?: Json
+          closed_by?: string | null
+          closed_at?: string
+          created_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never
@@ -293,14 +380,6 @@ export interface Database {
       generate_order_number: {
         Args: { p_establishment_id: string }
         Returns: string
-      }
-      get_product_allergens: {
-        Args: { p_product_id: string }
-        Returns: string[]
-      }
-      calculate_product_cost: {
-        Args: { p_product_id: string }
-        Returns: number
       }
     }
     Enums: {
@@ -314,8 +393,5 @@ export type Establishment = Database['public']['Tables']['establishments']['Row'
 export type Category = Database['public']['Tables']['categories']['Row']
 export type Product = Database['public']['Tables']['products']['Row']
 export type Order = Database['public']['Tables']['orders']['Row']
-
-// Types pour les inserts
-export type NewCategory = Database['public']['Tables']['categories']['Insert']
-export type NewProduct = Database['public']['Tables']['products']['Insert']
-export type NewOrder = Database['public']['Tables']['orders']['Insert']
+export type OrderItem = Database['public']['Tables']['order_items']['Row']
+export type ZReport = Database['public']['Tables']['z_reports']['Row']
