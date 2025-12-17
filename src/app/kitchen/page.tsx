@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, DragEvent } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type OrderItem = {
@@ -100,21 +99,43 @@ const CATEGORY_CONFIG: Record<string, { icon: string, bgClass: string, textClass
   'default': { icon: '📋', bgClass: 'bg-slate-500/20', textClass: 'text-slate-400' },
 }
 
+// Icônes pour les options - SANS les sauces (mayo, ketchup, etc.)
 const OPTION_ICONS: { keywords: string[], icon: string, color: string }[] = [
-  { keywords: ['cheddar', 'fromage', 'cheese', 'raclette', 'mozzarella'], icon: '🧀', color: 'text-yellow-400' },
-  { keywords: ['viande', 'steak', 'boeuf', 'poulet', 'bacon', 'lard'], icon: '🥩', color: 'text-red-400' },
-  { keywords: ['frite supp', 'frites supp'], icon: '🍟', color: 'text-yellow-400' },
-  { keywords: ['samurai', 'samourai', 'piquant', 'épicé', 'hot'], icon: '🌶️', color: 'text-orange-400' },
-  { keywords: ['mayo', 'mayonnaise', 'andalouse', 'américaine'], icon: '🥫', color: 'text-yellow-300' },
-  { keywords: ['ketchup'], icon: '🍅', color: 'text-red-400' },
+  // Fromages
+  { keywords: ['cheddar'], icon: '🧀', color: 'text-yellow-400' },
+  { keywords: ['feta'], icon: '🔳', color: 'text-white' },  // Carré blanc de feta
+  { keywords: ['provolone'], icon: '🟡', color: 'text-yellow-300' },  // Tranche ronde
+  { keywords: ['mozzarella'], icon: '⚪', color: 'text-white' },
+  { keywords: ['raclette', 'fromage', 'cheese'], icon: '🧀', color: 'text-yellow-400' },
+  
+  // Viandes
+  { keywords: ['bacon', 'lard'], icon: '🥓', color: 'text-red-400' },  // Tranches de bacon
+  { keywords: ['viande', 'steak', 'boeuf'], icon: '🥩', color: 'text-red-400' },
+  { keywords: ['poulet', 'chicken'], icon: '🍗', color: 'text-amber-400' },
+  { keywords: ['cowboy'], icon: '🤠', color: 'text-amber-400' },
+  
+  // Légumes
+  { keywords: ['carotte'], icon: '🥕', color: 'text-orange-400' },
   { keywords: ['oignon', 'oignons'], icon: '🧅', color: 'text-purple-300' },
   { keywords: ['salade', 'laitue'], icon: '🥬', color: 'text-green-400' },
   { keywords: ['tomate', 'tomates'], icon: '🍅', color: 'text-red-400' },
   { keywords: ['cornichon', 'pickles'], icon: '🥒', color: 'text-green-500' },
+  
+  // Autres
   { keywords: ['oeuf', 'œuf', 'egg'], icon: '🍳', color: 'text-yellow-300' },
+  { keywords: ['frite supp', 'frites supp'], icon: '🍟', color: 'text-yellow-400' },
+  { keywords: ['piquant', 'épicé', 'hot', 'samurai', 'samourai'], icon: '🌶️', color: 'text-orange-400' },
   { keywords: ['végé', 'vegan', 'végétarien'], icon: '🌱', color: 'text-green-400' },
   { keywords: ['pain', 'bun', 'wrap', 'pita'], icon: '🍞', color: 'text-amber-400' },
 ]
+
+// Mots-clés des sauces à ignorer (pas d'icône)
+const SAUCE_KEYWORDS = ['mayo', 'mayonnaise', 'andalouse', 'américaine', 'american', 'ketchup', 'sauce', 'samurai', 'samourai', 'brasil', 'tartare', 'cocktail', 'curry', 'bbq', 'barbecue', 'moutarde', 'mustard', 'poivre', 'pepper']
+
+function isSauce(optionName: string): boolean {
+  const lower = optionName.toLowerCase()
+  return SAUCE_KEYWORDS.some(kw => lower.includes(kw))
+}
 
 function isExclusion(optionName: string): boolean {
   const lower = optionName.toLowerCase()
@@ -123,6 +144,10 @@ function isExclusion(optionName: string): boolean {
 
 function getOptionIcon(optionName: string): { icon: string, color: string } | null {
   const lower = optionName.toLowerCase()
+  
+  // Pas d'icône pour les sauces
+  if (isSauce(lower)) return null
+  
   for (const m of OPTION_ICONS) {
     if (m.keywords.some(kw => lower.includes(kw))) return { icon: m.icon, color: m.color }
   }
@@ -208,6 +233,9 @@ export default function KitchenPage() {
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
   const [establishmentId, setEstablishmentId] = useState<string>('a0000000-0000-0000-0000-000000000001')
   const [collapsedSections, setCollapsedSections] = useState<Record<string, Set<string>>>({})
+  
+  // État pour les items cochés (par commande -> par itemKey)
+  const [checkedItems, setCheckedItems] = useState<Record<string, Set<string>>>({})
   
   const supabase = createClient()
 
@@ -296,6 +324,30 @@ export default function KitchenPage() {
     } else {
       await supabase.from('orders').update({ status: newStatus }).eq('id', orderId)
     }
+    
+    // Nettoyer les items cochés quand la commande change de statut
+    if (newStatus === 'completed' || newStatus === 'ready') {
+      setCheckedItems(prev => {
+        const newState = { ...prev }
+        delete newState[orderId]
+        return newState
+      })
+    }
+  }
+
+  // Toggle un item coché/décoché
+  function toggleItemChecked(orderId: string, itemKey: string) {
+    setCheckedItems(prev => {
+      const orderChecked = prev[orderId] || new Set<string>()
+      const newSet = new Set(orderChecked)
+      if (newSet.has(itemKey)) newSet.delete(itemKey)
+      else newSet.add(itemKey)
+      return { ...prev, [orderId]: newSet }
+    })
+  }
+
+  function isItemChecked(orderId: string, itemKey: string): boolean {
+    return checkedItems[orderId]?.has(itemKey) || false
   }
 
   const allOrders = [...orders, ...offeredOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
@@ -345,28 +397,51 @@ export default function KitchenPage() {
   function handleDragLeave() { setDragOverColumn(null) }
   function handleDrop(e: DragEvent, newStatus: string) { e.preventDefault(); if (draggedOrder) updateStatus(draggedOrder, newStatus); setDraggedOrder(null); setDragOverColumn(null) }
 
-  function renderMergedItem(item: MergedItem) {
-    const isHigh = item.totalQuantity >= 3
-    const isVeryHigh = item.totalQuantity >= 5
-    let containerClass = ''
+  function renderMergedItem(item: MergedItem, orderId: string) {
+    const isHigh = item.totalQuantity >= 2
+    const isVeryHigh = item.totalQuantity >= 4
+    const isChecked = isItemChecked(orderId, item.key)
+    
+    let containerClass = 'cursor-pointer transition-all '
     let qtyBgClass = 'bg-slate-500'
     
-    if (isVeryHigh) { containerClass = 'bg-red-500/30 border-l-4 border-red-500 animate-pulse'; qtyBgClass = 'bg-red-500' }
-    else if (isHigh) { containerClass = 'bg-yellow-500/20 border-l-4 border-yellow-500'; qtyBgClass = 'bg-yellow-500' }
+    if (isChecked) {
+      containerClass += 'bg-green-500/30 border-l-4 border-green-500 opacity-60'
+      qtyBgClass = 'bg-green-600'
+    } else if (isVeryHigh) {
+      containerClass += 'bg-red-500/30 border-l-4 border-red-500 animate-pulse'
+      qtyBgClass = 'bg-red-500'
+    } else if (isHigh) {
+      containerClass += 'bg-yellow-500/20 border-l-4 border-yellow-500'
+      qtyBgClass = 'bg-yellow-500'
+    }
     
     return (
-      <div key={item.key} className={`rounded-lg p-2 ${containerClass}`}>
+      <div 
+        key={item.key} 
+        className={`rounded-lg p-2 ${containerClass}`}
+        onClick={() => toggleItemChecked(orderId, item.key)}
+      >
         <div className="flex items-start gap-2">
+          {/* Checkbox visuel */}
+          <div className={`w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+            isChecked 
+              ? 'bg-green-500 border-green-500 text-white' 
+              : 'border-gray-400 hover:border-green-400'
+          }`}>
+            {isChecked && <span className="text-sm">✓</span>}
+          </div>
+          
           <span className={`${qtyBgClass} text-white min-w-[32px] h-8 rounded flex items-center justify-center text-base font-bold flex-shrink-0`}>
             {item.totalQuantity}
           </span>
           <div className="flex-1 min-w-0">
-            <p className={`font-medium ${isHigh ? 'text-lg font-bold' : ''}`}>
+            <p className={`font-medium ${isHigh ? 'text-lg font-bold' : ''} ${isChecked ? 'line-through text-gray-400' : ''}`}>
               {item.product_name}
-              {isVeryHigh && <span className="ml-2">⚠️</span>}
+              {isVeryHigh && !isChecked && <span className="ml-2">⚠️</span>}
             </p>
             {displayMode === 'detailed' && item.options.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">
+              <div className={`flex flex-wrap gap-1 mt-1 ${isChecked ? 'opacity-50' : ''}`}>
                 {item.options.map((opt, idx) => {
                   const iconData = getOptionIcon(opt.item_name)
                   const excluded = isExclusion(opt.item_name)
@@ -381,16 +456,17 @@ export default function KitchenPage() {
               </div>
             )}
             {displayMode === 'compact' && item.options.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">
+              <div className={`flex flex-wrap gap-1 mt-1 ${isChecked ? 'opacity-50' : ''}`}>
                 {item.options.map((opt, idx) => {
                   const iconData = getOptionIcon(opt.item_name)
                   const excluded = isExclusion(opt.item_name)
                   if (iconData) return <span key={idx} className={`text-lg ${excluded ? 'opacity-50' : ''}`} title={opt.item_name}>{excluded && '🚫'}{iconData.icon}</span>
-                  return <span key={idx} className={`text-xs px-1.5 py-0.5 rounded ${excluded ? 'bg-gray-600 line-through' : 'bg-slate-600'}`}>{excluded && '🚫'}{opt.item_name}</span>
+                  // Afficher le texte pour les options sans icône (comme les sauces)
+                  return <span key={idx} className={`text-xs px-1.5 py-0.5 rounded ${excluded ? 'bg-gray-600 line-through' : 'bg-slate-600'}`} title={opt.item_name}>{excluded && '🚫'}{opt.item_name}</span>
                 })}
               </div>
             )}
-            {item.notes.length > 0 && item.notes.map((note, idx) => <p key={idx} className="text-yellow-400 text-sm mt-1">📝 {note}</p>)}
+            {item.notes.length > 0 && !isChecked && item.notes.map((note, idx) => <p key={idx} className="text-yellow-400 text-sm mt-1">📝 {note}</p>)}
           </div>
         </div>
       </div>
@@ -407,15 +483,26 @@ export default function KitchenPage() {
 
     const groupedItems = groupAndMergeItems(order.order_items)
     
+    // Calculer le nombre d'items cochés vs total
+    const totalItems = groupedItems.reduce((sum, g) => sum + g.items.length, 0)
+    const checkedCount = groupedItems.reduce((sum, g) => sum + g.items.filter(item => isItemChecked(order.id, item.key)).length, 0)
+    const allChecked = totalItems > 0 && checkedCount === totalItems
+    
     return (
       <div key={order.id} draggable onDragStart={(e) => handleDragStart(e, order.id)} onDragEnd={handleDragEnd}
-        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''}`}>
+        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''}`}>
         
         <div className="p-3 bg-slate-600/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className={`${column.key === 'completed' ? 'text-xl' : 'text-2xl'} font-bold`}>{order.order_number}</span>
             <span className="text-xl">{ORDER_TYPE_EMOJI[order.order_type]}</span>
             {order.is_offered && <span className="text-lg" title="Offert">🎁</span>}
+            {/* Indicateur de progression */}
+            {column.key !== 'completed' && totalItems > 0 && (
+              <span className={`text-xs px-2 py-0.5 rounded-full ${allChecked ? 'bg-green-500 text-white' : 'bg-slate-500 text-gray-300'}`}>
+                {checkedCount}/{totalItems}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className={`font-mono text-sm ${getTimeColor(order.created_at)}`}>{getTimeSince(order.created_at)}</span>
@@ -433,17 +520,23 @@ export default function KitchenPage() {
               const isCollapsed = isSectionCollapsed(order.id, group.categoryName)
               const isSelfService = isDefaultCollapsed(group.categoryName)
               
+              // Compter les items cochés dans cette catégorie
+              const catCheckedCount = group.items.filter(item => isItemChecked(order.id, item.key)).length
+              const catAllChecked = group.items.length > 0 && catCheckedCount === group.items.length
+              
               return (
                 <div key={idx}>
                   <button onClick={() => toggleSection(order.id, group.categoryName)}
-                    className={`w-full flex items-center gap-2 mb-1 pb-1 border-b border-slate-600 hover:bg-slate-600/50 rounded transition-colors ${isCollapsed ? 'opacity-70' : ''}`}>
+                    className={`w-full flex items-center gap-2 mb-1 pb-1 border-b border-slate-600 hover:bg-slate-600/50 rounded transition-colors ${isCollapsed ? 'opacity-70' : ''} ${catAllChecked ? 'opacity-50' : ''}`}>
                     <span className="text-lg">{group.categoryIcon}</span>
-                    <span className={`text-sm font-semibold uppercase tracking-wide ${group.textClass}`}>{group.categoryName}</span>
-                    <span className={`ml-auto px-2 py-0.5 rounded text-xs font-bold ${group.bgClass} ${group.textClass}`}>{group.totalCount}</span>
+                    <span className={`text-sm font-semibold uppercase tracking-wide ${group.textClass} ${catAllChecked ? 'line-through' : ''}`}>{group.categoryName}</span>
+                    <span className={`ml-auto px-2 py-0.5 rounded text-xs font-bold ${catAllChecked ? 'bg-green-500/30 text-green-400' : `${group.bgClass} ${group.textClass}`}`}>
+                      {catAllChecked ? '✓' : group.totalCount}
+                    </span>
                     {isSelfService && <span className="text-xs text-gray-400" title="Self-service">🙋</span>}
                     <span className="text-gray-400">{isCollapsed ? '▶' : '▼'}</span>
                   </button>
-                  {!isCollapsed && <div className="space-y-1 ml-2">{group.items.map(item => renderMergedItem(item))}</div>}
+                  {!isCollapsed && <div className="space-y-1 ml-2">{group.items.map(item => renderMergedItem(item, order.id))}</div>}
                 </div>
               )
             })}
@@ -496,15 +589,12 @@ export default function KitchenPage() {
 
       <div className="mb-4 p-3 bg-slate-800 rounded-xl flex flex-wrap gap-4 text-sm">
         <span className="text-gray-400">Légende :</span>
-        <span className="bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded">3+ = alerte</span>
-        <span className="bg-red-500/20 text-red-400 px-2 py-0.5 rounded animate-pulse">5+ = urgent</span>
+        <span className="bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded">2+ = alerte</span>
+        <span className="bg-red-500/20 text-red-400 px-2 py-0.5 rounded animate-pulse">4+ = urgent</span>
+        <span className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded">✓ = dans le sac</span>
         <span className="text-gray-400">|</span>
-        <span>🙋 Self-service (replié)</span>
-        <span>▶ Cliquer pour ouvrir/fermer</span>
-        {displayMode === 'compact' && <>
-          <span className="text-gray-400">|</span>
-          <span>🧀 Fromage</span><span>🥩 Viande</span><span>🌶️ Piquant</span><span>🚫 Sans</span>
-        </>}
+        <span>🙋 Self-service</span>
+        <span>Cliquer item = cocher</span>
       </div>
 
       {loading ? (
@@ -533,9 +623,9 @@ export default function KitchenPage() {
       )}
 
       <div className="mt-4 flex justify-between items-center text-gray-500 text-sm">
-        <span>💡 Glissez-déposez ou utilisez les boutons • Cliquez sur les catégories pour replier/déplier</span>
+        <span>💡 Cliquez sur un item pour le cocher quand il est dans le sac</span>
         <span>{allOrders.length} commande{allOrders.length > 1 ? 's' : ''} aujourd'hui</span>
-        <span>FritOS KDS v2.1</span>
+        <span>FritOS KDS v2.2</span>
       </div>
 
       {showConfig && (
@@ -580,14 +670,28 @@ export default function KitchenPage() {
 
             <div className="bg-slate-700 rounded-xl p-4 mb-6">
               <p className="text-sm text-gray-400 mb-3">📋 Légende des icônes :</p>
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                <span>🧀 Fromage</span><span>🥩 Viande</span><span>🌶️ Piquant</span><span>🥫 Sauce</span><span>🍳 Œuf</span><span>🧅 Oignon</span><span>🥬 Salade</span><span>🍅 Tomate</span><span>🥒 Cornichon</span><span>🌱 Végé</span><span>🍞 Pain</span><span>🚫 Sans</span>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <span>🧀 Cheddar/Fromage</span>
+                <span>🔳 Feta</span>
+                <span>🟡 Provolone</span>
+                <span>⚪ Mozzarella</span>
+                <span>🥓 Bacon</span>
+                <span>🥩 Viande/Steak</span>
+                <span>🥕 Carotte</span>
+                <span>🧅 Oignon</span>
+                <span>🥬 Salade</span>
+                <span>🍅 Tomate</span>
+                <span>🥒 Cornichon</span>
+                <span>🍳 Œuf</span>
+                <span>🌶️ Piquant</span>
+                <span>🚫 Sans...</span>
               </div>
+              <p className="text-xs text-gray-500 mt-3">Les sauces s'affichent en texte (pas d'icône)</p>
             </div>
             
-            <div className="bg-blue-500/20 rounded-xl p-4 mb-6">
-              <p className="text-sm text-blue-300 mb-2">🙋 Catégories self-service :</p>
-              <p className="text-xs text-blue-200">Boissons et Bières sont repliées par défaut car les clients se servent eux-mêmes. Cliquez sur le header pour déplier si besoin.</p>
+            <div className="bg-green-500/20 rounded-xl p-4 mb-6">
+              <p className="text-sm text-green-300 mb-2">✓ Fonction cochage :</p>
+              <p className="text-xs text-green-200">Cliquez sur un item pour le marquer comme "dans le sac". Un compteur X/Y s'affiche sur chaque commande.</p>
             </div>
 
             <div className="flex gap-3">
