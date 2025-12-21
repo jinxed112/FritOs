@@ -59,13 +59,13 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Récupérer les zones de livraison actives
+    // Récupérer les zones de livraison actives (triées par max_minutes)
     const { data: zones, error: zonesError } = await supabase
       .from('delivery_zones')
       .select('*')
       .eq('establishment_id', establishmentId)
       .eq('is_active', true)
-      .order('max_distance_km', { ascending: true })
+      .order('max_minutes', { ascending: true })
 
     if (zonesError) {
       console.error('Erreur zones:', zonesError)
@@ -73,33 +73,6 @@ export async function POST(request: NextRequest) {
         { error: 'Erreur lors de la récupération des zones' },
         { status: 500 }
       )
-    }
-
-    // Si pas de zones configurées, utiliser une zone par défaut
-    if (!zones || zones.length === 0) {
-      // Zone par défaut : 10 km, 3€ de frais
-      const estLat = establishment.latitude || 50.4667 // Jurbise par défaut
-      const estLng = establishment.longitude || 3.9167
-      
-      const distance = haversineDistance(estLat, estLng, latitude, longitude)
-      const duration = estimateDuration(distance)
-      
-      if (distance <= 10) {
-        return NextResponse.json({
-          isDeliverable: true,
-          distance: Math.round(distance * 10) / 10,
-          duration,
-          fee: 3.00,
-          zoneName: 'Zone standard',
-        })
-      } else {
-        return NextResponse.json({
-          isDeliverable: false,
-          distance: Math.round(distance * 10) / 10,
-          duration,
-          reason: 'Adresse trop éloignée (max 10 km)',
-        })
-      }
     }
 
     // Calculer la distance depuis l'établissement
@@ -116,17 +89,36 @@ export async function POST(request: NextRequest) {
     const distance = haversineDistance(estLat, estLng, latitude, longitude)
     const duration = estimateDuration(distance)
 
-    // Trouver la zone applicable (la première où la distance est inférieure au max)
-    const applicableZone = zones.find(zone => distance <= zone.max_distance_km)
+    // Si pas de zones configurées, utiliser une zone par défaut (20 min, 3€)
+    if (!zones || zones.length === 0) {
+      if (duration <= 20) {
+        return NextResponse.json({
+          isDeliverable: true,
+          distance: Math.round(distance * 10) / 10,
+          duration,
+          fee: 3.00,
+          zoneName: 'Zone standard',
+        })
+      } else {
+        return NextResponse.json({
+          isDeliverable: false,
+          distance: Math.round(distance * 10) / 10,
+          duration,
+          reason: 'Adresse trop éloignée (max 20 min)',
+        })
+      }
+    }
+
+    // Trouver la zone applicable (basée sur le temps de trajet estimé)
+    const applicableZone = zones.find(zone => duration <= zone.max_minutes)
 
     if (applicableZone) {
       return NextResponse.json({
         isDeliverable: true,
         distance: Math.round(distance * 10) / 10,
         duration,
-        fee: applicableZone.delivery_fee,
+        fee: parseFloat(applicableZone.delivery_fee) || 0,
         zoneName: applicableZone.name,
-        minOrder: applicableZone.min_order_amount || 0,
       })
     }
 
@@ -136,7 +128,7 @@ export async function POST(request: NextRequest) {
       isDeliverable: false,
       distance: Math.round(distance * 10) / 10,
       duration,
-      reason: `Adresse trop éloignée (max ${maxZone.max_distance_km} km)`,
+      reason: `Adresse trop éloignée (max ${maxZone.max_minutes} min de trajet)`,
     })
 
   } catch (error: any) {

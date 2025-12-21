@@ -20,10 +20,11 @@ type Establishment = {
 type DeliveryZone = {
   id: string
   name: string
-  max_distance_km: number
+  min_minutes: number
+  max_minutes: number
   delivery_fee: number
-  min_order_amount: number | null
   is_active: boolean
+  display_order: number
 }
 
 export default function SettingsPage() {
@@ -53,9 +54,9 @@ export default function SettingsPage() {
   const [editingZone, setEditingZone] = useState<DeliveryZone | null>(null)
   const [zoneForm, setZoneForm] = useState({
     name: '',
-    max_distance_km: 10,
+    min_minutes: 0,
+    max_minutes: 15,
     delivery_fee: 2.50,
-    min_order_amount: 0,
     is_active: true,
   })
 
@@ -97,7 +98,7 @@ export default function SettingsPage() {
       .from('delivery_zones')
       .select('*')
       .eq('establishment_id', establishmentId)
-      .order('max_distance_km')
+      .order('max_minutes')
     
     setZones(zonesData || [])
     setLoading(false)
@@ -140,18 +141,18 @@ export default function SettingsPage() {
       setEditingZone(zone)
       setZoneForm({
         name: zone.name,
-        max_distance_km: zone.max_distance_km,
+        min_minutes: zone.min_minutes || 0,
+        max_minutes: zone.max_minutes,
         delivery_fee: zone.delivery_fee,
-        min_order_amount: zone.min_order_amount || 0,
         is_active: zone.is_active,
       })
     } else {
       setEditingZone(null)
       setZoneForm({
         name: '',
-        max_distance_km: 10,
+        min_minutes: 0,
+        max_minutes: 15,
         delivery_fee: 2.50,
-        min_order_amount: 0,
         is_active: true,
       })
     }
@@ -168,9 +169,9 @@ export default function SettingsPage() {
           .from('delivery_zones')
           .update({
             name: zoneForm.name,
-            max_distance_km: zoneForm.max_distance_km,
+            min_minutes: zoneForm.min_minutes,
+            max_minutes: zoneForm.max_minutes,
             delivery_fee: zoneForm.delivery_fee,
-            min_order_amount: zoneForm.min_order_amount || null,
             is_active: zoneForm.is_active,
           })
           .eq('id', editingZone.id)
@@ -182,9 +183,9 @@ export default function SettingsPage() {
           .insert({
             establishment_id: establishmentId,
             name: zoneForm.name,
-            max_distance_km: zoneForm.max_distance_km,
+            min_minutes: zoneForm.min_minutes,
+            max_minutes: zoneForm.max_minutes,
             delivery_fee: zoneForm.delivery_fee,
-            min_order_amount: zoneForm.min_order_amount || null,
             is_active: zoneForm.is_active,
           })
         
@@ -511,11 +512,8 @@ export default function SettingsPage() {
                         </span>
                       </div>
                       <div className="flex items-center gap-4 text-gray-600">
-                        <span>📏 Max {zone.max_distance_km} km</span>
-                        <span>💶 {zone.delivery_fee.toFixed(2)}€</span>
-                        {zone.min_order_amount && zone.min_order_amount > 0 && (
-                          <span>🛒 Min {zone.min_order_amount.toFixed(2)}€</span>
-                        )}
+                        <span>⏱️ {zone.min_minutes}-{zone.max_minutes} min</span>
+                        <span>💶 {Number(zone.delivery_fee).toFixed(2)}€</span>
                       </div>
                     </div>
                     
@@ -553,9 +551,9 @@ export default function SettingsPage() {
           <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4">
             <h3 className="font-bold text-blue-800 mb-2">💡 Comment ça marche ?</h3>
             <ul className="text-sm text-blue-700 space-y-1">
-              <li>• La distance est calculée à vol d'oiseau depuis vos coordonnées GPS</li>
-              <li>• Si plusieurs zones correspondent, la première (plus petite distance) est utilisée</li>
-              <li>• Une adresse hors de toutes les zones = pas de livraison possible</li>
+              <li>• Le temps de trajet est estimé à partir de la distance (30 km/h en moyenne)</li>
+              <li>• Une adresse dans la zone "0-15 min" paiera les frais de cette zone</li>
+              <li>• Une adresse au-delà de toutes les zones = pas de livraison possible</li>
             </ul>
           </div>
         </div>
@@ -577,24 +575,37 @@ export default function SettingsPage() {
                   value={zoneForm.name}
                   onChange={e => setZoneForm({ ...zoneForm, name: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="Zone 1, Proche, Éloignée..."
+                  placeholder="Zone proche, Zone éloignée..."
                   required
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Distance maximum (km) *
-                </label>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0.5"
-                  value={zoneForm.max_distance_km}
-                  onChange={e => setZoneForm({ ...zoneForm, max_distance_km: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  required
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Temps min (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={zoneForm.min_minutes}
+                    onChange={e => setZoneForm({ ...zoneForm, min_minutes: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Temps max (minutes) *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={zoneForm.max_minutes}
+                    onChange={e => setZoneForm({ ...zoneForm, max_minutes: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    required
+                  />
+                </div>
               </div>
 
               <div>
@@ -609,21 +620,6 @@ export default function SettingsPage() {
                   onChange={e => setZoneForm({ ...zoneForm, delivery_fee: parseFloat(e.target.value) || 0 })}
                   className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
                   required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Commande minimum (€)
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  value={zoneForm.min_order_amount}
-                  onChange={e => setZoneForm({ ...zoneForm, min_order_amount: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="0 = pas de minimum"
                 />
               </div>
 
