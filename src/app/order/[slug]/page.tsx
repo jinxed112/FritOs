@@ -1242,8 +1242,8 @@ export default function OrderPage() {
               onClick={() => {
                 setStep('menu')
                 setCart([])
-                setSelectedDay(null)
-                setSelectedTime(null)
+                setSelectedDay('')
+                setSelectedTime('')
               }}
               className="bg-orange-500 text-white font-bold px-8 py-3 rounded-xl"
             >
