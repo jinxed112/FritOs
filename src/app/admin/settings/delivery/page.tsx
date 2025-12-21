@@ -226,53 +226,50 @@ export default function DeliverySettingsPage() {
     setTestResult(null)
     
     try {
-      // 1. Géocoder l'adresse
-      const geoResponse = await fetch(
-        `https://api.openrouteservice.org/geocode/search?api_key=${process.env.NEXT_PUBLIC_OPENROUTE_API_KEY}&text=${encodeURIComponent(testAddress)}&boundary.country=BE&size=1`
-      )
-      const geoData = await geoResponse.json()
+      // Appeler notre API route (évite CORS)
+      const response = await fetch('/api/delivery/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId: selectedEstablishment,
+          address: testAddress
+        })
+      })
       
-      if (!geoData.features?.length) {
-        alert('Adresse non trouvée. Essayez avec plus de détails.')
+      const data = await response.json()
+      
+      if (data.error) {
+        alert(data.error + (data.reason ? `: ${data.reason}` : ''))
         setTesting(false)
         return
       }
       
-      const [destLng, destLat] = geoData.features[0].geometry.coordinates
-      
-      // 2. Calculer l'itinéraire
-      const routeResponse = await fetch(
-        `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${process.env.NEXT_PUBLIC_OPENROUTE_API_KEY}&start=${est.longitude},${est.latitude}&end=${destLng},${destLat}`
-      )
-      const routeData = await routeResponse.json()
-      
-      if (!routeData.features?.length) {
-        alert('Impossible de calculer l\'itinéraire.')
-        setTesting(false)
+      if (!data.deliverable && data.reason) {
+        setTestResult({
+          duration: data.duration || 0,
+          distance: data.distance || 0,
+          fee: null,
+          deliverable: false
+        })
         return
       }
       
-      const duration = Math.round(routeData.features[0].properties.segments[0].duration / 60)
-      const distance = Math.round(routeData.features[0].properties.segments[0].distance / 1000 * 10) / 10
-      
-      // 3. Trouver la zone correspondante
+      // Trouver la zone correspondante localement pour afficher le nom
       const matchingZone = zones.find(z => 
-        z.is_active && duration >= z.min_minutes && duration < z.max_minutes
+        z.is_active && data.duration >= z.min_minutes && data.duration < z.max_minutes
       )
-      
-      const deliverable = config ? duration <= config.max_delivery_minutes : false
       
       setTestResult({ 
-        duration, 
-        distance, 
-        fee: matchingZone?.delivery_fee || null, 
-        deliverable,
+        duration: data.duration, 
+        distance: data.distance, 
+        fee: data.deliveryFee, 
+        deliverable: data.deliverable,
         zoneName: matchingZone?.name
       })
       
     } catch (error) {
       console.error('Erreur test:', error)
-      alert('Erreur lors du test. Vérifiez la clé API OpenRouteService.')
+      alert('Erreur lors du test.')
     } finally {
       setTesting(false)
     }

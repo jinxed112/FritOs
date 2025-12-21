@@ -80,8 +80,9 @@ export async function POST(request: NextRequest) {
       }
 
       // Géocoder via OpenRouteService
+      const apiKey = process.env.OPENROUTE_API_KEY || process.env.NEXT_PUBLIC_OPENROUTE_API_KEY
       const geoResponse = await fetch(
-        `https://api.openrouteservice.org/geocode/search?api_key=${process.env.NEXT_PUBLIC_OPENROUTE_API_KEY}&text=${encodeURIComponent(address)}&boundary.country=BE&size=1`
+        `https://api.openrouteservice.org/geocode/search?api_key=${apiKey}&text=${encodeURIComponent(address)}&boundary.country=BE&size=1`
       )
       const geoData = await geoResponse.json()
 
@@ -96,8 +97,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Calculer l'itinéraire
+    const apiKey = process.env.OPENROUTE_API_KEY || process.env.NEXT_PUBLIC_OPENROUTE_API_KEY
     const routeResponse = await fetch(
-      `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${process.env.NEXT_PUBLIC_OPENROUTE_API_KEY}&start=${establishment.longitude},${establishment.latitude}&end=${destLng},${destLat}`
+      `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${apiKey}&start=${establishment.longitude},${establishment.latitude}&end=${destLng},${destLat}`
     )
     const routeData = await routeResponse.json()
 
