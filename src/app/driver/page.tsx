@@ -384,6 +384,70 @@ export default function DriverPage() {
     await loadData()
   }
 
+  async function releaseOrder(stopId: string, orderId: string) {
+    if (!confirm('Relâcher cette commande ? Elle redeviendra disponible pour les autres livreurs.')) return
+
+    setLoading(true)
+
+    try {
+      // Supprimer le stop de la tournée
+      await supabase
+        .from('delivery_round_stops')
+        .delete()
+        .eq('id', stopId)
+
+      // Retirer la commande de la tournée et remettre en statut ready
+      await supabase
+        .from('orders')
+        .update({ 
+          delivery_round_id: null,
+          status: 'ready'
+        })
+        .eq('id', orderId)
+
+      // Mettre à jour le nombre de stops
+      if (myRound) {
+        const newTotalStops = myRound.total_stops - 1
+
+        if (newTotalStops === 0) {
+          // Plus de stops = supprimer la tournée
+          await supabase
+            .from('delivery_rounds')
+            .delete()
+            .eq('id', myRound.id)
+
+          // Livreur disponible
+          await supabase
+            .from('drivers')
+            .update({ status: 'available' })
+            .eq('id', driver!.id)
+        } else {
+          // Mettre à jour le compteur
+          await supabase
+            .from('delivery_rounds')
+            .update({ total_stops: newTotalStops })
+            .eq('id', myRound.id)
+
+          // Réordonner les stops restants
+          const remainingStops = myRound.stops.filter(s => s.id !== stopId)
+          for (let i = 0; i < remainingStops.length; i++) {
+            await supabase
+              .from('delivery_round_stops')
+              .update({ stop_order: i + 1 })
+              .eq('id', remainingStops[i].id)
+          }
+        }
+      }
+
+      await loadData()
+    } catch (error) {
+      console.error('Erreur release:', error)
+      alert('Erreur lors du relâchement')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   function openNavigation(address: string, lat?: number | null, lng?: number | null) {
     let url: string
     
@@ -635,6 +699,17 @@ export default function DriverPage() {
                             ✅ Livré
                           </button>
                         </div>
+                      )}
+
+                      {/* Bouton relâcher (visible si pas encore livré) */}
+                      {!isCompleted && (
+                        <button
+                          onClick={() => releaseOrder(stop.id, stop.order_id)}
+                          disabled={loading}
+                          className="w-full mt-2 bg-gray-100 text-gray-600 font-medium py-2 rounded-xl text-sm hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        >
+                          ↩️ Relâcher cette commande
+                        </button>
                       )}
                     </div>
                   </div>
