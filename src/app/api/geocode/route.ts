@@ -8,17 +8,17 @@ export async function POST(request: NextRequest) {
     }
     const apiKey = process.env.OPENROUTE_API_KEY || process.env.NEXT_PUBLIC_OPENROUTE_API_KEY
     if (!apiKey) {
-      return NextResponse.json({ error: 'Clé API non configurée' }, { status: 500 })
+      return NextResponse.json({ error: 'Cle API non configuree' }, { status: 500 })
     }
     const geoResponse = await fetch(
       `https://api.openrouteservice.org/geocode/search?api_key=${apiKey}&text=${encodeURIComponent(address)}&boundary.country=BE&size=1`
     )
     if (!geoResponse.ok) {
-      return NextResponse.json({ error: 'Erreur géocodage' }, { status: 500 })
+      return NextResponse.json({ error: 'Erreur geocodage' }, { status: 500 })
     }
     const geoData = await geoResponse.json()
     if (!geoData.features?.length) {
-      return NextResponse.json({ error: 'Adresse non trouvée' }, { status: 404 })
+      return NextResponse.json({ error: 'Adresse non trouvee' }, { status: 404 })
     }
     const [longitude, latitude] = geoData.features[0].geometry.coordinates
     return NextResponse.json({
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       longitude: longitude,
       address: geoData.features[0].properties.label,
     })
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
 }
