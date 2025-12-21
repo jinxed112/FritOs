@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import AddressInput from '@/components/AddressInput'
 
 // ==================== TYPES ====================
 type OptionGroupItem = {
@@ -1047,9 +1046,13 @@ export default function OrderPage() {
               {orderType === 'delivery' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Adresse de livraison *</label>
-                  <AddressInput
+                  <input
+                    type="text"
                     value={deliveryAddress}
-                    onChange={setDeliveryAddress}
+                    onChange={e => setDeliveryAddress(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    placeholder="Rue, numéro, code postal, ville"
+                    required
                   />
                 </div>
               )}
