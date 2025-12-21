@@ -334,7 +334,7 @@ export default function OrderPage() {
 
   function getCartTotal(): number {
     return cart.reduce(
-      (sum, item) => sum + (item.price + item.optionsTotal) * item.quantity,
+      (sum, item) => sum + (item.price + (item.optionsTotal || 0)) * item.quantity,
       0
     )
   }
