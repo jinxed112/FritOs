@@ -434,6 +434,9 @@ export default function OrderPage() {
           slotDate: selectedDate,
           slotTime: selectedTime,
           deliveryAddressId: null, // TODO: gérer les adresses sauvegardées
+          deliveryAddress: orderType === 'delivery' ? deliveryAddress : null,
+          deliveryLat: orderType === 'delivery' ? deliveryLat : null,
+          deliveryLng: orderType === 'delivery' ? deliveryLng : null,
           deliveryFee: orderType === 'delivery' ? deliveryFee : 0,
           notes: null,
           loyaltyPointsUsed: 0, // TODO: implémenter
