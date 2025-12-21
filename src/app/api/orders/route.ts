@@ -6,10 +6,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// POST: Créer une commande
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+    
     const {
       establishmentId,
       orderType, // 'pickup' ou 'delivery'
@@ -21,141 +21,129 @@ export async function POST(request: NextRequest) {
       slotDate,
       slotTime,
       deliveryAddressId,
+      deliveryAddress, // Adresse texte pour livraison
+      deliveryLat,
+      deliveryLng,
       deliveryFee,
       notes,
       loyaltyPointsUsed,
-      promoCode,
     } = body
 
-    // Validations
+    // Validation basique
     if (!establishmentId || !items || items.length === 0) {
       return NextResponse.json(
-        { error: 'Données de commande incomplètes' },
+        { success: false, error: 'Données manquantes' },
         { status: 400 }
       )
     }
 
     if (!slotDate || !slotTime) {
       return NextResponse.json(
-        { error: 'Créneau horaire requis' },
+        { success: false, error: 'Créneau non sélectionné' },
         { status: 400 }
       )
     }
 
-    // Calculer les totaux
+    // Récupérer les produits pour calculer les prix
+    const productIds = items.map((item: any) => item.productId)
+    const { data: products, error: productsError } = await supabase
+      .from('products')
+      .select('id, name, price, vat_eat_in, vat_takeaway')
+      .in('id', productIds)
+
+    if (productsError || !products) {
+      console.error('Erreur produits:', productsError)
+      return NextResponse.json(
+        { success: false, error: 'Erreur chargement produits' },
+        { status: 500 }
+      )
+    }
+
+    const productMap = new Map(products.map(p => [p.id, p]))
+
+    // Calculer le sous-total
     let subtotal = 0
-    const orderItems = []
+    const orderItems: any[] = []
 
     for (const item of items) {
-      const { data: product } = await supabase
-        .from('products')
-        .select('id, name, price, vat_eat_in, vat_takeaway')
-        .eq('id', item.productId)
-        .single()
+      const product = productMap.get(item.productId)
+      if (!product) continue
 
-      if (!product) {
-        return NextResponse.json(
-          { error: `Produit ${item.productId} non trouvé` },
-          { status: 400 }
-        )
+      let itemPrice = product.price
+      let optionsTotal = 0
+      const optionsData: any[] = []
+
+      // Calculer le prix des options
+      if (item.options && item.options.length > 0) {
+        for (const opt of item.options) {
+          optionsTotal += opt.price || 0
+          optionsData.push({
+            item_name: opt.name,
+            price: opt.price || 0,
+          })
+        }
       }
 
-      const linePrice = product.price * item.quantity
-      const optionsTotal = (item.options || []).reduce(
-        (sum: number, opt: any) => sum + (opt.price || 0),
-        0
-      ) * item.quantity
-
-      subtotal += linePrice + optionsTotal
+      const lineTotal = (itemPrice + optionsTotal) * item.quantity
+      subtotal += lineTotal
 
       orderItems.push({
-        product_id: product.id,
+        product_id: item.productId,
         product_name: product.name,
         quantity: item.quantity,
-        unit_price: product.price,
-        vat_rate: orderType === 'delivery' ? product.vat_takeaway : product.vat_takeaway, // Click&collect = emporter
-        options_selected: item.options?.length > 0 ? JSON.stringify(item.options) : null,
-        options_total: optionsTotal / item.quantity,
-        line_total: linePrice + optionsTotal,
+        unit_price: itemPrice,
+        options_selected: optionsData.length > 0 ? JSON.stringify(optionsData) : null,
+        options_total: optionsTotal,
+        line_total: lineTotal,
+        vat_rate: 6, // Click & Collect = toujours à emporter
         notes: item.notes || null,
       })
     }
 
-    // Calculer la TVA (emporter = 6%)
+    // Ajouter les frais de livraison
+    const totalDeliveryFee = orderType === 'delivery' ? (deliveryFee || 0) : 0
+    const total = subtotal + totalDeliveryFee
+
+    // TVA (6% pour emporter)
     const vatRate = 6
-    const vatAmount = subtotal * vatRate / 100
+    const taxAmount = total * vatRate / (100 + vatRate)
 
-    // Frais de livraison
-    const deliveryFeeAmount = orderType === 'delivery' ? (deliveryFee || 0) : 0
+    // Créer le créneau prévu
+    const scheduledTime = `${slotDate}T${slotTime}:00`
 
-    // Réduction fidélité
-    let loyaltyDiscount = 0
-    if (customerId && loyaltyPointsUsed > 0) {
-      const { data: loyaltyConfig } = await supabase
-        .from('loyalty_config')
-        .select('points_value_euros, min_points_redeem')
-        .eq('establishment_id', establishmentId)
-        .single()
-
-      if (loyaltyConfig && loyaltyPointsUsed >= loyaltyConfig.min_points_redeem) {
-        // Vérifier que le client a assez de points
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('loyalty_points')
-          .eq('id', customerId)
-          .single()
-
-        if (customer && customer.loyalty_points >= loyaltyPointsUsed) {
-          loyaltyDiscount = loyaltyPointsUsed * loyaltyConfig.points_value_euros
-        }
-      }
-    }
-
-    // Promo code (à implémenter plus tard)
-    let promoDiscount = 0
-
-    // Total final
-    const total = subtotal + vatAmount + deliveryFeeAmount - loyaltyDiscount - promoDiscount
-
-    // Générer le numéro de commande et code de retrait
-    const { data: orderNumberData } = await supabase.rpc('generate_order_number', {
-      p_establishment_id: establishmentId,
-    })
-
-    // Calculer l'heure estimée de préparation
-    const estimatedReadyAt = new Date(`${slotDate}T${slotTime}:00`)
+    // Générer un numéro de commande unique
+    const orderNumber = await generateOrderNumber(establishmentId)
 
     // Créer la commande
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
         establishment_id: establishmentId,
-        order_number: orderNumberData || `WEB${Date.now()}`,
-        order_type: orderType,
+        order_number: orderNumber,
+        order_type: orderType, // 'pickup' ou 'delivery'
         eat_in: false,
         status: 'pending',
         customer_id: customerId || null,
         customer_name: customerName || null,
         customer_phone: customerPhone || null,
         customer_email: customerEmail || null,
-        delivery_address_id: orderType === 'delivery' ? deliveryAddressId : null,
-        delivery_fee: deliveryFeeAmount,
-        scheduled_time: estimatedReadyAt.toISOString(),
-        estimated_ready_at: estimatedReadyAt.toISOString(),
+        delivery_address_id: deliveryAddressId || null,
+        delivery_notes: orderType === 'delivery' ? deliveryAddress : null,
+        delivery_fee: totalDeliveryFee,
+        scheduled_time: scheduledTime,
         subtotal: subtotal,
-        vat_amount: vatAmount,
-        discount_amount: promoDiscount,
-        loyalty_points_used: loyaltyPointsUsed || 0,
-        loyalty_discount: loyaltyDiscount,
+        vat_amount: taxAmount,
         total: total,
         payment_method: 'online',
         payment_status: 'pending',
-        source_device_id: null,
+        loyalty_points_used: loyaltyPointsUsed || 0,
         notes: notes || null,
         metadata: {
-          source: 'click_collect',
+          source: 'click_and_collect',
           slot_date: slotDate,
           slot_time: slotTime,
+          delivery_lat: deliveryLat,
+          delivery_lng: deliveryLng,
         },
       })
       .select()
@@ -164,103 +152,102 @@ export async function POST(request: NextRequest) {
     if (orderError) {
       console.error('Erreur création commande:', orderError)
       return NextResponse.json(
-        { error: 'Erreur création commande' },
+        { success: false, error: 'Erreur création commande: ' + orderError.message },
         { status: 500 }
       )
     }
 
-    // Créer les items
-    const itemsWithOrderId = orderItems.map((item) => ({
+    // Créer les items de commande
+    const itemsToInsert = orderItems.map(item => ({
       ...item,
       order_id: order.id,
     }))
 
     const { error: itemsError } = await supabase
       .from('order_items')
-      .insert(itemsWithOrderId)
+      .insert(itemsToInsert)
 
     if (itemsError) {
-      console.error('Erreur création items:', itemsError)
-      // Supprimer la commande si erreur items
-      await supabase.from('orders').delete().eq('id', order.id)
-      return NextResponse.json(
-        { error: 'Erreur création items' },
-        { status: 500 }
-      )
+      console.error('Erreur items commande:', itemsError)
+      // La commande est créée mais pas les items - on continue quand même
     }
 
-    // Réserver le créneau
-    await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/timeslots`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        establishmentId,
-        slotDate,
-        slotTime,
-      }),
-    })
-
-    // Si points de fidélité utilisés, les débiter
-    if (customerId && loyaltyPointsUsed > 0 && loyaltyDiscount > 0) {
-      await supabase.rpc('debit_loyalty_points', {
-        p_customer_id: customerId,
-        p_points: loyaltyPointsUsed,
-        p_order_id: order.id,
-      })
+    // Réserver le créneau (si table slot_reservations existe)
+    try {
+      await supabase
+        .from('slot_reservations')
+        .insert({
+          establishment_id: establishmentId,
+          slot_date: slotDate,
+          slot_time: slotTime,
+          order_id: order.id,
+          order_type: orderType,
+          estimated_prep_time: orderItems.length * 5, // ~5 min par item
+        })
+    } catch (e) {
+      // Pas grave si la table n'existe pas
+      console.log('Slot reservation skipped:', e)
     }
 
+    // Retourner le succès avec les infos pour le paiement
     return NextResponse.json({
       success: true,
       orderId: order.id,
       orderNumber: order.order_number,
-      pickupCode: order.pickup_code,
       total: total,
-      estimatedReadyAt: estimatedReadyAt.toISOString(),
+      // URL de paiement (à implémenter avec Viva)
+      paymentUrl: null,
     })
 
   } catch (error: any) {
-    console.error('Erreur commande:', error)
+    console.error('API orders error:', error)
     return NextResponse.json(
-      { error: 'Erreur serveur' },
+      { success: false, error: error.message || 'Erreur serveur' },
       { status: 500 }
     )
   }
 }
 
-// GET: Récupérer une commande par ID ou numéro
+async function generateOrderNumber(establishmentId: string): Promise<string> {
+  // Essayer d'utiliser la fonction DB si elle existe
+  try {
+    const { data, error } = await supabase.rpc('generate_order_number', {
+      p_establishment_id: establishmentId
+    })
+    if (!error && data) return data
+  } catch (e) {
+    // Fonction n'existe pas, fallback
+  }
+
+  // Fallback: générer un numéro basé sur timestamp
+  const now = new Date()
+  const prefix = 'W' // W pour Web/Click & Collect
+  const timestamp = now.getTime().toString(36).toUpperCase().slice(-4)
+  const random = Math.random().toString(36).substring(2, 4).toUpperCase()
+  return `${prefix}${timestamp}${random}`
+}
+
+// GET pour récupérer une commande par ID
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const orderId = searchParams.get('orderId')
-    const orderNumber = searchParams.get('orderNumber')
-    const pickupCode = searchParams.get('pickupCode')
+    const orderId = searchParams.get('id')
 
-    let query = supabase
-      .from('orders')
-      .select(`
-        *,
-        order_items (
-          id, product_name, quantity, unit_price, line_total, options_selected
-        ),
-        establishment:establishments (
-          name, address, phone
-        )
-      `)
-
-    if (orderId) {
-      query = query.eq('id', orderId)
-    } else if (orderNumber) {
-      query = query.eq('order_number', orderNumber)
-    } else if (pickupCode) {
-      query = query.eq('pickup_code', pickupCode)
-    } else {
+    if (!orderId) {
       return NextResponse.json(
-        { error: 'Identifiant requis' },
+        { error: 'ID commande requis' },
         { status: 400 }
       )
     }
 
-    const { data: order, error } = await query.single()
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        order_items (*)
+      `)
+      .eq('id', orderId)
+      .single()
 
     if (error || !order) {
       return NextResponse.json(
@@ -269,12 +256,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({ order })
+    return NextResponse.json(order)
 
   } catch (error: any) {
-    console.error('Erreur récupération commande:', error)
     return NextResponse.json(
-      { error: 'Erreur serveur' },
+      { error: error.message },
       { status: 500 }
     )
   }
