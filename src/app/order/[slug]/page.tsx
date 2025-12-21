@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import AddressInput from '@/components/AddressInput'
 
 // Types
 type Category = {
@@ -109,9 +110,12 @@ export default function OrderPage() {
 
   // Delivery
   const [deliveryAddress, setDeliveryAddress] = useState('')
+  const [deliveryLat, setDeliveryLat] = useState<number | null>(null)
+  const [deliveryLng, setDeliveryLng] = useState<number | null>(null)
   const [deliveryFee, setDeliveryFee] = useState(0)
   const [deliveryInfo, setDeliveryInfo] = useState<any>(null)
   const [checkingDelivery, setCheckingDelivery] = useState(false)
+  const [deliveryValidated, setDeliveryValidated] = useState(false)
 
   // Order
   const [orderResult, setOrderResult] = useState<any>(null)
@@ -853,51 +857,43 @@ export default function OrderPage() {
             )}
 
             {/* Adresse de livraison */}
-            {orderType === 'delivery' && (
+            {orderType === 'delivery' && establishment && (
               <div className="bg-white rounded-2xl p-6 mb-6">
                 <h3 className="font-bold mb-4">🚗 Adresse de livraison</h3>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={deliveryAddress}
-                    onChange={e => setDeliveryAddress(e.target.value)}
-                    className="flex-1 px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    placeholder="Rue, numéro, code postal, ville"
-                  />
-                  <button
-                    onClick={checkDeliveryAddress}
-                    disabled={checkingDelivery || !deliveryAddress.trim()}
-                    className="bg-blue-500 text-white px-4 py-3 rounded-xl font-medium disabled:opacity-50"
-                  >
-                    {checkingDelivery ? '...' : 'Vérifier'}
-                  </button>
-                </div>
-
-                {deliveryInfo && (
-                  <div
-                    className={`mt-4 p-4 rounded-xl ${
-                      deliveryInfo.deliverable
-                        ? 'bg-green-50 border border-green-200'
-                        : 'bg-red-50 border border-red-200'
-                    }`}
-                  >
-                    {deliveryInfo.deliverable ? (
-                      <div>
-                        <p className="text-green-700 font-medium">
-                          ✅ Adresse livrable !
-                        </p>
-                        <p className="text-sm text-gray-600 mt-1">
-                          {deliveryInfo.distance} km • {deliveryInfo.duration} min
-                        </p>
-                        <p className="text-orange-600 font-medium mt-2">
-                          Frais de livraison : {deliveryFee.toFixed(2)}€
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-red-700">{deliveryInfo.reason}</p>
-                    )}
-                  </div>
-                )}
+                <AddressInput
+                  establishmentId={establishment.id}
+                  value={deliveryAddress}
+                  onChange={(value) => {
+                    setDeliveryAddress(value)
+                    // Reset validation si l'adresse change
+                    if (deliveryValidated) {
+                      setDeliveryValidated(false)
+                      setDeliveryInfo(null)
+                    }
+                  }}
+                  onAddressValidated={(data) => {
+                    setDeliveryAddress(data.address)
+                    setDeliveryLat(data.lat)
+                    setDeliveryLng(data.lng)
+                    setDeliveryValidated(true)
+                    setDeliveryInfo({
+                      deliverable: data.deliveryCheck.isDeliverable,
+                      distance: data.deliveryCheck.distance,
+                      duration: data.deliveryCheck.duration,
+                    })
+                    // Vérifier si livraison gratuite
+                    const cartTotal = getCartTotal()
+                    // TODO: récupérer freeDeliveryThreshold depuis config
+                    setDeliveryFee(data.deliveryCheck.fee)
+                  }}
+                  onClear={() => {
+                    setDeliveryValidated(false)
+                    setDeliveryInfo(null)
+                    setDeliveryLat(null)
+                    setDeliveryLng(null)
+                    setDeliveryFee(0)
+                  }}
+                />
               </div>
             )}
 
@@ -906,7 +902,7 @@ export default function OrderPage() {
               disabled={
                 (!customer && !guestMode) ||
                 (guestMode && (!guestName || !guestEmail || !guestPhone)) ||
-                (orderType === 'delivery' && !deliveryInfo?.deliverable)
+                (orderType === 'delivery' && !deliveryValidated)
               }
               className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl hover:bg-orange-600 transition-colors disabled:opacity-50"
             >
