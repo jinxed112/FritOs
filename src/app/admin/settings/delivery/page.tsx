@@ -6,22 +6,23 @@ import { createClient } from '@/lib/supabase/client'
 type DeliveryZone = {
   id: string
   name: string
-  postal_codes: string[]
+  min_minutes: number
+  max_minutes: number
   delivery_fee: number
-  min_order_amount: number | null
   is_active: boolean
+  display_order: number
 }
 
 type DeliveryConfig = {
   id: string
   establishment_id: string
   is_enabled: boolean
-  max_distance_km: number
+  max_delivery_minutes: number
   min_order_amount: number
   base_delivery_fee: number
   fee_per_km: number
   free_delivery_threshold: number | null
-  estimated_time_minutes: number
+  additional_time_minutes: number
 }
 
 type Establishment = {
@@ -29,7 +30,6 @@ type Establishment = {
   name: string
   latitude: number | null
   longitude: number | null
-  delivery_enabled: boolean
 }
 
 export default function DeliverySettingsPage() {
@@ -45,13 +45,19 @@ export default function DeliverySettingsPage() {
   const [editingZone, setEditingZone] = useState<DeliveryZone | null>(null)
   const [zoneForm, setZoneForm] = useState({ 
     name: '', 
-    postal_codes: '', 
-    delivery_fee: 2.50,
-    min_order_amount: 15
+    min_minutes: 0, 
+    max_minutes: 10,
+    delivery_fee: 2.50
   })
 
   const [testAddress, setTestAddress] = useState('')
-  const [testResult, setTestResult] = useState<{ distance: number; fee: number; deliverable: boolean } | null>(null)
+  const [testResult, setTestResult] = useState<{ 
+    duration: number
+    distance: number
+    fee: number | null
+    deliverable: boolean 
+    zoneName?: string
+  } | null>(null)
   const [testing, setTesting] = useState(false)
 
   const supabase = createClient()
@@ -62,7 +68,7 @@ export default function DeliverySettingsPage() {
   async function loadEstablishments() {
     const { data } = await supabase
       .from('establishments')
-      .select('id, name, latitude, longitude, delivery_enabled')
+      .select('id, name, latitude, longitude')
       .eq('is_active', true)
       .order('name')
     
@@ -87,18 +93,16 @@ export default function DeliverySettingsPage() {
         .insert({ 
           establishment_id: selectedEstablishment,
           is_enabled: false,
-          max_distance_km: 15,
+          max_delivery_minutes: 20,
           min_order_amount: 15,
           base_delivery_fee: 2.50,
           fee_per_km: 0.50,
-          estimated_time_minutes: 30
+          additional_time_minutes: 15
         })
         .select()
         .single()
       
-      if (insertError) {
-        console.error('Erreur création config:', insertError)
-      } else {
+      if (!insertError && newConfig) {
         setConfig(newConfig)
       }
     } else if (data) { 
@@ -111,7 +115,7 @@ export default function DeliverySettingsPage() {
       .from('delivery_zones')
       .select('*')
       .eq('establishment_id', selectedEstablishment)
-      .order('name')
+      .order('display_order')
     
     setZones(data || [])
   }
@@ -125,12 +129,12 @@ export default function DeliverySettingsPage() {
       .from('delivery_config')
       .update({
         is_enabled: config.is_enabled,
-        max_distance_km: config.max_distance_km,
+        max_delivery_minutes: config.max_delivery_minutes,
         min_order_amount: config.min_order_amount,
         base_delivery_fee: config.base_delivery_fee,
         fee_per_km: config.fee_per_km,
         free_delivery_threshold: config.free_delivery_threshold,
-        estimated_time_minutes: config.estimated_time_minutes,
+        additional_time_minutes: config.additional_time_minutes,
         updated_at: new Date().toISOString()
       })
       .eq('id', config.id)
@@ -150,17 +154,19 @@ export default function DeliverySettingsPage() {
       setEditingZone(zone)
       setZoneForm({ 
         name: zone.name,
-        postal_codes: zone.postal_codes?.join(', ') || '',
-        delivery_fee: zone.delivery_fee,
-        min_order_amount: zone.min_order_amount || 15
+        min_minutes: zone.min_minutes,
+        max_minutes: zone.max_minutes,
+        delivery_fee: zone.delivery_fee
       }) 
     } else { 
       setEditingZone(null)
+      // Suggérer les valeurs suivantes
+      const lastZone = zones[zones.length - 1]
       setZoneForm({ 
-        name: '',
-        postal_codes: '',
-        delivery_fee: 2.50,
-        min_order_amount: 15
+        name: `Zone ${zones.length + 1}`,
+        min_minutes: lastZone?.max_minutes || 0,
+        max_minutes: (lastZone?.max_minutes || 0) + 5,
+        delivery_fee: (lastZone?.delivery_fee || 2) + 0.50
       }) 
     }
     setShowZoneModal(true)
@@ -169,19 +175,15 @@ export default function DeliverySettingsPage() {
   async function saveZone(e: React.FormEvent) {
     e.preventDefault()
     
-    const postalCodesArray = zoneForm.postal_codes
-      .split(',')
-      .map(s => s.trim())
-      .filter(s => s.length > 0)
-    
     if (editingZone) { 
       await supabase
         .from('delivery_zones')
         .update({ 
           name: zoneForm.name,
-          postal_codes: postalCodesArray,
+          min_minutes: zoneForm.min_minutes,
+          max_minutes: zoneForm.max_minutes,
           delivery_fee: zoneForm.delivery_fee,
-          min_order_amount: zoneForm.min_order_amount
+          updated_at: new Date().toISOString()
         })
         .eq('id', editingZone.id) 
     } else { 
@@ -190,9 +192,10 @@ export default function DeliverySettingsPage() {
         .insert({ 
           establishment_id: selectedEstablishment, 
           name: zoneForm.name,
-          postal_codes: postalCodesArray,
+          min_minutes: zoneForm.min_minutes,
+          max_minutes: zoneForm.max_minutes,
           delivery_fee: zoneForm.delivery_fee,
-          min_order_amount: zoneForm.min_order_amount
+          display_order: zones.length + 1
         }) 
     }
     setShowZoneModal(false)
@@ -212,45 +215,71 @@ export default function DeliverySettingsPage() {
 
   async function testDeliveryAddress() {
     if (!testAddress.trim()) return
+    
+    const est = establishments.find(e => e.id === selectedEstablishment)
+    if (!est?.latitude || !est?.longitude) {
+      alert('Coordonnées GPS manquantes pour cet établissement. Configurez-les dans Paramètres → Établissements.')
+      return
+    }
+    
     setTesting(true)
     setTestResult(null)
     
     try {
-      // Extraire le code postal de l'adresse
-      const postalMatch = testAddress.match(/\b(\d{4})\b/)
-      const postalCode = postalMatch ? postalMatch[1] : null
+      // 1. Géocoder l'adresse
+      const geoResponse = await fetch(
+        `https://api.openrouteservice.org/geocode/search?api_key=${process.env.NEXT_PUBLIC_OPENROUTE_API_KEY}&text=${encodeURIComponent(testAddress)}&boundary.country=BE&size=1`
+      )
+      const geoData = await geoResponse.json()
       
-      if (postalCode) {
-        // Chercher si le code postal est dans une zone
-        const matchingZone = zones.find(z => 
-          z.is_active && z.postal_codes?.includes(postalCode)
-        )
-        
-        if (matchingZone) {
-          setTestResult({
-            distance: 0,
-            fee: matchingZone.delivery_fee,
-            deliverable: true
-          })
-        } else {
-          setTestResult({
-            distance: 0,
-            fee: 0,
-            deliverable: false
-          })
-        }
-      } else {
-        alert('Impossible de trouver le code postal dans l\'adresse')
+      if (!geoData.features?.length) {
+        alert('Adresse non trouvée. Essayez avec plus de détails.')
+        setTesting(false)
+        return
       }
+      
+      const [destLng, destLat] = geoData.features[0].geometry.coordinates
+      
+      // 2. Calculer l'itinéraire
+      const routeResponse = await fetch(
+        `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${process.env.NEXT_PUBLIC_OPENROUTE_API_KEY}&start=${est.longitude},${est.latitude}&end=${destLng},${destLat}`
+      )
+      const routeData = await routeResponse.json()
+      
+      if (!routeData.features?.length) {
+        alert('Impossible de calculer l\'itinéraire.')
+        setTesting(false)
+        return
+      }
+      
+      const duration = Math.round(routeData.features[0].properties.segments[0].duration / 60)
+      const distance = Math.round(routeData.features[0].properties.segments[0].distance / 1000 * 10) / 10
+      
+      // 3. Trouver la zone correspondante
+      const matchingZone = zones.find(z => 
+        z.is_active && duration >= z.min_minutes && duration < z.max_minutes
+      )
+      
+      const deliverable = config ? duration <= config.max_delivery_minutes : false
+      
+      setTestResult({ 
+        duration, 
+        distance, 
+        fee: matchingZone?.delivery_fee || null, 
+        deliverable,
+        zoneName: matchingZone?.name
+      })
+      
     } catch (error) {
       console.error('Erreur test:', error)
-      alert('Erreur lors du test')
+      alert('Erreur lors du test. Vérifiez la clé API OpenRouteService.')
     } finally {
       setTesting(false)
     }
   }
 
   const currentEst = establishments.find(e => e.id === selectedEstablishment)
+  const hasGPS = currentEst?.latitude && currentEst?.longitude
 
   if (loading) {
     return (
@@ -280,6 +309,22 @@ export default function DeliverySettingsPage() {
         )}
       </div>
 
+      {/* Alerte GPS manquant */}
+      {!hasGPS && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-6 flex items-center gap-4">
+          <span className="text-3xl">⚠️</span>
+          <div>
+            <p className="font-medium text-yellow-800">Coordonnées GPS manquantes</p>
+            <p className="text-sm text-yellow-700">
+              Configurez la latitude et longitude dans{' '}
+              <a href="/admin/settings/establishments" className="underline font-medium">
+                Paramètres → Établissements
+              </a>
+            </p>
+          </div>
+        </div>
+      )}
+
       {config && (
         <div className="space-y-6">
           {/* Paramètres généraux */}
@@ -291,80 +336,70 @@ export default function DeliverySettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Distance maximum (km)
+                  Temps de trajet maximum
                 </label>
-                <input 
-                  type="number" 
-                  step="0.5"
-                  value={config.max_distance_km} 
-                  onChange={e => setConfig({ ...config, max_distance_km: parseFloat(e.target.value) || 15 })} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
-                />
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    value={config.max_delivery_minutes} 
+                    onChange={e => setConfig({ ...config, max_delivery_minutes: parseInt(e.target.value) || 20 })} 
+                    className="w-24 px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
+                    min="5"
+                    max="60"
+                  />
+                  <span className="text-gray-500">minutes</span>
+                </div>
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Commande minimum (€)
+                  Commande minimum
                 </label>
-                <input 
-                  type="number" 
-                  step="0.5" 
-                  value={config.min_order_amount} 
-                  onChange={e => setConfig({ ...config, min_order_amount: parseFloat(e.target.value) || 0 })} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
-                />
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    step="0.5" 
+                    value={config.min_order_amount} 
+                    onChange={e => setConfig({ ...config, min_order_amount: parseFloat(e.target.value) || 0 })} 
+                    className="w-24 px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
+                    min="0"
+                  />
+                  <span className="text-gray-500">€</span>
+                </div>
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Frais de base (€)
+                  Livraison gratuite à partir de
                 </label>
-                <input 
-                  type="number" 
-                  step="0.5" 
-                  value={config.base_delivery_fee} 
-                  onChange={e => setConfig({ ...config, base_delivery_fee: parseFloat(e.target.value) || 0 })} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
-                />
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    step="0.5" 
+                    value={config.free_delivery_threshold || ''} 
+                    onChange={e => setConfig({ ...config, free_delivery_threshold: e.target.value ? parseFloat(e.target.value) : null })} 
+                    className="w-24 px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
+                    placeholder="—"
+                  />
+                  <span className="text-gray-500">€</span>
+                </div>
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Frais par km (€)
+                  Temps de préparation additionnel
                 </label>
-                <input 
-                  type="number" 
-                  step="0.1" 
-                  value={config.fee_per_km} 
-                  onChange={e => setConfig({ ...config, fee_per_km: parseFloat(e.target.value) || 0 })} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Livraison gratuite à partir de (€)
-                </label>
-                <input 
-                  type="number" 
-                  step="0.5" 
-                  value={config.free_delivery_threshold || ''} 
-                  onChange={e => setConfig({ ...config, free_delivery_threshold: e.target.value ? parseFloat(e.target.value) : null })} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
-                  placeholder="—"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Temps estimé (min)
-                </label>
-                <input 
-                  type="number" 
-                  value={config.estimated_time_minutes} 
-                  onChange={e => setConfig({ ...config, estimated_time_minutes: parseInt(e.target.value) || 30 })} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
-                />
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    value={config.additional_time_minutes || 15} 
+                    onChange={e => setConfig({ ...config, additional_time_minutes: parseInt(e.target.value) || 15 })} 
+                    className="w-24 px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
+                    min="0"
+                  />
+                  <span className="text-gray-500">minutes</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Ajouté au créneau de livraison</p>
               </div>
             </div>
             
@@ -392,12 +427,17 @@ export default function DeliverySettingsPage() {
             </div>
           </div>
 
-          {/* Zones par code postal */}
+          {/* Zones par temps de trajet */}
           <div className="bg-white rounded-2xl p-6 border border-gray-100">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                <span>📍</span> Zones de livraison (par code postal)
-              </h2>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <span>🚗</span> Zones de tarification (par temps de trajet)
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Définissez les frais selon le temps de trajet en voiture
+                </p>
+              </div>
               <button 
                 onClick={() => openZoneModal()} 
                 className="bg-orange-500 text-white font-semibold px-4 py-2 rounded-xl hover:bg-orange-600"
@@ -408,8 +448,9 @@ export default function DeliverySettingsPage() {
             
             {zones.length === 0 ? (
               <div className="text-center py-8 text-gray-400">
-                <span className="text-4xl block mb-2">📍</span>
-                Aucune zone configurée
+                <span className="text-4xl block mb-2">🚗</span>
+                <p>Aucune zone configurée</p>
+                <p className="text-sm mt-2">Ex: 0-5 min = 2€, 5-10 min = 3€, 10-15 min = 4€</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -420,20 +461,18 @@ export default function DeliverySettingsPage() {
                       zone.is_active ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50 opacity-60'
                     }`}
                   >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-lg">{zone.name}</span>
-                        <span className="bg-orange-500 text-white px-3 py-1 rounded-lg font-bold">
-                          {zone.delivery_fee.toFixed(2)} €
+                    <div className="flex items-center gap-4">
+                      <div className="bg-white px-4 py-2 rounded-lg shadow-sm">
+                        <span className="font-bold text-lg">
+                          {zone.min_minutes} - {zone.max_minutes} min
                         </span>
                       </div>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Codes postaux: {zone.postal_codes?.join(', ') || 'Aucun'}
-                      </p>
-                      {zone.min_order_amount && (
-                        <p className="text-sm text-gray-400">
-                          Min. commande: {zone.min_order_amount} €
-                        </p>
+                      <span className="text-2xl">→</span>
+                      <div className="bg-orange-500 text-white px-4 py-2 rounded-lg">
+                        <span className="font-bold text-lg">{zone.delivery_fee.toFixed(2)} €</span>
+                      </div>
+                      {zone.name && (
+                        <span className="text-gray-500 text-sm">({zone.name})</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
@@ -462,6 +501,15 @@ export default function DeliverySettingsPage() {
                 ))}
               </div>
             )}
+            
+            {/* Aide */}
+            <div className="mt-4 p-4 bg-blue-50 rounded-xl">
+              <p className="text-sm text-blue-800">
+                💡 <strong>Comment ça marche :</strong> Quand un client entre son adresse, 
+                le système calcule le temps de trajet en voiture depuis votre établissement 
+                et applique les frais correspondants.
+              </p>
+            </div>
           </div>
 
           {/* Test adresse */}
@@ -476,13 +524,14 @@ export default function DeliverySettingsPage() {
                 onChange={e => setTestAddress(e.target.value)} 
                 placeholder="Ex: Rue de Mons 123, 7000 Mons" 
                 className="flex-1 px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
+                onKeyDown={e => e.key === 'Enter' && testDeliveryAddress()}
               />
               <button 
                 onClick={testDeliveryAddress} 
-                disabled={testing || !testAddress.trim()} 
+                disabled={testing || !testAddress.trim() || !hasGPS} 
                 className="bg-blue-500 text-white font-semibold px-6 py-3 rounded-xl hover:bg-blue-600 disabled:opacity-50"
               >
-                {testing ? '⏳...' : '🔍 Tester'}
+                {testing ? '⏳ Calcul...' : '🔍 Tester'}
               </button>
             </div>
             
@@ -500,9 +549,17 @@ export default function DeliverySettingsPage() {
                     }`}>
                       {testResult.deliverable ? 'Adresse livrable !' : 'Adresse hors zone'}
                     </p>
-                    {testResult.deliverable && (
+                    <p className="text-gray-600">
+                      Distance : {testResult.distance} km • Temps : <strong>{testResult.duration} min</strong>
+                    </p>
+                    {testResult.deliverable && testResult.fee !== null && (
                       <p className="text-orange-600 font-medium">
-                        Frais de livraison : {testResult.fee.toFixed(2)} €
+                        Frais : {testResult.fee.toFixed(2)} € {testResult.zoneName && `(${testResult.zoneName})`}
+                      </p>
+                    )}
+                    {testResult.deliverable && testResult.fee === null && (
+                      <p className="text-yellow-600">
+                        ⚠️ Aucune zone ne couvre ce temps de trajet. Ajoutez une zone {testResult.duration}+ min.
                       </p>
                     )}
                   </div>
@@ -523,58 +580,56 @@ export default function DeliverySettingsPage() {
             <form onSubmit={saveZone} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nom de la zone
+                  Nom de la zone (optionnel)
                 </label>
                 <input 
                   type="text" 
                   value={zoneForm.name} 
                   onChange={e => setZoneForm({ ...zoneForm, name: e.target.value })} 
                   className="w-full px-4 py-3 rounded-xl border border-gray-200" 
-                  placeholder="Ex: Jurbise centre"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Codes postaux (séparés par des virgules)
-                </label>
-                <input 
-                  type="text" 
-                  value={zoneForm.postal_codes} 
-                  onChange={e => setZoneForm({ ...zoneForm, postal_codes: e.target.value })} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200" 
-                  placeholder="Ex: 7050, 7060, 7070"
+                  placeholder="Ex: Zone proche, Zone moyenne..."
                 />
               </div>
               
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Frais de livraison (€)
+                    De (minutes)
                   </label>
                   <input 
                     type="number" 
-                    step="0.5" 
-                    value={zoneForm.delivery_fee} 
-                    onChange={e => setZoneForm({ ...zoneForm, delivery_fee: parseFloat(e.target.value) || 0 })} 
+                    value={zoneForm.min_minutes} 
+                    onChange={e => setZoneForm({ ...zoneForm, min_minutes: parseInt(e.target.value) || 0 })} 
                     className="w-full px-4 py-3 rounded-xl border border-gray-200" 
                     min="0" 
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Commande min. (€)
+                    À (minutes)
                   </label>
                   <input 
                     type="number" 
-                    step="0.5" 
-                    value={zoneForm.min_order_amount} 
-                    onChange={e => setZoneForm({ ...zoneForm, min_order_amount: parseFloat(e.target.value) || 0 })} 
+                    value={zoneForm.max_minutes} 
+                    onChange={e => setZoneForm({ ...zoneForm, max_minutes: parseInt(e.target.value) || 0 })} 
                     className="w-full px-4 py-3 rounded-xl border border-gray-200" 
-                    min="0" 
+                    min="1" 
                   />
                 </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Frais de livraison (€)
+                </label>
+                <input 
+                  type="number" 
+                  step="0.5" 
+                  value={zoneForm.delivery_fee} 
+                  onChange={e => setZoneForm({ ...zoneForm, delivery_fee: parseFloat(e.target.value) || 0 })} 
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200" 
+                  min="0" 
+                />
               </div>
               
               <div className="flex gap-3 pt-4">
