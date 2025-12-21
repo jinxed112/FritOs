@@ -188,26 +188,30 @@ export default function DriverPage() {
     const { data: ordersData } = await supabase
       .from('orders')
       .select(`
-        id, order_number, status, total_amount,
+        id, order_number, status, total,
         customer_name, customer_phone,
-        scheduled_slot_start, scheduled_slot_end,
-        order_items (id, product_name, quantity, options_selected),
-        reserved_slots!inner (
-          delivery_address, delivery_lat, delivery_lng
-        )
+        scheduled_time, delivery_notes, metadata,
+        order_items (id, product_name, quantity, options_selected)
       `)
       .eq('establishment_id', establishmentId)
       .eq('order_type', 'delivery')
-      .in('status', ['ready'])
+      .in('status', ['ready', 'preparing', 'pending'])
       .is('delivery_round_id', null)
-      .order('scheduled_slot_start')
+      .order('scheduled_time')
 
-    const orders: DeliveryOrder[] = (ordersData || []).map((o: any) => ({
-      ...o,
-      delivery_address: o.reserved_slots?.[0]?.delivery_address,
-      delivery_lat: o.reserved_slots?.[0]?.delivery_lat,
-      delivery_lng: o.reserved_slots?.[0]?.delivery_lng,
-    }))
+    const orders: DeliveryOrder[] = (ordersData || []).map((o: any) => {
+      // Récupérer les coordonnées depuis metadata
+      const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
+      return {
+        ...o,
+        total_amount: o.total || o.total_amount,
+        scheduled_slot_start: o.scheduled_time,
+        scheduled_slot_end: o.scheduled_time,
+        delivery_address: o.delivery_notes || 'Adresse non spécifiée',
+        delivery_lat: meta.delivery_lat || null,
+        delivery_lng: meta.delivery_lng || null,
+      }
+    })
 
     setAvailableOrders(orders)
   }

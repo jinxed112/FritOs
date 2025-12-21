@@ -19,8 +19,12 @@ type Order = {
   created_at: string
   scheduled_slot_start: string | null
   scheduled_slot_end: string | null
+  scheduled_time: string | null
   kitchen_launch_at: string | null
   priority_score: number
+  customer_name: string | null
+  customer_phone: string | null
+  delivery_notes: string | null
   order_items: OrderItem[]
   is_scheduled: boolean
   minutes_until_launch: number | null
@@ -131,6 +135,7 @@ export default function KitchenSmartPage() {
       .select(`
         id, order_number, order_type, status, created_at,
         scheduled_slot_start, scheduled_slot_end, kitchen_launch_at, priority_score,
+        customer_name, customer_phone, delivery_notes, scheduled_time,
         order_items (id, product_name, quantity, options_selected, notes)
       `)
       .eq('establishment_id', establishmentId)
@@ -233,6 +238,18 @@ export default function KitchenSmartPage() {
     return new Date(dateString).toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
   }
 
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set())
+
+  function toggleOrderExpand(orderId: string) {
+    const newExpanded = new Set(expandedOrders)
+    if (newExpanded.has(orderId)) {
+      newExpanded.delete(orderId)
+    } else {
+      newExpanded.add(orderId)
+    }
+    setExpandedOrders(newExpanded)
+  }
+
   function OrderCard({ order, showTimer = true, onAction, actionLabel, actionColor = 'orange', compact = false }: {
     order: Order; showTimer?: boolean; onAction?: () => void; actionLabel?: string; actionColor?: string; compact?: boolean
   }) {
@@ -242,6 +259,9 @@ export default function KitchenSmartPage() {
       green: 'bg-green-500 hover:bg-green-600',
       gray: 'bg-gray-500 hover:bg-gray-600',
     }
+
+    const hasCustomerInfo = order.customer_name || order.customer_phone || order.delivery_notes || order.scheduled_time
+    const isExpanded = expandedOrders.has(order.id)
 
     return (
       <div className={`bg-slate-700 rounded-xl p-4 ${compact ? 'opacity-80' : ''}`}>
@@ -253,6 +273,15 @@ export default function KitchenSmartPage() {
             </span>
             {order.is_scheduled && <span className="text-sm bg-purple-500/30 text-purple-300 px-2 py-0.5 rounded">📅</span>}
             {order.priority_score > 0 && <span className="text-sm bg-red-500/30 text-red-300 px-2 py-0.5 rounded">🔥</span>}
+            {hasCustomerInfo && (
+              <button 
+                onClick={() => toggleOrderExpand(order.id)}
+                className="text-sm bg-blue-500/30 text-blue-300 px-2 py-0.5 rounded hover:bg-blue-500/50"
+                title="Voir infos client"
+              >
+                {isExpanded ? '👤 ▲' : '👤 ▼'}
+              </button>
+            )}
           </div>
           
           <div className="flex items-center gap-2">
@@ -264,6 +293,38 @@ export default function KitchenSmartPage() {
             )}
           </div>
         </div>
+
+        {/* Infos client dépliables */}
+        {isExpanded && hasCustomerInfo && (
+          <div className="bg-slate-600/50 rounded-lg p-3 mb-3 text-sm space-y-1">
+            {order.customer_name && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">👤</span>
+                <span>{order.customer_name}</span>
+              </div>
+            )}
+            {order.customer_phone && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">📞</span>
+                <a href={`tel:${order.customer_phone}`} className="text-blue-400 hover:underline">{order.customer_phone}</a>
+              </div>
+            )}
+            {order.scheduled_time && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">🕐</span>
+                <span className="text-purple-300">
+                  Prévu à {new Date(order.scheduled_time).toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            )}
+            {order.delivery_notes && (
+              <div className="flex items-start gap-2">
+                <span className="text-gray-400">📍</span>
+                <span className="text-yellow-300">{order.delivery_notes}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {order.scheduled_slot_start && (
           <div className="text-sm text-purple-300 mb-2">
