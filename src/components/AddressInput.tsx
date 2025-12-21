@@ -260,11 +260,11 @@ export default function AddressInput({
                 ✅ Adresse livrable !
               </p>
               <p className="text-sm text-green-600 mt-1">
-                {deliveryCheck.distance.toFixed(1)} km • {deliveryCheck.duration} min
+                {(deliveryCheck.distance || 0).toFixed(1)} km • {deliveryCheck.duration || 0} min
                 {deliveryCheck.zoneName && ` • ${deliveryCheck.zoneName}`}
               </p>
               <p className="text-lg font-bold text-orange-600 mt-2">
-                Frais de livraison : {deliveryCheck.fee.toFixed(2)}€
+                Frais de livraison : {(deliveryCheck.fee || 0).toFixed(2)}€
               </p>
             </>
           ) : (
