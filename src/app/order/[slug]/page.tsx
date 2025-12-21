@@ -1050,7 +1050,6 @@ export default function OrderPage() {
                   <AddressInput
                     value={deliveryAddress}
                     onChange={setDeliveryAddress}
-                    placeholder="Entrez votre adresse"
                   />
                 </div>
               )}
