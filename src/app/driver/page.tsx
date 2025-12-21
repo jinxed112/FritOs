@@ -39,6 +39,10 @@ type DeliveryRound = {
     address: string
     status: string
     estimated_arrival: string | null
+    latitude?: number | null
+    longitude?: number | null
+    customer_slot_start?: string | null
+    customer_slot_end?: string | null
     order: DeliveryOrder
   }[]
 }
