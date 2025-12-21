@@ -893,8 +893,362 @@ export default function OrderPage() {
           </div>
         )}
 
-        {/* Les autres étapes restent identiques - cart, details, timeslot, payment, confirmation */}
-        {/* Je continue dans la partie 2... */}
+        {/* ÉTAPE: PANIER */}
+        {step === 'cart' && (
+          <div className="bg-white rounded-2xl p-6">
+            <h2 className="text-xl font-bold mb-6">🛒 Votre panier</h2>
+            
+            {cart.length === 0 ? (
+              <div className="text-center py-8">
+                <span className="text-6xl block mb-4">🛒</span>
+                <p className="text-gray-500">Votre panier est vide</p>
+                <button
+                  onClick={() => goToStep('menu')}
+                  className="mt-4 text-orange-500 font-medium"
+                >
+                  ← Retour au menu
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-4 mb-6">
+                  {cart.map(item => (
+                    <div key={item.id} className="flex items-start gap-4 pb-4 border-b border-gray-100">
+                      <div className="flex-1">
+                        <h3 className="font-bold">{item.name}</h3>
+                        {item.options.length > 0 && (
+                          <div className="text-sm text-gray-500 mt-1">
+                            {item.options.map(o => (
+                              <div key={o.item_id}>+ {o.item_name} {o.price > 0 && `(+${o.price.toFixed(2)}€)`}</div>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-orange-500 font-bold mt-1">
+                          {((item.price + item.optionsTotal) * item.quantity).toFixed(2)}€
+                        </p>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            if (item.quantity > 1) {
+                              setCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity - 1 } : c))
+                            } else {
+                              removeFromCart(item.id)
+                            }
+                          }}
+                          className="w-8 h-8 rounded-full bg-gray-100 font-bold"
+                        >
+                          -
+                        </button>
+                        <span className="w-8 text-center font-bold">{item.quantity}</span>
+                        <button
+                          onClick={() => setCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c))}
+                          className="w-8 h-8 rounded-full bg-gray-100 font-bold"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="border-t pt-4">
+                  <div className="flex justify-between mb-2">
+                    <span className="text-gray-600">Sous-total</span>
+                    <span className="font-bold">{getCartTotal().toFixed(2)}€</span>
+                  </div>
+                  {orderType === 'delivery' && (
+                    <div className="flex justify-between mb-2">
+                      <span className="text-gray-600">Livraison</span>
+                      <span className="font-bold">{deliveryFee.toFixed(2)}€</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-lg">
+                    <span className="font-bold">Total</span>
+                    <span className="font-bold text-orange-500">
+                      {(getCartTotal() + (orderType === 'delivery' ? deliveryFee : 0)).toFixed(2)}€
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="flex gap-4 mt-6">
+                  <button
+                    onClick={() => goToStep('menu')}
+                    className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
+                  >
+                    ← Menu
+                  </button>
+                  <button
+                    onClick={() => goToStep('details')}
+                    className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold"
+                  >
+                    Continuer →
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ÉTAPE: DÉTAILS */}
+        {step === 'details' && (
+          <div className="bg-white rounded-2xl p-6">
+            <h2 className="text-xl font-bold mb-6">📝 Vos coordonnées</h2>
+            
+            <div className="space-y-4">
+              {!customer && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Nom *</label>
+                    <input
+                      type="text"
+                      value={guestName}
+                      onChange={e => setGuestName(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="Votre nom"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Email *</label>
+                    <input
+                      type="email"
+                      value={guestEmail}
+                      onChange={e => setGuestEmail(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="votre@email.com"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Téléphone *</label>
+                    <input
+                      type="tel"
+                      value={guestPhone}
+                      onChange={e => setGuestPhone(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="0470 00 00 00"
+                      required
+                    />
+                  </div>
+                </>
+              )}
+              
+              {customer && (
+                <div className="bg-green-50 rounded-xl p-4 mb-4">
+                  <p className="font-medium text-green-800">✓ Connecté en tant que {customer.email}</p>
+                  {customer.first_name && <p className="text-green-700">{customer.first_name} {customer.last_name}</p>}
+                </div>
+              )}
+              
+              {orderType === 'delivery' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Adresse de livraison *</label>
+                  <AddressInput
+                    value={deliveryAddress}
+                    onChange={setDeliveryAddress}
+                    placeholder="Entrez votre adresse"
+                  />
+                </div>
+              )}
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Notes (optionnel)</label>
+                <textarea
+                  value={deliveryNotes}
+                  onChange={e => setDeliveryNotes(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  rows={2}
+                  placeholder="Instructions spéciales, code d'entrée..."
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-4 mt-6">
+              <button
+                onClick={() => goToStep('cart')}
+                className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
+              >
+                ← Panier
+              </button>
+              <button
+                onClick={() => goToStep('timeslot')}
+                disabled={!customer && (!guestName || !guestEmail || !guestPhone)}
+                className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50"
+              >
+                Continuer →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ÉTAPE: CRÉNEAU */}
+        {step === 'timeslot' && (
+          <div className="bg-white rounded-2xl p-6">
+            <h2 className="text-xl font-bold mb-6">📅 Choisissez un créneau</h2>
+            
+            {loadingSlots ? (
+              <div className="text-center py-8">
+                <span className="text-4xl block mb-4 animate-spin">⏳</span>
+                <p className="text-gray-500">Chargement des créneaux...</p>
+              </div>
+            ) : (
+              <>
+                {/* Sélection du jour */}
+                <div className="flex gap-2 overflow-x-auto pb-4 mb-6">
+                  {availableSlots.map(day => (
+                    <button
+                      key={day.date}
+                      onClick={() => setSelectedDay(day.date)}
+                      className={`px-4 py-3 rounded-xl whitespace-nowrap font-medium transition-colors ${
+                        selectedDay === day.date
+                          ? 'bg-orange-500 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {day.dayLabel}
+                    </button>
+                  ))}
+                </div>
+                
+                {/* Créneaux horaires */}
+                {selectedDay && (
+                  <div className="grid grid-cols-3 gap-3">
+                    {availableSlots
+                      .find(d => d.date === selectedDay)
+                      ?.slots.map(slot => (
+                        <button
+                          key={slot.time}
+                          onClick={() => slot.available && setSelectedTime(slot.time)}
+                          disabled={!slot.available}
+                          className={`p-3 rounded-xl text-center transition-colors ${
+                            selectedTime === slot.time
+                              ? 'bg-orange-500 text-white'
+                              : slot.available
+                              ? 'bg-gray-100 hover:bg-gray-200'
+                              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          }`}
+                        >
+                          <span className="font-medium">{slot.label}</span>
+                          {slot.available && slot.remainingSlots <= 3 && (
+                            <span className="block text-xs text-orange-500">
+                              {slot.remainingSlots} place{slot.remainingSlots > 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </>
+            )}
+            
+            <div className="flex gap-4 mt-6">
+              <button
+                onClick={() => goToStep('details')}
+                className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
+              >
+                ← Détails
+              </button>
+              <button
+                onClick={() => goToStep('payment')}
+                disabled={!selectedDay || !selectedTime}
+                className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50"
+              >
+                Continuer →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ÉTAPE: PAIEMENT */}
+        {step === 'payment' && (
+          <div className="bg-white rounded-2xl p-6">
+            <h2 className="text-xl font-bold mb-6">💳 Récapitulatif & Paiement</h2>
+            
+            {/* Résumé */}
+            <div className="bg-gray-50 rounded-xl p-4 mb-6">
+              <h3 className="font-bold mb-3">Votre commande</h3>
+              {cart.map(item => (
+                <div key={item.id} className="flex justify-between text-sm py-1">
+                  <span>{item.quantity}x {item.name}</span>
+                  <span>{((item.price + item.optionsTotal) * item.quantity).toFixed(2)}€</span>
+                </div>
+              ))}
+              <div className="border-t mt-2 pt-2 flex justify-between font-bold">
+                <span>Total</span>
+                <span className="text-orange-500">
+                  {(getCartTotal() + (orderType === 'delivery' ? deliveryFee : 0)).toFixed(2)}€
+                </span>
+              </div>
+            </div>
+            
+            {/* Infos */}
+            <div className="bg-orange-50 rounded-xl p-4 mb-6">
+              <p className="font-medium text-orange-800">
+                {orderType === 'pickup' ? '🥡 Retrait' : '🚗 Livraison'} prévu le :
+              </p>
+              <p className="text-lg font-bold text-orange-600">
+                {selectedDay && new Date(selectedDay).toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' })} à {selectedTime}
+              </p>
+            </div>
+            
+            <div className="flex gap-4">
+              <button
+                onClick={() => goToStep('timeslot')}
+                className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
+              >
+                ← Créneau
+              </button>
+              <button
+                onClick={submitOrder}
+                disabled={isSubmitting}
+                className="flex-1 px-6 py-3 rounded-xl bg-green-500 text-white font-semibold disabled:opacity-50"
+              >
+                {isSubmitting ? 'Envoi...' : '✓ Payer et commander'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ÉTAPE: CONFIRMATION */}
+        {step === 'confirmation' && (
+          <div className="bg-white rounded-2xl p-8 text-center">
+            <span className="text-6xl block mb-4">✅</span>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Commande confirmée !</h2>
+            <p className="text-gray-500 mb-6">Merci pour votre commande</p>
+            
+            <div className="bg-orange-50 rounded-2xl p-6 mb-6">
+              <p className="text-gray-600 mb-2">Numéro de commande</p>
+              <p className="text-4xl font-bold text-orange-500">{orderNumber}</p>
+            </div>
+            
+            {pickupCode && (
+              <div className="bg-gray-100 rounded-2xl p-6 mb-6">
+                <p className="text-gray-600 mb-2">Code de retrait</p>
+                <p className="text-3xl font-bold font-mono tracking-widest">{pickupCode}</p>
+              </div>
+            )}
+            
+            <p className="text-gray-500 text-sm mb-6">
+              Un email de confirmation vous a été envoyé.
+            </p>
+            
+            <button
+              onClick={() => {
+                setStep('menu')
+                setCart([])
+                setSelectedDay(null)
+                setSelectedTime(null)
+              }}
+              className="bg-orange-500 text-white font-bold px-8 py-3 rounded-xl"
+            >
+              Nouvelle commande
+            </button>
+          </div>
+        )}
       </main>
 
       {/* ==================== MODAL PROPOSITIONS ==================== */}
