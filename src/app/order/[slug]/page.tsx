@@ -700,7 +700,7 @@ export default function OrderPage() {
                     <div className="flex-1">
                       <h3 className="font-bold">{item.name}</h3>
                       <p className="text-orange-500 font-medium">
-                        {((item.price + item.optionsTotal) * item.quantity).toFixed(2)}€
+                        {((item.price + (item.optionsTotal || 0)) * item.quantity).toFixed(2)}€
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -736,7 +736,7 @@ export default function OrderPage() {
                   {orderType === 'delivery' && deliveryFee > 0 && (
                     <div className="flex justify-between mb-2">
                       <span className="text-gray-600">Livraison</span>
-                      <span className="font-bold">{deliveryFee.toFixed(2)}€</span>
+                      <span className="font-bold">{(deliveryFee || 0).toFixed(2)}€</span>
                     </div>
                   )}
                   <div className="flex justify-between border-t pt-2 mt-2">
@@ -1027,7 +1027,7 @@ export default function OrderPage() {
                     {item.quantity}x {item.name}
                   </span>
                   <span className="font-medium">
-                    {((item.price + item.optionsTotal) * item.quantity).toFixed(2)}€
+                    {((item.price + (item.optionsTotal || 0)) * item.quantity).toFixed(2)}€
                   </span>
                 </div>
               ))}
@@ -1040,7 +1040,7 @@ export default function OrderPage() {
                 {orderType === 'delivery' && (
                   <div className="flex justify-between">
                     <span className="text-gray-600">Livraison</span>
-                    <span>{deliveryFee.toFixed(2)}€</span>
+                    <span>{(deliveryFee || 0).toFixed(2)}€</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-lg">
