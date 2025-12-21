@@ -16,16 +16,11 @@ const navigation = [
   { name: 'Promotions', href: '/admin/promotions', icon: '🎁' },
   { name: 'Clients', href: '/admin/customers', icon: '👥' },
   { name: 'Livreurs', href: '/admin/drivers', icon: '🛵' },
+  { name: 'Livraisons', href: '/admin/deliveries', icon: '📦' },
+  { name: 'Créneaux', href: '/admin/slots', icon: '⏰' },
   { name: 'Devices', href: '/admin/devices', icon: '📱' },
   { name: 'Rapports', href: '/admin/reports', icon: '📈' },
-]
-
-const settingsNavigation = [
-  { name: 'Établissements', href: '/admin/establishments', icon: '🏪' },
-  { name: 'Général', href: '/admin/settings', icon: '⚙️' },
-  { name: 'Créneaux', href: '/admin/settings/timeslots', icon: '🕐' },
-  { name: 'Livraison', href: '/admin/settings/delivery', icon: '🚗' },
-  { name: 'Fidélité', href: '/admin/settings/loyalty', icon: '⭐' },
+  { name: 'Paramètres', href: '/admin/settings', icon: '⚙️' },
 ]
 
 export default function AdminLayout({
@@ -37,7 +32,6 @@ export default function AdminLayout({
   const router = useRouter()
   const supabase = createClient()
   const [user, setUser] = useState<any>(null)
-  const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
     async function getUser() {
@@ -46,13 +40,6 @@ export default function AdminLayout({
     }
     getUser()
   }, [])
-
-  // Ouvrir automatiquement les settings si on est sur une page settings
-  useEffect(() => {
-    if (pathname.startsWith('/admin/settings') || pathname === '/admin/establishments') {
-      setShowSettings(true)
-    }
-  }, [pathname])
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -71,11 +58,11 @@ export default function AdminLayout({
       <aside className="w-64 bg-gray-900 text-white flex flex-col">
         {/* Logo */}
         <div className="p-6 border-b border-gray-800">
-          <Link href="/admin" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3">
             <span className="text-3xl">🍟</span>
             <div>
               <h1 className="text-xl font-bold text-orange-500">FritOS</h1>
-              <p className="text-xs text-gray-400">MDjambo</p>
+              <p className="text-xs text-gray-400">MDjambo Jurbise</p>
             </div>
           </Link>
         </div>
@@ -101,46 +88,6 @@ export default function AdminLayout({
               </Link>
             )
           })}
-
-          {/* Separator */}
-          <div className="border-t border-gray-700 my-4"></div>
-
-          {/* Settings section */}
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="w-full flex items-center justify-between px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-xl">⚙️</span>
-              <span className="font-medium">Paramètres</span>
-            </div>
-            <span className={`transition-transform ${showSettings ? 'rotate-180' : ''}`}>
-              ▼
-            </span>
-          </button>
-
-          {showSettings && (
-            <div className="ml-4 space-y-1">
-              {settingsNavigation.map((item) => {
-                const isActive = pathname === item.href
-                
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors text-sm ${
-                      isActive
-                        ? 'bg-orange-500/20 text-orange-400'
-                        : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                    }`}
-                  >
-                    <span>{item.icon}</span>
-                    <span>{item.name}</span>
-                  </Link>
-                )
-              })}
-            </div>
-          )}
         </nav>
 
         {/* User */}

@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center p-8">
+    <main className="min-h-screen bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center p-8">
       <div className="max-w-4xl w-full">
         {/* Logo */}
         <div className="text-center mb-12">
@@ -13,45 +13,56 @@ export default function Home() {
         {/* Navigation cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Admin */}
-          <Link href="/admin" className="card p-6 hover:scale-105 transition-transform">
+          <Link href="/admin" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
             <div className="text-4xl mb-4">⚙️</div>
-            <h2 className="text-xl font-bold text-dark mb-2">Back-office</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Back-office</h2>
             <p className="text-gray-500">Gestion produits, rapports, paramètres</p>
           </Link>
 
           {/* Kiosk */}
-          <Link href="/kiosk" className="card p-6 hover:scale-105 transition-transform">
+          <Link href="/kiosk" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
             <div className="text-4xl mb-4">📱</div>
-            <h2 className="text-xl font-bold text-dark mb-2">Borne</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Borne</h2>
             <p className="text-gray-500">Interface client pour commandes</p>
           </Link>
 
           {/* Kitchen */}
-          <Link href="/kitchen" className="card p-6 hover:scale-105 transition-transform">
+          <Link href="/kitchen" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
             <div className="text-4xl mb-4">👨‍🍳</div>
-            <h2 className="text-xl font-bold text-dark mb-2">Cuisine (KDS)</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Cuisine (KDS)</h2>
             <p className="text-gray-500">Affichage des commandes</p>
           </Link>
 
           {/* Counter */}
-          <Link href="/counter" className="card p-6 hover:scale-105 transition-transform">
+          <Link href="/counter" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
             <div className="text-4xl mb-4">💳</div>
-            <h2 className="text-xl font-bold text-dark mb-2">Caisse</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Caisse</h2>
             <p className="text-gray-500">Prise de commande employé</p>
           </Link>
 
           {/* Click & Collect */}
-          <Link href="/order/jurbise" className="card p-6 hover:scale-105 transition-transform">
+          <Link href="/order/jurbise" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
             <div className="text-4xl mb-4">🛒</div>
-            <h2 className="text-xl font-bold text-dark mb-2">Click & Collect</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Click & Collect</h2>
             <p className="text-gray-500">Commandes en ligne</p>
           </Link>
 
-          {/* Status */}
-          <div className="card p-6 bg-green-50 border-green-200">
-            <div className="text-4xl mb-4">✅</div>
-            <h2 className="text-xl font-bold text-green-700 mb-2">Système OK</h2>
-            <p className="text-green-600">Connecté à Supabase</p>
+          {/* Driver */}
+          <Link href="/driver" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
+            <div className="text-4xl mb-4">🛵</div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Livreur</h2>
+            <p className="text-gray-500">Application livreur</p>
+          </Link>
+        </div>
+
+        {/* Status */}
+        <div className="mt-8 flex justify-center">
+          <div className="bg-green-50 border border-green-200 rounded-2xl px-6 py-4 flex items-center gap-3">
+            <span className="text-2xl">✅</span>
+            <div>
+              <p className="font-bold text-green-700">Système OK</p>
+              <p className="text-green-600 text-sm">Connecté à Supabase</p>
+            </div>
           </div>
         </div>
 
