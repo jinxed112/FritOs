@@ -114,13 +114,18 @@ export async function POST(request: NextRequest) {
     // Générer un numéro de commande unique
     const orderNumber = await generateOrderNumber(establishmentId)
 
+    // Mapper le type de commande vers les valeurs acceptées par la DB
+    // La contrainte accepte: 'eat_in', 'takeaway', 'delivery', 'table'
+    // Click & Collect retrait = 'takeaway', livraison = 'delivery'
+    const dbOrderType = orderType === 'delivery' ? 'delivery' : 'takeaway'
+
     // Créer la commande
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
         establishment_id: establishmentId,
         order_number: orderNumber,
-        order_type: orderType, // 'pickup' ou 'delivery'
+        order_type: dbOrderType,
         eat_in: false,
         status: 'pending',
         customer_id: customerId || null,
