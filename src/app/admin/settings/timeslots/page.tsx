@@ -191,10 +191,10 @@ export default function TimeSlotsPage() {
           .from('time_slots_config')
           .insert({
             establishment_id: selectedEstablishment,
-            slot_type: 'online',
+            slot_type: 'pickup',
             day_of_week: 0,
-            start_time: '00:00',
-            end_time: '23:59',
+            start_time: '00:00:00',
+            end_time: '23:59:00',
             slot_duration: config.slot_duration_minutes,
             slot_duration_minutes: config.slot_duration_minutes,
             min_preparation_minutes: config.min_preparation_minutes,
