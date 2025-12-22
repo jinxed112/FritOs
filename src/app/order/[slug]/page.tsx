@@ -3,8 +3,15 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import AddressInput from '@/components/AddressInput'
 
-// ==================== TYPES ====================
+// Types
+type Category = {
+  id: string
+  name: string
+  image_url: string | null
+}
+
 type OptionGroupItem = {
   id: string
   product_id: string
@@ -28,25 +35,6 @@ type OptionGroup = {
   option_group_items: OptionGroupItem[]
 }
 
-type ProductOptionGroup = {
-  option_group_id: string
-  display_order: number
-  option_group: OptionGroup
-}
-
-type CategoryOptionGroup = {
-  option_group_id: string
-  display_order: number
-  option_group: OptionGroup
-}
-
-type Category = {
-  id: string
-  name: string
-  image_url: string | null
-  category_option_groups: CategoryOptionGroup[]
-}
-
 type Product = {
   id: string
   name: string
@@ -56,7 +44,7 @@ type Product = {
   category_id: string
   is_available: boolean
   available_online: boolean
-  product_option_groups: ProductOptionGroup[]
+  product_option_groups?: { option_group_id: string; display_order: number }[]
 }
 
 type SelectedOption = {
@@ -112,7 +100,6 @@ type Establishment = {
 
 type Step = 'menu' | 'cart' | 'details' | 'timeslot' | 'payment' | 'confirmation'
 
-// ==================== COMPONENT ====================
 export default function OrderPage() {
   const params = useParams()
   const slug = params.slug as string
@@ -121,6 +108,7 @@ export default function OrderPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [allOptionGroups, setAllOptionGroups] = useState<OptionGroup[]>([])
+  const [categoryOptionGroups, setCategoryOptionGroups] = useState<Record<string, string[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -154,35 +142,41 @@ export default function OrderPage() {
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
 
-  // Delivery
-  const [deliveryAddress, setDeliveryAddress] = useState('')
-  const [deliveryPostalCode, setDeliveryPostalCode] = useState('')
-  const [deliveryFee, setDeliveryFee] = useState(0)
-  const [deliveryError, setDeliveryError] = useState('')
-  const [deliveryNotes, setDeliveryNotes] = useState('')
-
   // Time slots
-  const [availableSlots, setAvailableSlots] = useState<DaySlots[]>([])
-  const [selectedDay, setSelectedDay] = useState<string>('')
-  const [selectedTime, setSelectedTime] = useState<string>('')
+  const [timeSlots, setTimeSlots] = useState<DaySlots[]>([])
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [selectedTime, setSelectedTime] = useState<string | null>(null)
   const [loadingSlots, setLoadingSlots] = useState(false)
 
-  // Confirmation
-  const [orderNumber, setOrderNumber] = useState<string | null>(null)
-  const [pickupCode, setPickupCode] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  // Delivery
+  const [deliveryAddress, setDeliveryAddress] = useState('')
+  const [deliveryLat, setDeliveryLat] = useState<number | null>(null)
+  const [deliveryLng, setDeliveryLng] = useState<number | null>(null)
+  const [deliveryFee, setDeliveryFee] = useState(0)
+  const [deliveryInfo, setDeliveryInfo] = useState<any>(null)
+  const [checkingDelivery, setCheckingDelivery] = useState(false)
+  const [deliveryValidated, setDeliveryValidated] = useState(false)
+
+  // Order
+  const [orderResult, setOrderResult] = useState<any>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   const supabase = createClient()
 
-  // ==================== LOAD DATA ====================
+  // Charger l'établissement et les données
   useEffect(() => {
-    if (slug) {
-      loadData()
-      checkSession()
-    }
+    loadEstablishment()
   }, [slug])
 
-  async function loadData() {
+  // Charger la session existante
+  useEffect(() => {
+    const token = localStorage.getItem('customer_session')
+    if (token) {
+      checkSession(token)
+    }
+  }, [])
+
+  async function loadEstablishment() {
     setLoading(true)
     setError(null)
 
@@ -209,50 +203,24 @@ export default function OrderPage() {
     setEstablishment(est)
     setOrderType(est.pickup_enabled ? 'pickup' : 'delivery')
 
-    // Charger les catégories AVEC leurs propositions
+    // Charger les catégories
     const { data: cats } = await supabase
       .from('categories')
-      .select(`
-        id, name, image_url,
-        category_option_groups (
-          option_group_id,
-          display_order,
-          option_group:option_groups (
-            id, name, selection_type, min_selections, max_selections,
-            option_group_items!option_group_items_option_group_id_fkey (
-              id, product_id, price_override, is_default, triggers_option_group_id,
-              product:products (id, name, price, image_url)
-            )
-          )
-        )
-      `)
+      .select('id, name, image_url')
       .eq('establishment_id', est.id)
       .eq('is_active', true)
       .eq('visible_on_kiosk', true)
       .order('display_order')
 
-    setCategories((cats || []) as any)
+    setCategories(cats || [])
     if (cats && cats.length > 0) {
       setSelectedCategory(cats[0].id)
     }
 
-    // Charger les produits AVEC leurs propositions
+    // Charger les produits disponibles en ligne
     const { data: prods } = await supabase
       .from('products')
-      .select(`
-        id, name, description, price, image_url, category_id, is_available, available_online,
-        product_option_groups (
-          option_group_id,
-          display_order,
-          option_group:option_groups (
-            id, name, selection_type, min_selections, max_selections,
-            option_group_items!option_group_items_option_group_id_fkey (
-              id, product_id, price_override, is_default, triggers_option_group_id,
-              product:products (id, name, price, image_url)
-            )
-          )
-        )
-      `)
+      .select('id, name, description, price, image_url, category_id, is_available, available_online')
       .eq('establishment_id', est.id)
       .eq('is_active', true)
       .eq('is_available', true)
@@ -260,30 +228,57 @@ export default function OrderPage() {
 
     // Filtrer les produits disponibles en ligne
     const onlineProducts = (prods || []).filter(p => p.available_online !== false)
-    setProducts(onlineProducts as any)
+    setProducts(onlineProducts)
 
-    // Charger TOUS les option_groups pour les triggers
-    const { data: allOgs } = await supabase
+    // Charger les option groups
+    const { data: optGroups } = await supabase
       .from('option_groups')
       .select(`
         id, name, selection_type, min_selections, max_selections,
-        option_group_items!option_group_items_option_group_id_fkey (
+        option_group_items (
           id, product_id, price_override, is_default, triggers_option_group_id,
           product:products (id, name, price, image_url)
         )
       `)
       .eq('establishment_id', est.id)
       .eq('is_active', true)
+      .order('display_order')
 
-    setAllOptionGroups((allOgs || []) as any)
+    setAllOptionGroups((optGroups || []) as OptionGroup[])
+
+    // Charger les liens product_option_groups
+    const { data: prodOptGroups } = await supabase
+      .from('product_option_groups')
+      .select('product_id, option_group_id, display_order')
+      .order('display_order')
+
+    // Associer aux produits
+    const prodWithOptions = onlineProducts.map(p => {
+      const pogs = (prodOptGroups || [])
+        .filter(pog => pog.product_id === p.id)
+        .sort((a, b) => a.display_order - b.display_order)
+      return { ...p, product_option_groups: pogs }
+    })
+    setProducts(prodWithOptions)
+
+    // Charger les liens category_option_groups
+    const { data: catOptGroups } = await supabase
+      .from('category_option_groups')
+      .select('category_id, option_group_id, display_order')
+      .order('display_order')
+
+    // Créer un mapping category_id -> option_group_ids
+    const catOgMap: Record<string, string[]> = {}
+    ;(catOptGroups || []).forEach(cog => {
+      if (!catOgMap[cog.category_id]) catOgMap[cog.category_id] = []
+      catOgMap[cog.category_id].push(cog.option_group_id)
+    })
+    setCategoryOptionGroups(catOgMap)
 
     setLoading(false)
   }
 
-  async function checkSession() {
-    const token = localStorage.getItem('customer_session')
-    if (!token) return
-
+  async function checkSession(token: string) {
     try {
       const response = await fetch(`/api/auth/otp?token=${token}`)
       const data = await response.json()
@@ -299,7 +294,6 @@ export default function OrderPage() {
     }
   }
 
-  // ==================== AUTH ====================
   async function sendOtp() {
     if (!authEmail || !establishment) return
 
@@ -373,27 +367,24 @@ export default function OrderPage() {
     localStorage.removeItem('customer_session')
   }
 
-  // ==================== PRODUCT MODAL & PROPOSITIONS ====================
+  // ==================== PROPOSITIONS ====================
   function openProductModal(product: Product) {
-    // Récupérer les propositions (produit override catégorie si défini)
-    let propositions: OptionGroup[] = []
+    // Déterminer les propositions à afficher
+    let propositionIds: string[] = []
 
+    // Option A: Produit a ses propres propositions
     if (product.product_option_groups && product.product_option_groups.length > 0) {
-      // Utiliser les propositions du produit
-      propositions = product.product_option_groups
-        .sort((a, b) => a.display_order - b.display_order)
-        .map(pog => pog.option_group)
-        .filter(og => og && og.option_group_items && og.option_group_items.length > 0)
-    } else {
-      // Utiliser les propositions de la catégorie
-      const category = categories.find(c => c.id === product.category_id)
-      if (category && category.category_option_groups) {
-        propositions = category.category_option_groups
-          .sort((a, b) => a.display_order - b.display_order)
-          .map(cog => cog.option_group)
-          .filter(og => og && og.option_group_items && og.option_group_items.length > 0)
-      }
+      propositionIds = product.product_option_groups.map(pog => pog.option_group_id)
     }
+    // Option B: Sinon, utiliser celles de la catégorie
+    else if (categoryOptionGroups[product.category_id]) {
+      propositionIds = categoryOptionGroups[product.category_id]
+    }
+
+    // Récupérer les option groups correspondants
+    const propositions = propositionIds
+      .map(id => allOptionGroups.find(og => og.id === id))
+      .filter((og): og is OptionGroup => og !== undefined && og.option_group_items.length > 0)
 
     setSelectedProduct(product)
     setCurrentPropositions(propositions)
@@ -451,7 +442,7 @@ export default function OrderPage() {
         // Vérifier max_selections
         const currentCount = selectedOptions.filter(o => o.option_group_id === optionGroup.id).length
         if (optionGroup.max_selections && currentCount >= optionGroup.max_selections) {
-          return // Max atteint
+          return
         }
         setSelectedOptions([...selectedOptions, newOption])
       }
@@ -473,12 +464,12 @@ export default function OrderPage() {
   }
 
   function nextProposition() {
-    // Vérifier si l'item sélectionné dans la proposition actuelle a un trigger
+    // Vérifier si l'item sélectionné a un trigger
     const currentGroup = currentPropositions[currentPropositionIndex]
     if (currentGroup) {
       const selectedInCurrentGroup = selectedOptions.filter(o => o.option_group_id === currentGroup.id)
 
-      // Chercher les triggers pour les items sélectionnés
+      // Chercher les triggers
       const triggeredGroupIds: string[] = []
       selectedInCurrentGroup.forEach(selected => {
         const item = currentGroup.option_group_items.find(i => i.id === selected.item_id)
@@ -543,59 +534,47 @@ export default function OrderPage() {
     closeProductModal()
   }
 
-  // Ajout direct (produits sans propositions)
-  function addToCartDirect(product: Product) {
-    // Vérifier s'il y a des propositions
-    let hasPropositions = false
-
-    if (product.product_option_groups && product.product_option_groups.length > 0) {
-      hasPropositions = product.product_option_groups.some(
-        pog => pog.option_group && pog.option_group.option_group_items?.length > 0
-      )
-    } else {
-      const category = categories.find(c => c.id === product.category_id)
-      if (category && category.category_option_groups) {
-        hasPropositions = category.category_option_groups.some(
-          cog => cog.option_group && cog.option_group.option_group_items?.length > 0
-        )
-      }
-    }
+  // Cart functions (version simple sans propositions)
+  function addToCartSimple(product: Product) {
+    // Si le produit a des propositions, ouvrir le modal
+    const hasPropositions =
+      (product.product_option_groups && product.product_option_groups.length > 0) ||
+      (categoryOptionGroups[product.category_id] && categoryOptionGroups[product.category_id].length > 0)
 
     if (hasPropositions) {
-      // Ouvrir le modal des propositions
       openProductModal(product)
-    } else {
-      // Ajout direct au panier
-      const existing = cart.find(
-        item => item.productId === product.id && item.options.length === 0
-      )
+      return
+    }
 
-      if (existing) {
-        setCart(
-          cart.map(item =>
-            item.id === existing.id
-              ? { ...item, quantity: item.quantity + 1 }
-              : item
-          )
+    // Sinon, ajouter directement
+    const existing = cart.find(
+      item => item.productId === product.id && item.options.length === 0
+    )
+
+    if (existing) {
+      setCart(
+        cart.map(item =>
+          item.id === existing.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
         )
-      } else {
-        setCart([
-          ...cart,
-          {
-            id: `${product.id}-${Date.now()}`,
-            productId: product.id,
-            name: product.name,
-            price: product.price,
-            quantity: 1,
-            options: [],
-            optionsTotal: 0,
-          },
-        ])
-      }
+      )
+    } else {
+      setCart([
+        ...cart,
+        {
+          id: `${product.id}-${Date.now()}`,
+          productId: product.id,
+          name: product.name,
+          price: product.price,
+          quantity: 1,
+          options: [],
+          optionsTotal: 0,
+        },
+      ])
     }
   }
 
-  // ==================== CART FUNCTIONS ====================
   function updateQuantity(itemId: string, delta: number) {
     setCart(
       cart
@@ -616,7 +595,7 @@ export default function OrderPage() {
 
   function getCartTotal(): number {
     return cart.reduce(
-      (sum, item) => sum + (item.price + item.optionsTotal) * item.quantity,
+      (sum, item) => sum + (item.price + (item.optionsTotal || 0)) * item.quantity,
       0
     )
   }
@@ -625,20 +604,25 @@ export default function OrderPage() {
     return cart.reduce((sum, item) => sum + item.quantity, 0)
   }
 
-  // ==================== TIME SLOTS ====================
+  // Time slots
   async function loadTimeSlots() {
     if (!establishment) return
 
     setLoadingSlots(true)
 
     try {
-      const response = await fetch(`/api/timeslots?establishmentId=${establishment.id}&type=${orderType}`)
+      const response = await fetch(
+        `/api/timeslots?establishmentId=${establishment.id}&orderType=${orderType}&days=7`
+      )
       const data = await response.json()
 
-      if (data.success) {
-        setAvailableSlots(data.slots)
-        if (data.slots.length > 0) {
-          setSelectedDay(data.slots[0].date)
+      if (data.slots) {
+        setTimeSlots(data.slots)
+        const firstAvailable = data.slots.find(
+          (day: DaySlots) => day.slots.some(s => s.available)
+        )
+        if (firstAvailable) {
+          setSelectedDate(firstAvailable.date)
         }
       }
     } catch (e) {
@@ -648,7 +632,60 @@ export default function OrderPage() {
     }
   }
 
-  // ==================== NAVIGATION ====================
+  // Submit order
+  async function submitOrder() {
+    if (!establishment || !selectedDate || !selectedTime) return
+    if (!customer && !guestMode) return
+
+    setSubmitting(true)
+
+    try {
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId: establishment.id,
+          orderType,
+          items: cart.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            options: item.options,
+            notes: null,
+          })),
+          customerId: customer?.id || null,
+          customerName: customer ? `${customer.first_name || ''} ${customer.last_name || ''}`.trim() : guestName,
+          customerPhone: customer?.phone || guestPhone,
+          customerEmail: customer?.email || guestEmail,
+          slotDate: selectedDate,
+          slotTime: selectedTime,
+          deliveryAddressId: null,
+          deliveryAddress: orderType === 'delivery' ? deliveryAddress : null,
+          deliveryLat: orderType === 'delivery' ? deliveryLat : null,
+          deliveryLng: orderType === 'delivery' ? deliveryLng : null,
+          deliveryFee: orderType === 'delivery' ? deliveryFee : 0,
+          notes: null,
+          loyaltyPointsUsed: 0,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setOrderResult(data)
+        setStep('confirmation')
+        setCart([])
+      } else {
+        alert(data.error || 'Erreur lors de la commande')
+      }
+    } catch (e) {
+      console.error('Erreur commande:', e)
+      alert('Erreur lors de la commande')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // Navigation entre étapes
   function goToStep(newStep: Step) {
     if (newStep === 'timeslot') {
       loadTimeSlots()
@@ -656,151 +693,124 @@ export default function OrderPage() {
     setStep(newStep)
   }
 
-  // ==================== SUBMIT ORDER ====================
-  async function submitOrder() {
-    if (!establishment) return
-
-    setIsSubmitting(true)
-
-    try {
-      const orderData = {
-        establishmentId: establishment.id,
-        orderType,
-        items: cart.map(item => ({
-          productId: item.productId,
-          productName: item.name,
-          quantity: item.quantity,
-          unitPrice: item.price,
-          options: item.options,
-          optionsTotal: item.optionsTotal,
-          lineTotal: (item.price + item.optionsTotal) * item.quantity,
-        })),
-        subtotal: getCartTotal(),
-        deliveryFee: orderType === 'delivery' ? deliveryFee : 0,
-        total: getCartTotal() + (orderType === 'delivery' ? deliveryFee : 0),
-        scheduledDate: selectedDay,
-        scheduledTime: selectedTime,
-        customerId: customer?.id || null,
-        customerEmail: customer?.email || guestEmail,
-        customerName: customer ? `${customer.first_name || ''} ${customer.last_name || ''}`.trim() : guestName,
-        customerPhone: customer?.phone || guestPhone,
-        deliveryAddress: orderType === 'delivery' ? deliveryAddress : null,
-        deliveryNotes: deliveryNotes || null,
-        sessionToken,
-      }
-
-      const response = await fetch('/api/orders/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderData),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        setOrderNumber(data.orderNumber)
-        setPickupCode(data.pickupCode)
-        setCart([])
-        goToStep('confirmation')
-      } else {
-        alert(data.error || 'Erreur lors de la commande')
-      }
-    } catch (e) {
-      console.error('Erreur:', e)
-      alert('Erreur réseau')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  // ==================== RENDER ====================
-  const filteredProducts = products.filter(p => p.category_id === selectedCategory)
-  const currentGroup = currentPropositions[currentPropositionIndex]
-
+  // Rendu
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <span className="text-6xl block mb-4 animate-pulse">🍟</span>
+          <span className="text-6xl block mb-4 animate-bounce">🍟</span>
           <p className="text-gray-500">Chargement...</p>
         </div>
       </div>
     )
   }
 
-  if (error) {
+  if (error || !establishment) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl p-8 text-center max-w-md">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-lg">
           <span className="text-6xl block mb-4">😕</span>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Oops !</h1>
-          <p className="text-gray-500">{error}</p>
+          <p className="text-gray-500">{error || 'Une erreur est survenue'}</p>
         </div>
       </div>
     )
   }
 
-  if (!establishment) return null
+  const filteredProducts = products.filter(p => p.category_id === selectedCategory)
+  const selectedDaySlots = timeSlots.find(d => d.date === selectedDate)?.slots || []
+  const currentGroup = currentPropositions[currentPropositionIndex]
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-orange-500">{establishment.name}</h1>
-            <p className="text-sm text-gray-500">{establishment.address}</p>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">🍟</span>
+            <div>
+              <h1 className="font-bold text-gray-900">{establishment.name}</h1>
+              <p className="text-sm text-gray-500">Click & Collect</p>
+            </div>
           </div>
 
           <div className="flex items-center gap-4">
             {customer ? (
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">{customer.email}</span>
-                <button onClick={logout} className="text-gray-400 hover:text-gray-600">
-                  🚪
+                <span className="text-sm text-gray-600">
+                  {customer.first_name || customer.email}
+                </span>
+                {customer.loyalty_points > 0 && (
+                  <span className="bg-orange-100 text-orange-600 text-xs px-2 py-1 rounded-full">
+                    ⭐ {customer.loyalty_points} pts
+                  </span>
+                )}
+                <button
+                  onClick={logout}
+                  className="text-gray-400 hover:text-gray-600 text-sm"
+                >
+                  Déconnexion
                 </button>
               </div>
             ) : (
               <button
                 onClick={() => setShowAuthModal(true)}
-                className="text-orange-500 font-medium"
+                className="text-orange-500 font-medium text-sm hover:underline"
               >
                 Se connecter
               </button>
             )}
 
-            {step === 'menu' && cart.length > 0 && (
+            {/* Cart button */}
+            {cart.length > 0 && step === 'menu' && (
               <button
                 onClick={() => goToStep('cart')}
-                className="bg-orange-500 text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2"
+                className="bg-orange-500 text-white px-4 py-2 rounded-xl flex items-center gap-2"
               >
-                🛒 <span className="bg-white text-orange-500 w-6 h-6 rounded-full text-sm font-bold flex items-center justify-center">{getCartCount()}</span>
-                <span>{getCartTotal().toFixed(2)}€</span>
+                <span>🛒</span>
+                <span>{getCartCount()}</span>
+                <span className="font-bold">{getCartTotal().toFixed(2)}€</span>
               </button>
             )}
           </div>
         </div>
+      </header>
 
-        {/* Progress bar */}
-        {step !== 'menu' && step !== 'confirmation' && (
-          <div className="max-w-4xl mx-auto px-4 pb-4">
-            <div className="flex items-center gap-2">
-              {['cart', 'details', 'timeslot', 'payment'].map((s, idx) => (
-                <div key={s} className="flex items-center flex-1">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                    step === s ? 'bg-orange-500 text-white' :
-                    ['cart', 'details', 'timeslot', 'payment'].indexOf(step) > idx ? 'bg-green-500 text-white' :
-                    'bg-gray-200 text-gray-500'
-                  }`}>
-                    {idx + 1}
-                  </div>
-                  {idx < 3 && <div className={`flex-1 h-1 mx-2 ${['cart', 'details', 'timeslot', 'payment'].indexOf(step) > idx ? 'bg-green-500' : 'bg-gray-200'}`} />}
+      {/* Progress bar */}
+      {step !== 'menu' && step !== 'confirmation' && (
+        <div className="bg-white border-b">
+          <div className="max-w-4xl mx-auto px-4 py-3">
+            <div className="flex items-center justify-between text-sm">
+              {['cart', 'details', 'timeslot', 'payment'].map((s, i) => (
+                <div
+                  key={s}
+                  className={`flex items-center gap-2 ${
+                    step === s ? 'text-orange-500 font-medium' : 'text-gray-400'
+                  }`}
+                >
+                  <span
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                      step === s
+                        ? 'bg-orange-500 text-white'
+                        : ['cart', 'details', 'timeslot', 'payment'].indexOf(step) > i
+                        ? 'bg-green-500 text-white'
+                        : 'bg-gray-200'
+                    }`}
+                  >
+                    {['cart', 'details', 'timeslot', 'payment'].indexOf(step) > i ? '✓' : i + 1}
+                  </span>
+                  <span className="hidden sm:inline">
+                    {s === 'cart' && 'Panier'}
+                    {s === 'details' && 'Coordonnées'}
+                    {s === 'timeslot' && 'Créneau'}
+                    {s === 'payment' && 'Paiement'}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
-        )}
-      </header>
+        </div>
+      )}
 
       <main className="max-w-4xl mx-auto px-4 py-6">
         {/* ÉTAPE: MENU */}
@@ -879,7 +889,7 @@ export default function OrderPage() {
                         {product.price.toFixed(2)}€
                       </span>
                       <button
-                        onClick={() => addToCartDirect(product)}
+                        onClick={() => addToCartSimple(product)}
                         className="bg-orange-500 text-white px-4 py-2 rounded-xl font-medium hover:bg-orange-600 transition-colors"
                       >
                         + Ajouter
@@ -894,361 +904,458 @@ export default function OrderPage() {
 
         {/* ÉTAPE: PANIER */}
         {step === 'cart' && (
-          <div className="bg-white rounded-2xl p-6">
-            <h2 className="text-xl font-bold mb-6">🛒 Votre panier</h2>
-            
+          <div>
+            <button
+              onClick={() => goToStep('menu')}
+              className="text-gray-500 mb-4 flex items-center gap-2"
+            >
+              ← Retour au menu
+            </button>
+
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Votre panier</h2>
+
             {cart.length === 0 ? (
-              <div className="text-center py-8">
-                <span className="text-6xl block mb-4">🛒</span>
+              <div className="bg-white rounded-2xl p-8 text-center">
+                <span className="text-5xl block mb-4">🛒</span>
                 <p className="text-gray-500">Votre panier est vide</p>
-                <button
-                  onClick={() => goToStep('menu')}
-                  className="mt-4 text-orange-500 font-medium"
-                >
-                  ← Retour au menu
-                </button>
               </div>
             ) : (
-              <>
-                <div className="space-y-4 mb-6">
-                  {cart.map(item => (
-                    <div key={item.id} className="flex items-start gap-4 pb-4 border-b border-gray-100">
-                      <div className="flex-1">
-                        <h3 className="font-bold">{item.name}</h3>
-                        {item.options.length > 0 && (
-                          <div className="text-sm text-gray-500 mt-1">
-                            {item.options.map(o => (
-                              <div key={o.item_id}>+ {o.item_name} {o.price > 0 && `(+${o.price.toFixed(2)}€)`}</div>
-                            ))}
-                          </div>
-                        )}
-                        <p className="text-orange-500 font-bold mt-1">
-                          {((item.price + item.optionsTotal) * item.quantity).toFixed(2)}€
-                        </p>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            if (item.quantity > 1) {
-                              setCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity - 1 } : c))
-                            } else {
-                              removeFromCart(item.id)
-                            }
-                          }}
-                          className="w-8 h-8 rounded-full bg-gray-100 font-bold"
-                        >
-                          -
-                        </button>
-                        <span className="w-8 text-center font-bold">{item.quantity}</span>
-                        <button
-                          onClick={() => setCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c))}
-                          className="w-8 h-8 rounded-full bg-gray-100 font-bold"
-                        >
-                          +
-                        </button>
-                      </div>
+              <div className="space-y-4">
+                {cart.map(item => (
+                  <div
+                    key={item.id}
+                    className="bg-white rounded-2xl p-4 flex items-center gap-4"
+                  >
+                    <div className="flex-1">
+                      <h3 className="font-bold">{item.name}</h3>
+                      {item.options.length > 0 && (
+                        <div className="text-sm text-gray-500 mt-1">
+                          {item.options.map(o => (
+                            <div key={o.item_id}>+ {o.item_name} {o.price > 0 && `(+${o.price.toFixed(2)}€)`}</div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-orange-500 font-medium">
+                        {((item.price + (item.optionsTotal || 0)) * item.quantity).toFixed(2)}€
+                      </p>
                     </div>
-                  ))}
-                </div>
-                
-                <div className="border-t pt-4">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => updateQuantity(item.id, -1)}
+                        className="w-8 h-8 rounded-full bg-gray-100 font-bold"
+                      >
+                        -
+                      </button>
+                      <span className="w-8 text-center font-bold">{item.quantity}</span>
+                      <button
+                        onClick={() => updateQuantity(item.id, 1)}
+                        className="w-8 h-8 rounded-full bg-gray-100 font-bold"
+                      >
+                        +
+                      </button>
+                      <button
+                        onClick={() => removeFromCart(item.id)}
+                        className="ml-2 text-gray-400 hover:text-red-500"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Total */}
+                <div className="bg-white rounded-2xl p-4">
                   <div className="flex justify-between mb-2">
                     <span className="text-gray-600">Sous-total</span>
                     <span className="font-bold">{getCartTotal().toFixed(2)}€</span>
                   </div>
-                  {orderType === 'delivery' && (
+                  {orderType === 'delivery' && deliveryFee > 0 && (
                     <div className="flex justify-between mb-2">
                       <span className="text-gray-600">Livraison</span>
-                      <span className="font-bold">{deliveryFee.toFixed(2)}€</span>
+                      <span className="font-bold">{(deliveryFee || 0).toFixed(2)}€</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-lg">
+                  <div className="flex justify-between border-t pt-2 mt-2">
                     <span className="font-bold">Total</span>
-                    <span className="font-bold text-orange-500">
+                    <span className="text-xl font-bold text-orange-500">
                       {(getCartTotal() + (orderType === 'delivery' ? deliveryFee : 0)).toFixed(2)}€
                     </span>
                   </div>
                 </div>
-                
-                <div className="flex gap-4 mt-6">
-                  <button
-                    onClick={() => goToStep('menu')}
-                    className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
-                  >
-                    ← Menu
-                  </button>
-                  <button
-                    onClick={() => goToStep('details')}
-                    className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold"
-                  >
-                    Continuer →
-                  </button>
-                </div>
-              </>
+
+                <button
+                  onClick={() => goToStep('details')}
+                  className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl hover:bg-orange-600 transition-colors"
+                >
+                  Continuer →
+                </button>
+              </div>
             )}
           </div>
         )}
 
-        {/* ÉTAPE: DÉTAILS */}
+        {/* ÉTAPE: COORDONNÉES */}
         {step === 'details' && (
-          <div className="bg-white rounded-2xl p-6">
-            <h2 className="text-xl font-bold mb-6">📝 Vos coordonnées</h2>
-            
-            <div className="space-y-4">
-              {!customer && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Nom *</label>
-                    <input
-                      type="text"
-                      value={guestName}
-                      onChange={e => setGuestName(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      placeholder="Votre nom"
-                      required
-                    />
+          <div>
+            <button
+              onClick={() => goToStep('cart')}
+              className="text-gray-500 mb-4 flex items-center gap-2"
+            >
+              ← Retour au panier
+            </button>
+
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Vos coordonnées</h2>
+
+            {customer ? (
+              <div className="bg-white rounded-2xl p-6 mb-6">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-xl">
+                    👤
                   </div>
-                  
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email *</label>
-                    <input
-                      type="email"
-                      value={guestEmail}
-                      onChange={e => setGuestEmail(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      placeholder="votre@email.com"
-                      required
-                    />
+                    <p className="font-bold">
+                      {customer.first_name || ''} {customer.last_name || ''}
+                    </p>
+                    <p className="text-gray-500 text-sm">{customer.email}</p>
+                    {customer.phone && (
+                      <p className="text-gray-500 text-sm">{customer.phone}</p>
+                    )}
                   </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Téléphone *</label>
-                    <input
-                      type="tel"
-                      value={guestPhone}
-                      onChange={e => setGuestPhone(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      placeholder="0470 00 00 00"
-                      required
-                    />
-                  </div>
-                </>
-              )}
-              
-              {customer && (
-                <div className="bg-green-50 rounded-xl p-4 mb-4">
-                  <p className="font-medium text-green-800">✓ Connecté en tant que {customer.email}</p>
-                  {customer.first_name && <p className="text-green-700">{customer.first_name} {customer.last_name}</p>}
                 </div>
-              )}
-              
-              {orderType === 'delivery' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Adresse de livraison *</label>
-                  <input
-                    type="text"
-                    value={deliveryAddress}
-                    onChange={e => setDeliveryAddress(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    placeholder="Rue, numéro, code postal, ville"
-                    required
-                  />
+                {customer.loyalty_points > 0 && (
+                  <div className="bg-orange-50 rounded-xl p-4">
+                    <p className="text-orange-600 font-medium">
+                      ⭐ Vous avez {customer.loyalty_points} points de fidélité
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4 mb-6">
+                <div className="bg-white rounded-2xl p-6">
+                  <div className="flex gap-4 mb-4">
+                    <button
+                      onClick={() => setShowAuthModal(true)}
+                      className="flex-1 bg-orange-500 text-white font-bold py-3 rounded-xl"
+                    >
+                      Se connecter
+                    </button>
+                    <button
+                      onClick={() => setGuestMode(true)}
+                      className="flex-1 bg-gray-100 text-gray-700 font-bold py-3 rounded-xl"
+                    >
+                      Continuer en invité
+                    </button>
+                  </div>
+
+                  {guestMode && (
+                    <div className="space-y-4 pt-4 border-t">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Nom *
+                        </label>
+                        <input
+                          type="text"
+                          value={guestName}
+                          onChange={e => setGuestName(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="Votre nom"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Email *
+                        </label>
+                        <input
+                          type="email"
+                          value={guestEmail}
+                          onChange={e => setGuestEmail(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="votre@email.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Téléphone *
+                        </label>
+                        <input
+                          type="tel"
+                          value={guestPhone}
+                          onChange={e => setGuestPhone(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          placeholder="+32 470 00 00 00"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Notes (optionnel)</label>
-                <textarea
-                  value={deliveryNotes}
-                  onChange={e => setDeliveryNotes(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  rows={2}
-                  placeholder="Instructions spéciales, code d'entrée..."
+              </div>
+            )}
+
+            {/* Adresse de livraison */}
+            {orderType === 'delivery' && establishment && (
+              <div className="bg-white rounded-2xl p-6 mb-6">
+                <h3 className="font-bold mb-4">🚗 Adresse de livraison</h3>
+                <AddressInput
+                  establishmentId={establishment.id}
+                  value={deliveryAddress}
+                  onChange={(value) => {
+                    setDeliveryAddress(value)
+                    if (deliveryValidated) {
+                      setDeliveryValidated(false)
+                      setDeliveryInfo(null)
+                    }
+                  }}
+                  onAddressValidated={(data) => {
+                    setDeliveryAddress(data.address)
+                    setDeliveryLat(data.lat)
+                    setDeliveryLng(data.lng)
+                    setDeliveryValidated(true)
+                    setDeliveryInfo({
+                      deliverable: data.deliveryCheck.isDeliverable,
+                      distance: data.deliveryCheck.distance,
+                      duration: data.deliveryCheck.duration,
+                    })
+                    setDeliveryFee(data.deliveryCheck.fee)
+                  }}
+                  onClear={() => {
+                    setDeliveryValidated(false)
+                    setDeliveryInfo(null)
+                    setDeliveryLat(null)
+                    setDeliveryLng(null)
+                    setDeliveryFee(0)
+                  }}
                 />
               </div>
-            </div>
-            
-            <div className="flex gap-4 mt-6">
-              <button
-                onClick={() => goToStep('cart')}
-                className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
-              >
-                ← Panier
-              </button>
-              <button
-                onClick={() => goToStep('timeslot')}
-                disabled={!customer && (!guestName || !guestEmail || !guestPhone)}
-                className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50"
-              >
-                Continuer →
-              </button>
-            </div>
+            )}
+
+            <button
+              onClick={() => goToStep('timeslot')}
+              disabled={
+                (!customer && !guestMode) ||
+                (guestMode && (!guestName || !guestEmail || !guestPhone)) ||
+                (orderType === 'delivery' && !deliveryValidated)
+              }
+              className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl hover:bg-orange-600 transition-colors disabled:opacity-50"
+            >
+              Choisir le créneau →
+            </button>
           </div>
         )}
 
         {/* ÉTAPE: CRÉNEAU */}
         {step === 'timeslot' && (
-          <div className="bg-white rounded-2xl p-6">
-            <h2 className="text-xl font-bold mb-6">📅 Choisissez un créneau</h2>
-            
+          <div>
+            <button
+              onClick={() => goToStep('details')}
+              className="text-gray-500 mb-4 flex items-center gap-2"
+            >
+              ← Retour
+            </button>
+
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">
+              {orderType === 'pickup' ? 'Heure de retrait' : 'Heure de livraison'}
+            </h2>
+
             {loadingSlots ? (
-              <div className="text-center py-8">
-                <span className="text-4xl block mb-4 animate-spin">⏳</span>
+              <div className="bg-white rounded-2xl p-8 text-center">
                 <p className="text-gray-500">Chargement des créneaux...</p>
               </div>
             ) : (
-              <>
+              <div className="space-y-4">
                 {/* Sélection du jour */}
-                <div className="flex gap-2 overflow-x-auto pb-4 mb-6">
-                  {availableSlots.map(day => (
-                    <button
-                      key={day.date}
-                      onClick={() => setSelectedDay(day.date)}
-                      className={`px-4 py-3 rounded-xl whitespace-nowrap font-medium transition-colors ${
-                        selectedDay === day.date
-                          ? 'bg-orange-500 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {day.dayLabel}
-                    </button>
-                  ))}
+                <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+                  {timeSlots.map(day => {
+                    const hasAvailable = day.slots.some(s => s.available)
+                    return (
+                      <button
+                        key={day.date}
+                        onClick={() => {
+                          setSelectedDate(day.date)
+                          setSelectedTime(null)
+                        }}
+                        disabled={!hasAvailable}
+                        className={`px-4 py-3 rounded-xl whitespace-nowrap font-medium transition-colors ${
+                          selectedDate === day.date
+                            ? 'bg-orange-500 text-white'
+                            : hasAvailable
+                            ? 'bg-white text-gray-700 hover:bg-gray-100'
+                            : 'bg-gray-100 text-gray-400'
+                        }`}
+                      >
+                        {day.dayLabel}
+                      </button>
+                    )
+                  })}
                 </div>
-                
-                {/* Créneaux horaires */}
-                {selectedDay && (
-                  <div className="grid grid-cols-3 gap-3">
-                    {availableSlots
-                      .find(d => d.date === selectedDay)
-                      ?.slots.map(slot => (
+
+                {/* Créneaux du jour sélectionné */}
+                <div className="bg-white rounded-2xl p-4">
+                  {selectedDaySlots.length === 0 ? (
+                    <p className="text-gray-500 text-center py-4">
+                      Aucun créneau disponible ce jour
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                      {selectedDaySlots.map(slot => (
                         <button
                           key={slot.time}
                           onClick={() => slot.available && setSelectedTime(slot.time)}
                           disabled={!slot.available}
-                          className={`p-3 rounded-xl text-center transition-colors ${
+                          className={`py-3 rounded-xl text-sm font-medium transition-colors ${
                             selectedTime === slot.time
                               ? 'bg-orange-500 text-white'
                               : slot.available
-                              ? 'bg-gray-100 hover:bg-gray-200'
-                              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                              ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                              : 'bg-gray-50 text-gray-300'
                           }`}
                         >
-                          <span className="font-medium">{slot.label}</span>
-                          {slot.available && slot.remainingSlots <= 3 && (
-                            <span className="block text-xs text-orange-500">
-                              {slot.remainingSlots} place{slot.remainingSlots > 1 ? 's' : ''}
-                            </span>
-                          )}
+                          {slot.label}
                         </button>
                       ))}
+                    </div>
+                  )}
+                </div>
+
+                {selectedDate && selectedTime && (
+                  <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
+                    <p className="text-green-700 font-medium">
+                      ✅ {orderType === 'pickup' ? 'Retrait' : 'Livraison'} le{' '}
+                      {timeSlots.find(d => d.date === selectedDate)?.dayLabel} à {selectedTime}
+                    </p>
                   </div>
                 )}
-              </>
+
+                <button
+                  onClick={() => goToStep('payment')}
+                  disabled={!selectedDate || !selectedTime}
+                  className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl hover:bg-orange-600 transition-colors disabled:opacity-50"
+                >
+                  Passer au paiement →
+                </button>
+              </div>
             )}
-            
-            <div className="flex gap-4 mt-6">
-              <button
-                onClick={() => goToStep('details')}
-                className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
-              >
-                ← Détails
-              </button>
-              <button
-                onClick={() => goToStep('payment')}
-                disabled={!selectedDay || !selectedTime}
-                className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50"
-              >
-                Continuer →
-              </button>
-            </div>
           </div>
         )}
 
         {/* ÉTAPE: PAIEMENT */}
         {step === 'payment' && (
-          <div className="bg-white rounded-2xl p-6">
-            <h2 className="text-xl font-bold mb-6">💳 Récapitulatif & Paiement</h2>
-            
-            {/* Résumé */}
-            <div className="bg-gray-50 rounded-xl p-4 mb-6">
-              <h3 className="font-bold mb-3">Votre commande</h3>
+          <div>
+            <button
+              onClick={() => goToStep('timeslot')}
+              className="text-gray-500 mb-4 flex items-center gap-2"
+            >
+              ← Retour
+            </button>
+
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Récapitulatif</h2>
+
+            {/* Résumé commande */}
+            <div className="bg-white rounded-2xl p-6 mb-6">
+              <h3 className="font-bold mb-4">🛒 Votre commande</h3>
               {cart.map(item => (
-                <div key={item.id} className="flex justify-between text-sm py-1">
-                  <span>{item.quantity}x {item.name}</span>
-                  <span>{((item.price + item.optionsTotal) * item.quantity).toFixed(2)}€</span>
+                <div key={item.id} className="flex justify-between py-2 border-b last:border-0">
+                  <div>
+                    <span>{item.quantity}x {item.name}</span>
+                    {item.options.length > 0 && (
+                      <div className="text-xs text-gray-500">
+                        {item.options.map(o => o.item_name).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                  <span className="font-medium">
+                    {((item.price + (item.optionsTotal || 0)) * item.quantity).toFixed(2)}€
+                  </span>
                 </div>
               ))}
-              <div className="border-t mt-2 pt-2 flex justify-between font-bold">
-                <span>Total</span>
-                <span className="text-orange-500">
-                  {(getCartTotal() + (orderType === 'delivery' ? deliveryFee : 0)).toFixed(2)}€
-                </span>
+
+              <div className="mt-4 pt-4 border-t space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Sous-total</span>
+                  <span>{getCartTotal().toFixed(2)}€</span>
+                </div>
+                {orderType === 'delivery' && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Livraison</span>
+                    <span>{(deliveryFee || 0).toFixed(2)}€</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold text-lg">
+                  <span>Total</span>
+                  <span className="text-orange-500">
+                    {(getCartTotal() + (orderType === 'delivery' ? deliveryFee : 0)).toFixed(2)}€
+                  </span>
+                </div>
               </div>
             </div>
-            
-            {/* Infos */}
-            <div className="bg-orange-50 rounded-xl p-4 mb-6">
-              <p className="font-medium text-orange-800">
-                {orderType === 'pickup' ? '🥡 Retrait' : '🚗 Livraison'} prévu le :
+
+            {/* Infos retrait/livraison */}
+            <div className="bg-white rounded-2xl p-6 mb-6">
+              <h3 className="font-bold mb-4">
+                {orderType === 'pickup' ? '🥡 Retrait' : '🚗 Livraison'}
+              </h3>
+              <p className="text-gray-700">
+                {timeSlots.find(d => d.date === selectedDate)?.dayLabel} à {selectedTime}
               </p>
-              <p className="text-lg font-bold text-orange-600">
-                {selectedDay && new Date(selectedDay).toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' })} à {selectedTime}
-              </p>
+              {orderType === 'pickup' && establishment.address && (
+                <p className="text-gray-500 text-sm mt-2">📍 {establishment.address}</p>
+              )}
+              {orderType === 'delivery' && deliveryAddress && (
+                <p className="text-gray-500 text-sm mt-2">📍 {deliveryAddress}</p>
+              )}
             </div>
-            
-            <div className="flex gap-4">
-              <button
-                onClick={() => goToStep('timeslot')}
-                className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
-              >
-                ← Créneau
-              </button>
-              <button
-                onClick={submitOrder}
-                disabled={isSubmitting}
-                className="flex-1 px-6 py-3 rounded-xl bg-green-500 text-white font-semibold disabled:opacity-50"
-              >
-                {isSubmitting ? 'Envoi...' : '✓ Payer et commander'}
-              </button>
-            </div>
+
+            {/* Bouton payer */}
+            <button
+              onClick={submitOrder}
+              disabled={submitting}
+              className="w-full bg-green-500 text-white font-bold py-4 rounded-2xl hover:bg-green-600 transition-colors disabled:opacity-50"
+            >
+              {submitting ? 'Traitement...' : '💳 Payer et commander'}
+            </button>
+
+            <p className="text-center text-gray-400 text-sm mt-4">
+              🔒 Paiement sécurisé par Viva Wallet
+            </p>
           </div>
         )}
 
         {/* ÉTAPE: CONFIRMATION */}
-        {step === 'confirmation' && (
-          <div className="bg-white rounded-2xl p-8 text-center">
-            <span className="text-6xl block mb-4">✅</span>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Commande confirmée !</h2>
-            <p className="text-gray-500 mb-6">Merci pour votre commande</p>
-            
-            <div className="bg-orange-50 rounded-2xl p-6 mb-6">
-              <p className="text-gray-600 mb-2">Numéro de commande</p>
-              <p className="text-4xl font-bold text-orange-500">{orderNumber}</p>
-            </div>
-            
-            {pickupCode && (
-              <div className="bg-gray-100 rounded-2xl p-6 mb-6">
-                <p className="text-gray-600 mb-2">Code de retrait</p>
-                <p className="text-3xl font-bold font-mono tracking-widest">{pickupCode}</p>
+        {step === 'confirmation' && orderResult && (
+          <div className="text-center py-8">
+            <div className="bg-white rounded-2xl p-8 max-w-md mx-auto">
+              <span className="text-6xl block mb-4">✅</span>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Commande confirmée !</h2>
+              <p className="text-gray-500 mb-6">Merci pour votre commande</p>
+
+              <div className="bg-orange-50 rounded-2xl p-6 mb-6">
+                <p className="text-gray-600 mb-2">Numéro de commande</p>
+                <p className="text-4xl font-bold text-orange-500">{orderResult.orderNumber}</p>
               </div>
-            )}
-            
-            <p className="text-gray-500 text-sm mb-6">
-              Un email de confirmation vous a été envoyé.
-            </p>
-            
-            <button
-              onClick={() => {
-                setStep('menu')
-                setCart([])
-                setSelectedDay('')
-                setSelectedTime('')
-              }}
-              className="bg-orange-500 text-white font-bold px-8 py-3 rounded-xl"
-            >
-              Nouvelle commande
-            </button>
+
+              {orderResult.pickupCode && (
+                <div className="bg-gray-100 rounded-2xl p-6 mb-6">
+                  <p className="text-gray-600 mb-2">Code de retrait</p>
+                  <p className="text-3xl font-bold font-mono tracking-widest">
+                    {orderResult.pickupCode}
+                  </p>
+                </div>
+              )}
+
+              <p className="text-gray-500 mb-6">
+                Vous recevrez un email de confirmation avec tous les détails.
+              </p>
+
+              <button
+                onClick={() => {
+                  setStep('menu')
+                  setOrderResult(null)
+                }}
+                className="bg-orange-500 text-white font-bold px-8 py-3 rounded-xl"
+              >
+                Nouvelle commande
+              </button>
+            </div>
           </div>
         )}
       </main>
@@ -1380,7 +1487,7 @@ export default function OrderPage() {
                   disabled={!canProceed()}
                   className="px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50"
                 >
-                  {currentPropositionIndex === currentPropositions.length - 1 ? 'Ajouter →' : 'Suivant →'}
+                  {currentPropositionIndex === currentPropositions.length - 1 ? 'Ajouter' : 'Suivant →'}
                 </button>
               </div>
             )}
@@ -1388,78 +1495,87 @@ export default function OrderPage() {
         </div>
       )}
 
-      {/* ==================== MODAL AUTH ==================== */}
+      {/* Modal Auth */}
       {showAuthModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              {authStep === 'email' ? 'Connexion' : 'Vérification'}
-            </h2>
-
-            {authError && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4">
-                {authError}
+          <div className="bg-white rounded-2xl w-full max-w-sm">
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold">Connexion</h2>
+                <button
+                  onClick={() => {
+                    setShowAuthModal(false)
+                    setAuthStep('email')
+                    setAuthError('')
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  ✕
+                </button>
               </div>
-            )}
+            </div>
 
-            {authStep === 'email' ? (
-              <div>
-                <p className="text-gray-500 mb-4">
-                  Entrez votre email pour recevoir un code de connexion
-                </p>
-                <input
-                  type="email"
-                  value={authEmail}
-                  onChange={e => setAuthEmail(e.target.value)}
-                  placeholder="votre@email.com"
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4"
-                />
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowAuthModal(false)}
-                    className="flex-1 px-4 py-3 rounded-xl border border-gray-200 font-medium"
-                  >
-                    Annuler
-                  </button>
+            <div className="p-6">
+              {authError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4">
+                  {authError}
+                </div>
+              )}
+
+              {authStep === 'email' ? (
+                <div>
+                  <p className="text-gray-500 mb-4">
+                    Entrez votre email pour recevoir un code de connexion
+                  </p>
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={e => setAuthEmail(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4"
+                    placeholder="votre@email.com"
+                    autoFocus
+                  />
                   <button
                     onClick={sendOtp}
-                    disabled={!authEmail || authLoading}
-                    className="flex-1 px-4 py-3 rounded-xl bg-orange-500 text-white font-medium disabled:opacity-50"
+                    disabled={authLoading || !authEmail}
+                    className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl disabled:opacity-50"
                   >
                     {authLoading ? 'Envoi...' : 'Recevoir le code'}
                   </button>
                 </div>
-              </div>
-            ) : (
-              <div>
-                <p className="text-gray-500 mb-4">
-                  Entrez le code reçu par email à {authEmail}
-                </p>
-                <input
-                  type="text"
-                  value={authOtp}
-                  onChange={e => setAuthOtp(e.target.value.toUpperCase())}
-                  placeholder="CODE"
-                  maxLength={6}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4 text-center text-2xl tracking-widest font-mono"
-                />
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setAuthStep('email')}
-                    className="flex-1 px-4 py-3 rounded-xl border border-gray-200 font-medium"
-                  >
-                    Retour
-                  </button>
+              ) : (
+                <div>
+                  <p className="text-gray-500 mb-4">
+                    Code envoyé à <strong>{authEmail}</strong>
+                  </p>
+                  <input
+                    type="text"
+                    value={authOtp}
+                    onChange={e => setAuthOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4 text-center text-2xl font-mono tracking-widest"
+                    placeholder="000000"
+                    maxLength={6}
+                    autoFocus
+                  />
                   <button
                     onClick={verifyOtp}
-                    disabled={authOtp.length < 4 || authLoading}
-                    className="flex-1 px-4 py-3 rounded-xl bg-orange-500 text-white font-medium disabled:opacity-50"
+                    disabled={authLoading || authOtp.length !== 6}
+                    className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl disabled:opacity-50 mb-3"
                   >
-                    {authLoading ? 'Vérification...' : 'Vérifier'}
+                    {authLoading ? 'Vérification...' : 'Valider'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAuthStep('email')
+                      setAuthOtp('')
+                    }}
+                    className="w-full text-gray-500 text-sm"
+                  >
+                    ← Changer d'email
                   </button>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
