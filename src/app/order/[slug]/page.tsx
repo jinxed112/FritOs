@@ -235,7 +235,7 @@ export default function OrderPage() {
       .from('option_groups')
       .select(`
         id, name, selection_type, min_selections, max_selections,
-        option_group_items (
+        option_group_items!option_group_items_option_group_id_fkey (
           id, product_id, price_override, is_default, triggers_option_group_id,
           product:products (id, name, price, image_url)
         )
@@ -244,7 +244,24 @@ export default function OrderPage() {
       .eq('is_active', true)
       .order('display_order')
 
-    setAllOptionGroups((optGroups || []) as OptionGroup[])
+    // Transformer les données pour correspondre au type OptionGroup
+    const transformedOptionGroups: OptionGroup[] = (optGroups || []).map((og: any) => ({
+      id: og.id,
+      name: og.name,
+      selection_type: og.selection_type,
+      min_selections: og.min_selections,
+      max_selections: og.max_selections,
+      option_group_items: (og.option_group_items || []).map((item: any) => ({
+        id: item.id,
+        product_id: item.product_id,
+        price_override: item.price_override,
+        is_default: item.is_default,
+        triggers_option_group_id: item.triggers_option_group_id,
+        product: item.product, // Supabase retourne déjà un objet ici grâce à la relation
+      })),
+    }))
+
+    setAllOptionGroups(transformedOptionGroups)
 
     // Charger les liens product_option_groups
     const { data: prodOptGroups } = await supabase
