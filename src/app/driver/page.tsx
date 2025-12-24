@@ -209,12 +209,12 @@ export default function DriverPage() {
       setView('available')
     }
 
-    // Charger les suggestions depuis la DB (calculées par Edge Function)
+    // Charger les suggestions depuis la DB (pending ET accepted)
     const { data: suggestionsData } = await supabase
       .from('v_suggested_rounds_details')
       .select('*')
       .eq('establishment_id', establishmentId)
-      .eq('status', 'pending')
+      .in('status', ['pending', 'accepted'])
       .order('prep_at', { ascending: true })
 
     const suggestions: SuggestedRound[] = (suggestionsData || []).map((r: any) => ({
@@ -749,42 +749,83 @@ export default function DriverPage() {
                   🚀 Tournées suggérées
                 </h3>
                 
-                {suggestedRounds.map((suggestion, idx) => (
-                  <div key={suggestion.id} className="bg-white/10 rounded-xl p-3 mb-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold">{suggestion.orders.length} livraisons groupées</span>
-                      <span className="text-sm bg-white/30 px-2 py-0.5 rounded">
-                        ~{suggestion.total_distance_minutes} min trajet
-                      </span>
-                    </div>
-                    
-                    <div className="space-y-1 mb-3">
-                      {suggestion.orders.map((o, i) => (
-                        <div key={i} className="flex items-center justify-between text-sm">
-                          <span>
-                            #{o.order_number} - {(o.delivery_address || '').substring(0, 25)}...
-                          </span>
-                          <span className="text-white/80">
-                            ~{formatTime(o.estimated_delivery)}
-                          </span>
+                {suggestedRounds.map((suggestion, idx) => {
+                  // Vérifier si toutes les commandes sont prêtes
+                  const allOrdersReady = suggestion.orders.every(o => o.status === 'ready')
+                  const isAccepted = suggestion.status === 'accepted'
+                  const canTake = isAccepted && allOrdersReady
+                  
+                  // Déterminer le message du bouton
+                  let buttonText = '✅ Prendre cette tournée'
+                  let buttonClass = 'bg-white text-green-600 hover:bg-green-50'
+                  
+                  if (!isAccepted) {
+                    buttonText = '⏳ En attente de validation KDS'
+                    buttonClass = 'bg-white/50 text-green-800 cursor-not-allowed'
+                  } else if (!allOrdersReady) {
+                    buttonText = '👨‍🍳 En préparation...'
+                    buttonClass = 'bg-white/50 text-green-800 cursor-not-allowed'
+                  }
+                  
+                  return (
+                    <div key={suggestion.id} className={`rounded-xl p-3 mb-3 ${isAccepted ? 'bg-white/20' : 'bg-white/10'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold">{suggestion.orders.length} livraisons groupées</span>
+                          {!isAccepted && (
+                            <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded">
+                              En attente
+                            </span>
+                          )}
+                          {isAccepted && !allOrdersReady && (
+                            <span className="text-xs bg-orange-400 text-orange-900 px-2 py-0.5 rounded">
+                              En prépa
+                            </span>
+                          )}
+                          {canTake && (
+                            <span className="text-xs bg-green-300 text-green-900 px-2 py-0.5 rounded">
+                              Prêt !
+                            </span>
+                          )}
                         </div>
-                      ))}
+                        <span className="text-sm bg-white/30 px-2 py-0.5 rounded">
+                          ~{suggestion.total_distance_minutes} min trajet
+                        </span>
+                      </div>
+                      
+                      <div className="space-y-1 mb-3">
+                        {suggestion.orders.map((o, i) => (
+                          <div key={i} className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <span>
+                                #{o.order_number} - {(o.delivery_address || '').substring(0, 25)}...
+                              </span>
+                              {o.status === 'ready' && <span className="text-green-200">✓</span>}
+                              {o.status === 'preparing' && <span className="text-yellow-200">🍳</span>}
+                              {o.status === 'pending' && <span className="text-white/50">⏳</span>}
+                            </div>
+                            <span className="text-white/80">
+                              ~{formatTime(o.estimated_delivery)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <div className="flex items-center justify-between text-sm mb-3 text-white/80">
+                        <span>⏰ Préparer: {formatTime(suggestion.prep_at)}</span>
+                        <span>🚗 Départ: {formatTime(suggestion.depart_at)}</span>
+                      </div>
+                      
+                      <button
+                        onClick={() => canTake && takeSuggestedRound(suggestion)}
+                        disabled={!canTake || loading}
+                        className={`w-full font-bold py-3 rounded-xl disabled:opacity-50 ${buttonClass}`}
+                      >
+                        {buttonText}
+                      </button>
                     </div>
-                    
-                    <div className="flex items-center justify-between text-sm mb-3 text-white/80">
-                      <span>⏰ Préparer: {formatTime(suggestion.prep_at)}</span>
-                      <span>🚗 Départ: {formatTime(suggestion.depart_at)}</span>
-                    </div>
-                    
-                    <button
-                      onClick={() => takeSuggestedRound(suggestion)}
-                      disabled={loading}
-                      className="w-full bg-white text-green-600 font-bold py-3 rounded-xl hover:bg-green-50 disabled:opacity-50"
-                    >
-                      ✅ Prendre cette tournée
-                    </button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
 
