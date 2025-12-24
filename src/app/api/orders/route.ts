@@ -6,6 +6,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Fonction pour déterminer si une date est en heure d'été (CEST) ou hiver (CET)
+function getBrusselsOffset(dateStr: string): string {
+  const date = new Date(dateStr + 'T12:00:00Z')
+  const year = date.getUTCFullYear()
+  
+  // Dernier dimanche de mars (début heure d'été)
+  const marchLast = new Date(Date.UTC(year, 2, 31))
+  while (marchLast.getUTCDay() !== 0) marchLast.setUTCDate(marchLast.getUTCDate() - 1)
+  
+  // Dernier dimanche d'octobre (fin heure d'été)
+  const octoberLast = new Date(Date.UTC(year, 9, 31))
+  while (octoberLast.getUTCDay() !== 0) octoberLast.setUTCDate(octoberLast.getUTCDate() - 1)
+  
+  // Heure d'été si entre fin mars et fin octobre
+  if (date >= marchLast && date < octoberLast) {
+    return '+02:00' // CEST (été)
+  }
+  return '+01:00' // CET (hiver)
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -78,7 +98,7 @@ export async function POST(request: NextRequest) {
         for (const opt of item.options) {
           optionsTotal += opt.price || 0
           optionsData.push({
-            item_name: opt.item_name || opt.name || 'Option',  // Fix: frontend envoie item_name
+            item_name: opt.item_name || opt.name || 'Option',
             price: opt.price || 0,
           })
         }
@@ -108,15 +128,14 @@ export async function POST(request: NextRequest) {
     const vatRate = 6
     const taxAmount = total * vatRate / (100 + vatRate)
 
-    // Créer le créneau prévu
-    const scheduledTime = `${slotDate}T${slotTime}:00`
+    // Créer le créneau prévu avec le bon timezone (Europe/Brussels)
+    const brusselsOffset = getBrusselsOffset(slotDate)
+    const scheduledTime = `${slotDate}T${slotTime}:00${brusselsOffset}`
 
     // Générer un numéro de commande unique
     const orderNumber = await generateOrderNumber(establishmentId)
 
     // Mapper le type de commande vers les valeurs acceptées par la DB
-    // La contrainte accepte: 'eat_in', 'takeaway', 'delivery', 'table'
-    // Click & Collect retrait = 'takeaway', livraison = 'delivery'
     const dbOrderType = orderType === 'delivery' ? 'delivery' : 'takeaway'
 
     // Créer la commande
@@ -149,6 +168,7 @@ export async function POST(request: NextRequest) {
           slot_time: slotTime,
           delivery_lat: deliveryLat,
           delivery_lng: deliveryLng,
+          delivery_duration: null, // Sera calculé si besoin
         },
       })
       .select()
@@ -174,7 +194,6 @@ export async function POST(request: NextRequest) {
 
     if (itemsError) {
       console.error('Erreur items commande:', itemsError)
-      // La commande est créée mais pas les items - on continue quand même
     }
 
     // Réserver le créneau (si table slot_reservations existe)
@@ -187,10 +206,9 @@ export async function POST(request: NextRequest) {
           slot_time: slotTime,
           order_id: order.id,
           order_type: orderType,
-          estimated_prep_time: orderItems.length * 5, // ~5 min par item
+          estimated_prep_time: orderItems.length * 5,
         })
     } catch (e) {
-      // Pas grave si la table n'existe pas
       console.log('Slot reservation skipped:', e)
     }
 
@@ -200,7 +218,6 @@ export async function POST(request: NextRequest) {
       orderId: order.id,
       orderNumber: order.order_number,
       total: total,
-      // URL de paiement (à implémenter avec Viva)
       paymentUrl: null,
     })
 
@@ -214,7 +231,6 @@ export async function POST(request: NextRequest) {
 }
 
 async function generateOrderNumber(establishmentId: string): Promise<string> {
-  // Essayer d'utiliser la fonction DB si elle existe
   try {
     const { data, error } = await supabase.rpc('generate_order_number', {
       p_establishment_id: establishmentId
@@ -224,9 +240,8 @@ async function generateOrderNumber(establishmentId: string): Promise<string> {
     // Fonction n'existe pas, fallback
   }
 
-  // Fallback: générer un numéro basé sur timestamp
   const now = new Date()
-  const prefix = 'W' // W pour Web/Click & Collect
+  const prefix = 'W'
   const timestamp = now.getTime().toString(36).toUpperCase().slice(-4)
   const random = Math.random().toString(36).substring(2, 4).toUpperCase()
   return `${prefix}${timestamp}${random}`
