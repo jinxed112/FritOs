@@ -994,7 +994,7 @@ export default function KitchenPage() {
     if (error) {
       console.error('Erreur avancement tournée:', error)
     } else {
-      playSound()
+      playNotificationSound()
     }
   }
 
@@ -1022,7 +1022,7 @@ export default function KitchenPage() {
     if (roundError) {
       console.error('Erreur annulation suggestion:', roundError)
     } else {
-      playSound()
+      playNotificationSound()
     }
   }
 
