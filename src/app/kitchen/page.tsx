@@ -827,7 +827,7 @@ export default function KitchenPage() {
     )
   }
 
-  function renderOrderInfo(order: Order) {
+  function renderOrderInfo(order: Order, isInRound: boolean = false) {
     if (!isClickAndCollect(order)) return null
     
     const isExpanded = expandedOrderInfo[order.id]
@@ -838,19 +838,22 @@ export default function KitchenPage() {
         <button onClick={(e) => { e.stopPropagation(); toggleOrderInfo(order.id) }}
           className="w-full p-2 flex items-center justify-between hover:bg-slate-600/50 transition-colors">
           <div className="flex items-center gap-2">
-            <span className={`text-xs font-bold px-2 py-1 rounded ${
-              launchInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
-              launchInfo.isNow ? 'bg-red-500 text-white' :
-              launchInfo.isUpcoming ? 'bg-orange-500 text-white' :
-              'bg-cyan-500/30 text-cyan-300'
-            }`}>
-              🚀 Lancer à {launchInfo.time}
-            </span>
+            {/* N'afficher l'heure de lancement QUE si pas dans une tournée */}
+            {!isInRound && (
+              <span className={`text-xs font-bold px-2 py-1 rounded ${
+                launchInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
+                launchInfo.isNow ? 'bg-red-500 text-white' :
+                launchInfo.isUpcoming ? 'bg-orange-500 text-white' :
+                'bg-cyan-500/30 text-cyan-300'
+              }`}>
+                🚀 Lancer à {launchInfo.time}
+              </span>
+            )}
             {order.order_type === 'delivery' && <span className="text-xs text-gray-400">🚗 Livraison</span>}
             {order.order_type === 'takeaway' && <span className="text-xs text-gray-400">🛍️ Retrait</span>}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">📅 Pour {formatTime(order.scheduled_time)}</span>
+            <span className="text-xs text-gray-400">🎯 Pour {formatTime(order.scheduled_time)}</span>
             <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
           </div>
         </button>
@@ -906,7 +909,8 @@ export default function KitchenPage() {
             <span className={`${column.key === 'completed' ? 'text-xl' : 'text-2xl'} font-bold`}>{order.order_number || '?'}</span>
             <span className="text-xl">{getOrderTypeEmoji(order.order_type)}</span>
             {order.is_offered && <span className="text-lg" title="Offert">🎁</span>}
-            {column.key !== 'completed' && (
+            {/* Badge de timing - seulement si PAS dans une tournée */}
+            {column.key !== 'completed' && !isInRound && (
               <span className={`text-xs px-2 py-1 rounded font-bold ${
                 launchInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
                 launchInfo.isNow ? 'bg-red-500 text-white' :
@@ -938,7 +942,7 @@ export default function KitchenPage() {
           </div>
         </div>
         
-        {column.key !== 'completed' && renderOrderInfo(order)}
+        {column.key !== 'completed' && renderOrderInfo(order, isInRound)}
         
         {column.key !== 'completed' && (
           <div className="p-3 space-y-2">
