@@ -281,45 +281,6 @@ function formatTime(isoString: string | null | undefined): string {
   }
 }
 
-// Calcule l'heure à laquelle commencer la préparation
-function calculatePrepStartTime(
-  scheduledTime: string | null | undefined, 
-  orderType: string,
-  avgPrepTime: number,
-  deliveryDuration?: number
-): { time: string, isUrgent: boolean, isPast: boolean } {
-  if (!scheduledTime) return { time: '--:--', isUrgent: false, isPast: false }
-  
-  try {
-    const scheduled = new Date(scheduledTime)
-    const now = new Date()
-    
-    // Temps total à soustraire
-    let totalMinutesToSubtract = avgPrepTime
-    
-    // Ajouter le temps de livraison si c'est une livraison
-    if (orderType === 'delivery') {
-      totalMinutesToSubtract += deliveryDuration || DEFAULT_DELIVERY_TIME
-    }
-    
-    // Calculer l'heure de début de préparation
-    const prepStartTime = new Date(scheduled.getTime() - totalMinutesToSubtract * 60 * 1000)
-    
-    // Vérifier si c'est urgent (moins de 5 min) ou dépassé
-    const diffMinutes = (prepStartTime.getTime() - now.getTime()) / (60 * 1000)
-    const isUrgent = diffMinutes <= 5 && diffMinutes > -5
-    const isPast = diffMinutes < -5
-    
-    return {
-      time: prepStartTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' }),
-      isUrgent,
-      isPast
-    }
-  } catch {
-    return { time: '--:--', isUrgent: false, isPast: false }
-  }
-}
-
 // ==================== MAIN COMPONENT ====================
 export default function KitchenPage() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -541,7 +502,50 @@ export default function KitchenPage() {
     setExpandedOrderInfo(prev => ({ ...prev, [orderId]: !prev[orderId] }))
   }
 
-  const allOrders = [...orders, ...offeredOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+  // Fonction pour calculer l'heure à laquelle on doit LANCER la préparation
+  function getLaunchTime(order: Order): number {
+    // Commande sur place (borne, comptoir, table) → created_at (immédiat)
+    if (!order.scheduled_time || order.metadata?.source !== 'click_and_collect') {
+      return new Date(order.created_at).getTime()
+    }
+    
+    // Commande C&C avec heure programmée
+    const scheduledTime = new Date(order.scheduled_time).getTime()
+    const prepTime = avgPrepTime * 60 * 1000 // Temps de prépa en ms
+    
+    // Livraison = soustraire aussi le temps de trajet
+    if (order.order_type === 'delivery') {
+      const deliveryTime = (order.metadata?.delivery_duration || DEFAULT_DELIVERY_TIME) * 60 * 1000
+      return scheduledTime - prepTime - deliveryTime
+    }
+    
+    // Retrait = juste le temps de prépa
+    return scheduledTime - prepTime
+  }
+
+  // Fonction pour formater l'heure de lancement pour affichage
+  function formatLaunchTime(order: Order): { time: string, isNow: boolean, isPast: boolean, isUpcoming: boolean } {
+    const launchTime = getLaunchTime(order)
+    const now = currentTime.getTime()
+    const diffMinutes = (launchTime - now) / (60 * 1000)
+    
+    // Sur place = toujours "maintenant"
+    if (!order.scheduled_time || order.metadata?.source !== 'click_and_collect') {
+      return { time: 'MAINTENANT', isNow: true, isPast: false, isUpcoming: false }
+    }
+    
+    const launchDate = new Date(launchTime)
+    const timeStr = launchDate.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
+    
+    return {
+      time: timeStr,
+      isNow: diffMinutes <= 0 && diffMinutes > -10, // Dans les 10 dernières minutes
+      isPast: diffMinutes <= -10, // En retard de plus de 10 min
+      isUpcoming: diffMinutes > 0 && diffMinutes <= 15 // Dans les 15 prochaines minutes
+    }
+  }
+
+  const allOrders = [...orders, ...offeredOrders].sort((a, b) => getLaunchTime(a) - getLaunchTime(b))
 
   async function saveConfig(newConfig: ColumnConfig, newDisplayMode: 'compact' | 'detailed') {
     if (!device) return
@@ -659,12 +663,7 @@ export default function KitchenPage() {
     if (!isClickAndCollect(order)) return null
     
     const isExpanded = expandedOrderInfo[order.id]
-    const prepInfo = calculatePrepStartTime(
-      order.scheduled_time, 
-      order.order_type, 
-      avgPrepTime,
-      order.metadata?.delivery_duration
-    )
+    const launchInfo = formatLaunchTime(order)
     
     return (
       <div className="border-t border-slate-600">
@@ -675,18 +674,19 @@ export default function KitchenPage() {
         >
           <div className="flex items-center gap-2">
             <span className={`text-xs font-bold px-2 py-1 rounded ${
-              prepInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
-              prepInfo.isUrgent ? 'bg-orange-500 text-white animate-pulse' :
+              launchInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
+              launchInfo.isNow ? 'bg-red-500 text-white' :
+              launchInfo.isUpcoming ? 'bg-orange-500 text-white' :
               'bg-cyan-500/30 text-cyan-300'
             }`}>
-              ⏰ Préparer à {prepInfo.time}
+              🚀 Lancer à {launchInfo.time}
             </span>
             {order.order_type === 'delivery' && <span className="text-xs text-gray-400">🚗 Livraison</span>}
             {order.order_type === 'takeaway' && <span className="text-xs text-gray-400">🛍️ Retrait</span>}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400">
-              📅 {formatTime(order.scheduled_time)}
+              📅 Pour {formatTime(order.scheduled_time)}
             </span>
             <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
           </div>
@@ -717,9 +717,9 @@ export default function KitchenPage() {
             )}
             {order.scheduled_time && (
               <div className="flex items-center gap-2">
-                <span className="text-gray-400">🕐</span>
+                <span className="text-gray-400">🎯</span>
                 <span className="text-white">
-                  {order.order_type === 'delivery' ? 'Livraison' : 'Retrait'} à {formatTime(order.scheduled_time)}
+                  {order.order_type === 'delivery' ? 'Livrer' : 'Prêt'} pour {formatTime(order.scheduled_time)}
                 </span>
               </div>
             )}
@@ -736,10 +736,12 @@ export default function KitchenPage() {
               </div>
             )}
             <div className="pt-2 border-t border-slate-600 text-xs text-gray-500">
-              <span>⏱️ Temps prépa moyen: {avgPrepTime} min</span>
-              {order.order_type === 'delivery' && (
-                <span className="ml-3">🚗 Trajet: ~{order.metadata?.delivery_duration || DEFAULT_DELIVERY_TIME} min</span>
-              )}
+              <div className="flex justify-between">
+                <span>⏱️ Prépa: ~{avgPrepTime} min</span>
+                {order.order_type === 'delivery' && (
+                  <span>🚗 Trajet: ~{order.metadata?.delivery_duration || DEFAULT_DELIVERY_TIME} min</span>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -760,21 +762,36 @@ export default function KitchenPage() {
     const checkedCount = groupedItems.reduce((sum, g) => sum + g.items.filter(item => isItemChecked(order.id, item.key)).length, 0)
     const allChecked = totalItems > 0 && checkedCount === totalItems
     const isCC = isClickAndCollect(order)
+    const launchInfo = formatLaunchTime(order)
     
-    // Calculer si la commande est urgente
-    const prepInfo = isCC ? calculatePrepStartTime(order.scheduled_time, order.order_type, avgPrepTime, order.metadata?.delivery_duration) : null
-    const isUrgentOrder = prepInfo?.isPast || prepInfo?.isUrgent
+    // Déterminer le style d'urgence
+    const showUrgentStyle = launchInfo.isNow || launchInfo.isPast
+    const showUpcomingStyle = launchInfo.isUpcoming
     
     return (
       <div key={order.id} draggable onDragStart={(e) => handleDragStart(e, order.id)} onDragEnd={handleDragEnd}
-        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${isUrgentOrder && column.key === 'pending' ? 'ring-2 ring-red-500 animate-pulse' : ''}`}>
+        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${showUrgentStyle && column.key === 'pending' ? 'ring-2 ring-red-500' : ''} ${showUpcomingStyle && column.key === 'pending' ? 'ring-2 ring-orange-500' : ''}`}>
         
-        <div className="p-3 bg-slate-600/50 flex items-center justify-between">
+        <div className={`p-3 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/40' : launchInfo.isNow ? 'bg-red-500/30' : launchInfo.isUpcoming ? 'bg-orange-500/20' : 'bg-slate-600/50'}`}>
           <div className="flex items-center gap-2">
             <span className={`${column.key === 'completed' ? 'text-xl' : 'text-2xl'} font-bold`}>{order.order_number || '?'}</span>
             <span className="text-xl">{getOrderTypeEmoji(order.order_type)}</span>
             {order.is_offered && <span className="text-lg" title="Offert">🎁</span>}
-            {isCC && <span className="text-xs bg-cyan-500/30 text-cyan-300 px-1.5 py-0.5 rounded">C&C</span>}
+            {/* Badge de timing */}
+            {column.key !== 'completed' && (
+              <span className={`text-xs px-2 py-1 rounded font-bold ${
+                launchInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
+                launchInfo.isNow ? 'bg-red-500 text-white' :
+                launchInfo.isUpcoming ? 'bg-orange-500 text-white' :
+                isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'
+              }`}>
+                {launchInfo.isNow ? '🔥 MAINTENANT' : 
+                 launchInfo.isPast ? `⚠️ RETARD` :
+                 launchInfo.isUpcoming ? `⏰ ${launchInfo.time}` :
+                 isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
+              </span>
+            )}
+            {isCC && <span className="text-xs text-gray-400">{order.order_type === 'delivery' ? '🚗' : '🛍️'}</span>}
             {column.key !== 'completed' && totalItems > 0 && (
               <span className={`text-xs px-2 py-0.5 rounded-full ${allChecked ? 'bg-green-500 text-white' : 'bg-slate-500 text-gray-300'}`}>
                 {checkedCount}/{totalItems}
@@ -867,14 +884,14 @@ export default function KitchenPage() {
       </div>
 
       <div className="mb-4 p-3 bg-slate-800 rounded-xl flex flex-wrap gap-4 text-sm">
-        <span className="text-gray-400">Légende :</span>
-        <span className="bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded">2+ = alerte</span>
-        <span className="bg-red-500/20 text-red-400 px-2 py-0.5 rounded animate-pulse">4+ = urgent</span>
-        <span className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded">✓ = dans le sac</span>
+        <span className="text-gray-400">Priorité :</span>
+        <span className="bg-red-500 text-white px-2 py-0.5 rounded font-bold">🔥 MAINTENANT</span>
+        <span className="bg-red-500/50 text-white px-2 py-0.5 rounded">⚠️ RETARD</span>
+        <span className="bg-orange-500 text-white px-2 py-0.5 rounded">⏰ Bientôt</span>
+        <span className="bg-cyan-500/30 text-cyan-300 px-2 py-0.5 rounded">⏰ Programmé</span>
         <span className="text-gray-400">|</span>
-        <span>🙋 Self-service</span>
-        <span className="bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded">C&C = Click&Collect</span>
-        <span>⏰ = heure prépa calculée</span>
+        <span className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded">✓ = dans le sac</span>
+        <span className="bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded">2+ qté</span>
       </div>
 
       {loading ? (
