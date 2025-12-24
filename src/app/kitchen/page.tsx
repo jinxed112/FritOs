@@ -13,14 +13,31 @@ type OrderItem = {
   category_name?: string
 }
 
+type OrderMetadata = {
+  source?: string
+  slot_date?: string
+  slot_time?: string
+  delivery_lat?: number
+  delivery_lng?: number
+  delivery_duration?: number // Temps de trajet en minutes (si pré-calculé)
+}
+
 type Order = {
   id: string
   order_number: string
-  order_type: string // Plus flexible pour supporter pickup/delivery
+  order_type: string
   status: 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled'
   created_at: string
   order_items: OrderItem[]
   is_offered?: boolean
+  // Infos client Click & Collect
+  customer_name?: string | null
+  customer_phone?: string | null
+  customer_email?: string | null
+  scheduled_time?: string | null
+  delivery_notes?: string | null
+  delivery_fee?: number
+  metadata?: OrderMetadata | null
 }
 
 type DeviceInfo = {
@@ -68,7 +85,7 @@ const ORDER_TYPE_EMOJI: Record<string, string> = {
   eat_in: '🍽️',
   takeaway: '🥡',
   delivery: '🚗',
-  pickup: '🛍️',    // Click & Collect pickup
+  pickup: '🛍️',
   table: '📍',
   kiosk: '🖥️',
   counter: '💳',
@@ -83,6 +100,8 @@ const COLUMNS = [
 
 const DEFAULT_COLUMNS = ['pending', 'preparing', 'ready', 'completed']
 const DEFAULT_COLLAPSED_CATEGORIES = ['boissons', 'bières', 'biere', 'softs', 'drinks']
+const DEFAULT_PREP_TIME = 10 // Temps de préparation par défaut en minutes
+const DEFAULT_DELIVERY_TIME = 15 // Temps de livraison par défaut en minutes
 
 const CATEGORY_CONFIG: Record<string, { icon: string, bgClass: string, textClass: string }> = {
   'frites': { icon: '🍟', bgClass: 'bg-orange-500/20', textClass: 'text-orange-400' },
@@ -104,7 +123,6 @@ const CATEGORY_CONFIG: Record<string, { icon: string, bgClass: string, textClass
   'default': { icon: '📋', bgClass: 'bg-slate-500/20', textClass: 'text-slate-400' },
 }
 
-// Icônes pour les options - SANS les sauces
 const OPTION_ICONS: { keywords: string[], icon: string, color: string }[] = [
   { keywords: ['cheddar'], icon: '🧀', color: 'text-yellow-400' },
   { keywords: ['feta'], icon: '🔳', color: 'text-white' },
@@ -171,7 +189,6 @@ function parseOptions(optionsJson: string | null): ParsedOption[] {
   if (!optionsJson) return []
   try { 
     const parsed = JSON.parse(optionsJson)
-    // S'assurer que chaque option a bien un item_name
     return Array.isArray(parsed) ? parsed.filter(o => o && o.item_name) : []
   } catch { 
     return [] 
@@ -246,6 +263,63 @@ function getOrderTypeEmoji(orderType: string | undefined | null): string {
   return ORDER_TYPE_EMOJI[orderType] || '📋'
 }
 
+// Vérifie si c'est une commande Click & Collect
+function isClickAndCollect(order: Order): boolean {
+  return order.metadata?.source === 'click_and_collect' || 
+         order.order_type === 'pickup' || 
+         order.order_type === 'delivery'
+}
+
+// Formate l'heure (de ISO à HH:MM)
+function formatTime(isoString: string | null | undefined): string {
+  if (!isoString) return '--:--'
+  try {
+    const date = new Date(isoString)
+    return date.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return '--:--'
+  }
+}
+
+// Calcule l'heure à laquelle commencer la préparation
+function calculatePrepStartTime(
+  scheduledTime: string | null | undefined, 
+  orderType: string,
+  avgPrepTime: number,
+  deliveryDuration?: number
+): { time: string, isUrgent: boolean, isPast: boolean } {
+  if (!scheduledTime) return { time: '--:--', isUrgent: false, isPast: false }
+  
+  try {
+    const scheduled = new Date(scheduledTime)
+    const now = new Date()
+    
+    // Temps total à soustraire
+    let totalMinutesToSubtract = avgPrepTime
+    
+    // Ajouter le temps de livraison si c'est une livraison
+    if (orderType === 'delivery') {
+      totalMinutesToSubtract += deliveryDuration || DEFAULT_DELIVERY_TIME
+    }
+    
+    // Calculer l'heure de début de préparation
+    const prepStartTime = new Date(scheduled.getTime() - totalMinutesToSubtract * 60 * 1000)
+    
+    // Vérifier si c'est urgent (moins de 5 min) ou dépassé
+    const diffMinutes = (prepStartTime.getTime() - now.getTime()) / (60 * 1000)
+    const isUrgent = diffMinutes <= 5 && diffMinutes > -5
+    const isPast = diffMinutes < -5
+    
+    return {
+      time: prepStartTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' }),
+      isUrgent,
+      isPast
+    }
+  } catch {
+    return { time: '--:--', isUrgent: false, isPast: false }
+  }
+}
+
 // ==================== MAIN COMPONENT ====================
 export default function KitchenPage() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -262,6 +336,8 @@ export default function KitchenPage() {
   const [establishmentId, setEstablishmentId] = useState<string>('a0000000-0000-0000-0000-000000000001')
   const [collapsedSections, setCollapsedSections] = useState<Record<string, Set<string>>>({})
   const [checkedItems, setCheckedItems] = useState<Record<string, Set<string>>>({})
+  const [expandedOrderInfo, setExpandedOrderInfo] = useState<Record<string, boolean>>({})
+  const [avgPrepTime, setAvgPrepTime] = useState<number>(DEFAULT_PREP_TIME)
   
   const supabase = createClient()
 
@@ -271,6 +347,39 @@ export default function KitchenPage() {
     return () => clearInterval(timer)
   }, [])
 
+  // Charger le temps de préparation moyen
+  async function loadAvgPrepTime(estId: string) {
+    try {
+      // Récupérer les commandes complétées des dernières 24h
+      const yesterday = new Date()
+      yesterday.setHours(yesterday.getHours() - 24)
+      
+      const { data } = await supabase
+        .from('orders')
+        .select('created_at, updated_at')
+        .eq('establishment_id', estId)
+        .eq('status', 'completed')
+        .gte('created_at', yesterday.toISOString())
+        .not('updated_at', 'is', null)
+      
+      if (data && data.length > 0) {
+        // Calculer la moyenne
+        const times = data.map(o => {
+          const created = new Date(o.created_at).getTime()
+          const updated = new Date(o.updated_at).getTime()
+          return (updated - created) / (60 * 1000) // En minutes
+        }).filter(t => t > 0 && t < 120) // Filtrer les valeurs aberrantes
+        
+        if (times.length > 0) {
+          const avg = times.reduce((a, b) => a + b, 0) / times.length
+          setAvgPrepTime(Math.round(avg))
+        }
+      }
+    } catch (error) {
+      console.error('Error loading avg prep time:', error)
+    }
+  }
+
   async function checkAuth() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -279,6 +388,7 @@ export default function KitchenPage() {
         setAuthChecking(false)
         loadOrders(establishmentId)
         loadTempOrders(establishmentId)
+        loadAvgPrepTime(establishmentId)
         setupRealtime(establishmentId)
         return
       }
@@ -302,12 +412,14 @@ export default function KitchenPage() {
       const estId = device?.establishment_id || establishmentId
       loadOrders(estId)
       loadTempOrders(estId)
+      loadAvgPrepTime(estId)
       setupRealtime(estId)
     } catch (error) {
       console.error('Auth check error:', error)
       setAuthChecking(false)
       loadOrders(establishmentId)
       loadTempOrders(establishmentId)
+      loadAvgPrepTime(establishmentId)
       setupRealtime(establishmentId)
     }
   }
@@ -357,12 +469,24 @@ export default function KitchenPage() {
   async function loadOrders(estId: string) {
     try {
       const today = new Date(); today.setHours(0, 0, 0, 0)
-      const { data, error } = await supabase.from('orders').select(`id, order_number, order_type, status, created_at, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
-        .eq('establishment_id', estId).gte('created_at', today.toISOString()).neq('status', 'cancelled').order('created_at', { ascending: true })
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          id, order_number, order_type, status, created_at,
+          customer_name, customer_phone, customer_email,
+          scheduled_time, delivery_notes, delivery_fee, metadata,
+          order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )
+        `)
+        .eq('establishment_id', estId)
+        .gte('created_at', today.toISOString())
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: true })
+      
       if (!error && data) {
         setOrders(data.map(order => ({ 
           ...order, 
           order_type: order.order_type || 'takeaway',
+          metadata: typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata,
           order_items: Array.isArray(order.order_items) 
             ? order.order_items.map((item: any) => ({ 
                 ...item, 
@@ -384,7 +508,7 @@ export default function KitchenPage() {
         if (newStatus === 'completed') await supabase.from('temp_orders').delete().eq('id', orderId)
         else await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
       } else {
-        await supabase.from('orders').update({ status: newStatus }).eq('id', orderId)
+        await supabase.from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId)
       }
       
       if (newStatus === 'completed' || newStatus === 'ready') {
@@ -411,6 +535,10 @@ export default function KitchenPage() {
 
   function isItemChecked(orderId: string, itemKey: string): boolean {
     return checkedItems[orderId]?.has(itemKey) || false
+  }
+
+  function toggleOrderInfo(orderId: string) {
+    setExpandedOrderInfo(prev => ({ ...prev, [orderId]: !prev[orderId] }))
   }
 
   const allOrders = [...orders, ...offeredOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
@@ -526,6 +654,99 @@ export default function KitchenPage() {
     )
   }
 
+  // Render les infos client pour Click & Collect
+  function renderOrderInfo(order: Order) {
+    if (!isClickAndCollect(order)) return null
+    
+    const isExpanded = expandedOrderInfo[order.id]
+    const prepInfo = calculatePrepStartTime(
+      order.scheduled_time, 
+      order.order_type, 
+      avgPrepTime,
+      order.metadata?.delivery_duration
+    )
+    
+    return (
+      <div className="border-t border-slate-600">
+        {/* Bouton pour toggle + indicateur temps de préparation */}
+        <button 
+          onClick={(e) => { e.stopPropagation(); toggleOrderInfo(order.id) }}
+          className="w-full p-2 flex items-center justify-between hover:bg-slate-600/50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-bold px-2 py-1 rounded ${
+              prepInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
+              prepInfo.isUrgent ? 'bg-orange-500 text-white animate-pulse' :
+              'bg-cyan-500/30 text-cyan-300'
+            }`}>
+              ⏰ Préparer à {prepInfo.time}
+            </span>
+            {order.order_type === 'delivery' && <span className="text-xs text-gray-400">🚗 Livraison</span>}
+            {order.order_type === 'takeaway' && <span className="text-xs text-gray-400">🛍️ Retrait</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">
+              📅 {formatTime(order.scheduled_time)}
+            </span>
+            <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
+          </div>
+        </button>
+        
+        {/* Détails client (expanded) */}
+        {isExpanded && (
+          <div className="p-3 bg-slate-800/50 space-y-2 text-sm">
+            {order.customer_name && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">👤</span>
+                <span className="text-white">{order.customer_name}</span>
+              </div>
+            )}
+            {order.customer_phone && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">📞</span>
+                <a href={`tel:${order.customer_phone}`} className="text-cyan-400 hover:underline">
+                  {order.customer_phone}
+                </a>
+              </div>
+            )}
+            {order.customer_email && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">✉️</span>
+                <span className="text-gray-300 text-xs truncate">{order.customer_email}</span>
+              </div>
+            )}
+            {order.scheduled_time && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">🕐</span>
+                <span className="text-white">
+                  {order.order_type === 'delivery' ? 'Livraison' : 'Retrait'} à {formatTime(order.scheduled_time)}
+                </span>
+              </div>
+            )}
+            {order.order_type === 'delivery' && order.delivery_notes && (
+              <div className="flex items-start gap-2">
+                <span className="text-gray-400">📍</span>
+                <span className="text-white">{order.delivery_notes}</span>
+              </div>
+            )}
+            {order.delivery_fee && order.delivery_fee > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">💰</span>
+                <span className="text-green-400">Frais livraison: {order.delivery_fee.toFixed(2)}€</span>
+              </div>
+            )}
+            <div className="pt-2 border-t border-slate-600 text-xs text-gray-500">
+              <span>⏱️ Temps prépa moyen: {avgPrepTime} min</span>
+              {order.order_type === 'delivery' && (
+                <span className="ml-3">🚗 Trajet: ~{order.metadata?.delivery_duration || DEFAULT_DELIVERY_TIME} min</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   function renderOrder(order: Order, column: typeof COLUMNS[number]) {
     const colorClasses = {
       orange: { text: 'text-orange-400', bg: 'bg-orange-400', bgLight: 'bg-orange-400/20', border: 'border-orange-400', btn: 'bg-orange-500 hover:bg-orange-600' },
@@ -538,16 +759,22 @@ export default function KitchenPage() {
     const totalItems = groupedItems.reduce((sum, g) => sum + g.items.length, 0)
     const checkedCount = groupedItems.reduce((sum, g) => sum + g.items.filter(item => isItemChecked(order.id, item.key)).length, 0)
     const allChecked = totalItems > 0 && checkedCount === totalItems
+    const isCC = isClickAndCollect(order)
+    
+    // Calculer si la commande est urgente
+    const prepInfo = isCC ? calculatePrepStartTime(order.scheduled_time, order.order_type, avgPrepTime, order.metadata?.delivery_duration) : null
+    const isUrgentOrder = prepInfo?.isPast || prepInfo?.isUrgent
     
     return (
       <div key={order.id} draggable onDragStart={(e) => handleDragStart(e, order.id)} onDragEnd={handleDragEnd}
-        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''}`}>
+        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${isUrgentOrder && column.key === 'pending' ? 'ring-2 ring-red-500 animate-pulse' : ''}`}>
         
         <div className="p-3 bg-slate-600/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className={`${column.key === 'completed' ? 'text-xl' : 'text-2xl'} font-bold`}>{order.order_number || '?'}</span>
             <span className="text-xl">{getOrderTypeEmoji(order.order_type)}</span>
             {order.is_offered && <span className="text-lg" title="Offert">🎁</span>}
+            {isCC && <span className="text-xs bg-cyan-500/30 text-cyan-300 px-1.5 py-0.5 rounded">C&C</span>}
             {column.key !== 'completed' && totalItems > 0 && (
               <span className={`text-xs px-2 py-0.5 rounded-full ${allChecked ? 'bg-green-500 text-white' : 'bg-slate-500 text-gray-300'}`}>
                 {checkedCount}/{totalItems}
@@ -563,6 +790,9 @@ export default function KitchenPage() {
             )}
           </div>
         </div>
+        
+        {/* Infos Click & Collect */}
+        {column.key !== 'completed' && renderOrderInfo(order)}
         
         {column.key !== 'completed' && (
           <div className="p-3 space-y-2">
@@ -621,6 +851,7 @@ export default function KitchenPage() {
             {device ? `${device.name} (${device.device_code})` : 'Mode démo'}
             <span className="ml-2 text-green-400">● En ligne</span>
             <span className="ml-3 px-2 py-0.5 bg-slate-700 rounded text-sm">{displayMode === 'compact' ? '📋 Compact' : '📖 Détaillé'}</span>
+            <span className="ml-3 px-2 py-0.5 bg-cyan-500/20 text-cyan-300 rounded text-sm">⏱️ Prépa moy: {avgPrepTime}min</span>
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -642,9 +873,8 @@ export default function KitchenPage() {
         <span className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded">✓ = dans le sac</span>
         <span className="text-gray-400">|</span>
         <span>🙋 Self-service</span>
-        <span>🛍️ Click&Collect</span>
-        <span>🚗 Livraison</span>
-        <span>Cliquer item = cocher</span>
+        <span className="bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded">C&C = Click&Collect</span>
+        <span>⏰ = heure prépa calculée</span>
       </div>
 
       {loading ? (
@@ -673,9 +903,9 @@ export default function KitchenPage() {
       )}
 
       <div className="mt-4 flex justify-between items-center text-gray-500 text-sm">
-        <span>💡 Cliquez sur un item pour le cocher quand il est dans le sac</span>
+        <span>💡 Cliquez sur un item pour le cocher • Cliquez sur ⏰ pour voir les infos client</span>
         <span>{allOrders.length} commande{allOrders.length > 1 ? 's' : ''} aujourd'hui</span>
-        <span>FritOS KDS v2.3</span>
+        <span>FritOS KDS v3.0 Smart</span>
       </div>
 
       {showConfig && (
@@ -716,6 +946,14 @@ export default function KitchenPage() {
                 <button onClick={() => setColumnConfig({ pending: false, preparing: false, ready: true, completed: false })} className="text-left px-3 py-2 rounded bg-slate-600 hover:bg-slate-500 text-sm">📢 Écran client</button>
                 <button onClick={() => setColumnConfig({ pending: true, preparing: true, ready: true, completed: true })} className="text-left px-3 py-2 rounded bg-slate-600 hover:bg-slate-500 text-sm">📺 Complet</button>
               </div>
+            </div>
+
+            <div className="bg-cyan-500/20 rounded-xl p-4 mb-6">
+              <p className="text-sm text-cyan-300 mb-2">⏰ Calcul intelligent :</p>
+              <p className="text-xs text-cyan-200">
+                L'heure "Préparer à" est calculée automatiquement :<br/>
+                <strong>Heure demandée - Temps trajet (livraison) - Temps prépa moyen ({avgPrepTime}min)</strong>
+              </p>
             </div>
 
             <div className="bg-slate-700 rounded-xl p-4 mb-6">
