@@ -307,7 +307,7 @@ export default function DriverPage() {
       await supabase
         .from('delivery_round_stops')
         .insert({
-          delivery_round_id: round.id,
+          round_id: round.id,
           order_id: orderId,
           stop_order: 1,
           address: order.delivery_address,
@@ -373,7 +373,7 @@ export default function DriverPage() {
         await supabase
           .from('delivery_round_stops')
           .insert({
-            delivery_round_id: round.id,
+            round_id: round.id,
             order_id: order.order_id,
             stop_order: order.sequence_order,
             address: order.delivery_address || '',
@@ -416,7 +416,7 @@ export default function DriverPage() {
       await supabase
         .from('delivery_round_stops')
         .insert({
-          delivery_round_id: myRound.id,
+          round_id: myRound.id,
           order_id: orderId,
           stop_order: newStopOrder,
           address: order.delivery_address,
@@ -548,7 +548,7 @@ export default function DriverPage() {
       await supabase
         .from('delivery_round_stops')
         .delete()
-        .eq('delivery_round_id', myRound.id)
+        .eq('round_id', myRound.id)
 
       // Délier toutes les commandes
       await supabase
