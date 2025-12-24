@@ -22,16 +22,24 @@ type DeliveryOrder = {
   }[]
 }
 
+type SuggestedRoundOrder = {
+  order_id: string
+  order_number: string
+  sequence_order: number
+  estimated_delivery: string
+  customer_name: string | null
+  delivery_address: string | null
+  scheduled_time: string | null
+}
+
 type SuggestedRound = {
-  orders: DeliveryOrder[]
-  totalDistance: number // en minutes
-  prepareAt: Date
-  departAt: Date
-  deliveries: {
-    order: DeliveryOrder
-    estimatedDelivery: Date
-    withinWindow: boolean
-  }[]
+  id: string
+  status: string
+  prep_at: string
+  depart_at: string
+  total_distance_minutes: number
+  expires_at: string
+  orders: SuggestedRoundOrder[]
 }
 
 type DeliveryRound = {
@@ -62,11 +70,8 @@ type Driver = {
 }
 
 // Constantes de configuration
-const TOLERANCE_MINUTES = 15 // ±15 min tolérance client
-const MAX_DISTANCE_MINUTES = 5 // Max 5 min entre deux adresses
-const MAX_ROUND_DURATION = 35 // Max 35 min en isotherme
-const MAX_DELIVERIES_PER_ROUND = 3 // Max 3 livraisons par tournée
-const AVG_PREP_TIME = 10 // Temps de préparation moyen en minutes
+const TOLERANCE_MINUTES = 15
+const MAX_DELIVERIES_PER_ROUND = 3
 
 export default function DriverPage() {
   const [pin, setPin] = useState('')
@@ -90,7 +95,7 @@ export default function DriverPage() {
 
   // Timer pour l'heure actuelle
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000) // Update every minute
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000)
     return () => clearInterval(timer)
   }, [])
 
@@ -106,21 +111,10 @@ export default function DriverPage() {
   useEffect(() => {
     if (driver) {
       loadData()
-      // Refresh toutes les 30 secondes
       const interval = setInterval(loadData, 30000)
       return () => clearInterval(interval)
     }
   }, [driver])
-
-  // Calculer les suggestions quand les commandes changent
-  useEffect(() => {
-    if (availableOrders.length > 0) {
-      const suggestions = calculateSuggestedRounds(availableOrders)
-      setSuggestedRounds(suggestions)
-    } else {
-      setSuggestedRounds([])
-    }
-  }, [availableOrders])
 
   async function loginWithPin() {
     if (pin.length !== 6) {
@@ -148,7 +142,6 @@ export default function DriverPage() {
     setDriver(data)
     localStorage.setItem('driver_id', data.id)
     
-    // Mettre le statut en service
     await supabase
       .from('drivers')
       .update({ status: 'available' })
@@ -209,7 +202,6 @@ export default function DriverPage() {
       })
       setView('round')
       
-      // Trouver le prochain stop non livré
       const nextStop = stops.findIndex((s: any) => s.status !== 'delivered')
       setCurrentStop(nextStop >= 0 ? nextStop : stops.length - 1)
     } else {
@@ -217,9 +209,28 @@ export default function DriverPage() {
       setView('available')
     }
 
+    // Charger les suggestions depuis la DB (calculées par Edge Function)
+    const { data: suggestionsData } = await supabase
+      .from('v_suggested_rounds_details')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .eq('status', 'pending')
+      .order('prep_at', { ascending: true })
+
+    const suggestions: SuggestedRound[] = (suggestionsData || []).map((r: any) => ({
+      ...r,
+      orders: r.orders || []
+    }))
+    setSuggestedRounds(suggestions)
+
+    // Récupérer les IDs des commandes déjà dans une suggestion
+    const orderIdsInSuggestions = new Set<string>()
+    suggestions.forEach(s => {
+      s.orders.forEach(o => orderIdsInSuggestions.add(o.order_id))
+    })
+
     // Charger les commandes disponibles (non assignées, futures uniquement)
     const now = new Date()
-    // On prend les commandes jusqu'à 4h dans le futur
     const maxTime = new Date(now.getTime() + 4 * 60 * 60 * 1000)
     
     const { data: ordersData } = await supabase
@@ -234,435 +245,246 @@ export default function DriverPage() {
       .eq('order_type', 'delivery')
       .in('status', ['ready', 'preparing', 'pending'])
       .is('delivery_round_id', null)
+      .is('suggested_round_id', null)
       .gte('scheduled_time', now.toISOString())
       .lte('scheduled_time', maxTime.toISOString())
       .order('scheduled_time')
 
-    const orders: DeliveryOrder[] = (ordersData || []).map((o: any) => {
-      const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
-      return {
-        ...o,
-        total_amount: o.total || 0,
-        delivery_address: o.delivery_notes || 'Adresse non spécifiée',
-        delivery_lat: meta.delivery_lat || null,
-        delivery_lng: meta.delivery_lng || null,
-      }
-    })
+    // Filtrer les commandes qui sont dans une suggestion pending
+    const orders: DeliveryOrder[] = (ordersData || [])
+      .filter((o: any) => !orderIdsInSuggestions.has(o.id))
+      .map((o: any) => {
+        const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
+        return {
+          ...o,
+          total_amount: o.total || 0,
+          delivery_address: o.delivery_notes || 'Adresse non spécifiée',
+          delivery_lat: meta.delivery_lat || null,
+          delivery_lng: meta.delivery_lng || null,
+        }
+      })
 
     setAvailableOrders(orders)
   }
 
-  // ==================== ALGORITHME DE SUGGESTION ====================
-  
-  function calculateSuggestedRounds(orders: DeliveryOrder[]): SuggestedRound[] {
-    if (orders.length < 2) return []
-    
-    const suggestions: SuggestedRound[] = []
-    const usedOrderIds = new Set<string>()
-    
-    // Trier par heure de livraison
-    const sortedOrders = [...orders].sort((a, b) => 
-      new Date(a.scheduled_time).getTime() - new Date(b.scheduled_time).getTime()
-    )
-    
-    for (let i = 0; i < sortedOrders.length; i++) {
-      const baseOrder = sortedOrders[i]
-      if (usedOrderIds.has(baseOrder.id)) continue
-      
-      // Chercher des commandes compatibles
-      const compatibleOrders = [baseOrder]
-      
-      for (let j = i + 1; j < sortedOrders.length && compatibleOrders.length < MAX_DELIVERIES_PER_ROUND; j++) {
-        const candidateOrder = sortedOrders[j]
-        if (usedOrderIds.has(candidateOrder.id)) continue
-        
-        // Vérifier la compatibilité
-        if (isCompatibleForRound(compatibleOrders, candidateOrder)) {
-          compatibleOrders.push(candidateOrder)
-        }
-      }
-      
-      // Si on a au moins 2 commandes compatibles, créer une suggestion
-      if (compatibleOrders.length >= 2) {
-        const suggestion = buildSuggestedRound(compatibleOrders)
-        if (suggestion) {
-          suggestions.push(suggestion)
-          compatibleOrders.forEach(o => usedOrderIds.add(o.id))
-        }
-      }
+  async function logout() {
+    if (driver) {
+      await supabase
+        .from('drivers')
+        .update({ status: 'offline' })
+        .eq('id', driver.id)
     }
-    
-    return suggestions
+    setDriver(null)
+    localStorage.removeItem('driver_id')
+    setPin('')
   }
-  
-  function isCompatibleForRound(existingOrders: DeliveryOrder[], newOrder: DeliveryOrder): boolean {
-    // 1. Vérifier la distance (si on a les coordonnées)
-    for (const existing of existingOrders) {
-      if (existing.delivery_lat && existing.delivery_lng && newOrder.delivery_lat && newOrder.delivery_lng) {
-        const distance = estimateDistanceMinutes(
-          existing.delivery_lat, existing.delivery_lng,
-          newOrder.delivery_lat, newOrder.delivery_lng
-        )
-        if (distance > MAX_DISTANCE_MINUTES) return false
-      }
-    }
-    
-    // 2. Vérifier que les fenêtres de temps sont compatibles
-    const allOrders = [...existingOrders, newOrder]
-    const windows = allOrders.map(o => ({
-      order: o,
-      min: new Date(new Date(o.scheduled_time).getTime() - TOLERANCE_MINUTES * 60 * 1000),
-      max: new Date(new Date(o.scheduled_time).getTime() + TOLERANCE_MINUTES * 60 * 1000),
-    }))
-    
-    // Trouver l'intersection des fenêtres
-    let intersectionStart = new Date(0)
-    let intersectionEnd = new Date(8640000000000000) // Max date
-    
-    for (const w of windows) {
-      if (w.min > intersectionStart) intersectionStart = w.min
-      if (w.max < intersectionEnd) intersectionEnd = w.max
-    }
-    
-    // Il faut au moins 10 minutes d'intersection pour avoir le temps de livrer
-    const intersectionMinutes = (intersectionEnd.getTime() - intersectionStart.getTime()) / (60 * 1000)
-    if (intersectionMinutes < 10) return false
-    
-    // 3. Vérifier que la durée totale de la tournée reste acceptable
-    const totalDeliveryTime = (allOrders.length - 1) * MAX_DISTANCE_MINUTES // Temps entre les livraisons
-    if (totalDeliveryTime > MAX_ROUND_DURATION) return false
-    
-    return true
-  }
-  
-  function buildSuggestedRound(orders: DeliveryOrder[]): SuggestedRound | null {
-    // Trier les commandes par heure demandée pour optimiser l'ordre
-    const sortedOrders = [...orders].sort((a, b) => 
-      new Date(a.scheduled_time).getTime() - new Date(b.scheduled_time).getTime()
-    )
-    
-    // Calculer les fenêtres
-    const windows = sortedOrders.map(o => ({
-      order: o,
-      requested: new Date(o.scheduled_time),
-      min: new Date(new Date(o.scheduled_time).getTime() - TOLERANCE_MINUTES * 60 * 1000),
-      max: new Date(new Date(o.scheduled_time).getTime() + TOLERANCE_MINUTES * 60 * 1000),
-    }))
-    
-    // Trouver le point optimal de livraison
-    // On vise le milieu de l'intersection des fenêtres
-    let intersectionStart = windows[0].min
-    let intersectionEnd = windows[0].max
-    
-    for (const w of windows) {
-      if (w.min > intersectionStart) intersectionStart = w.min
-      if (w.max < intersectionEnd) intersectionEnd = w.max
-    }
-    
-    // Calculer les heures de livraison estimées
-    const deliveries: SuggestedRound['deliveries'] = []
-    let currentDeliveryTime = intersectionStart
-    
-    for (let i = 0; i < sortedOrders.length; i++) {
-      const order = sortedOrders[i]
-      const window = windows[i]
-      
-      // Ajuster pour que le premier soit livré un peu en retard, le dernier un peu en avance
-      let estimatedDelivery: Date
-      if (i === 0) {
-        // Premier: vers la fin de sa fenêtre (léger retard OK)
-        estimatedDelivery = new Date(Math.min(
-          window.max.getTime(),
-          intersectionStart.getTime() + 5 * 60 * 1000
-        ))
-      } else if (i === sortedOrders.length - 1) {
-        // Dernier: vers le début de sa fenêtre (légère avance OK)
-        estimatedDelivery = new Date(currentDeliveryTime.getTime() + MAX_DISTANCE_MINUTES * 60 * 1000)
-      } else {
-        // Milieu: entre les deux
-        estimatedDelivery = new Date(currentDeliveryTime.getTime() + MAX_DISTANCE_MINUTES * 60 * 1000)
-      }
-      
-      deliveries.push({
-        order,
-        estimatedDelivery,
-        withinWindow: estimatedDelivery >= window.min && estimatedDelivery <= window.max
-      })
-      
-      currentDeliveryTime = estimatedDelivery
-    }
-    
-    // Vérifier que toutes les livraisons sont dans leur fenêtre
-    if (!deliveries.every(d => d.withinWindow)) {
-      return null
-    }
-    
-    // Calculer l'heure de départ et de préparation
-    const firstDeliveryTime = deliveries[0].estimatedDelivery
-    const departAt = new Date(firstDeliveryTime.getTime() - MAX_DISTANCE_MINUTES * 60 * 1000) // Temps pour aller au premier
-    const prepareAt = new Date(departAt.getTime() - AVG_PREP_TIME * 60 * 1000)
-    
-    // Calculer la distance totale (approximative)
-    const totalDistance = (sortedOrders.length - 1) * MAX_DISTANCE_MINUTES
-    
-    return {
-      orders: sortedOrders,
-      totalDistance,
-      prepareAt,
-      departAt,
-      deliveries
-    }
-  }
-  
-  function estimateDistanceMinutes(lat1: number, lng1: number, lat2: number, lng2: number): number {
-    // Formule Haversine simplifiée pour estimer la distance
-    const R = 6371 // Rayon de la Terre en km
-    const dLat = (lat2 - lat1) * Math.PI / 180
-    const dLng = (lng2 - lng1) * Math.PI / 180
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    const distanceKm = R * c
-    
-    // Estimer le temps: ~30 km/h en moyenne en zone urbaine/périurbaine
-    const timeMinutes = (distanceKm / 30) * 60
-    return Math.round(timeMinutes)
-  }
-
-  // ==================== ACTIONS ====================
 
   async function takeOrder(orderId: string) {
     if (!driver) return
-
-    const order = availableOrders.find(o => o.id === orderId)
-    if (!order) return
-
     setLoading(true)
 
-    // Créer la tournée
-    const { data: round, error: roundError } = await supabase
-      .from('delivery_rounds')
-      .insert({
-        establishment_id: establishmentId,
-        driver_id: driver.id,
-        status: 'ready',
-        total_stops: 1,
-      })
-      .select()
-      .single()
+    try {
+      // Créer une nouvelle tournée avec cette commande
+      const { data: round, error: roundError } = await supabase
+        .from('delivery_rounds')
+        .insert({
+          establishment_id: establishmentId,
+          driver_id: driver.id,
+          status: 'ready',
+          total_stops: 1,
+        })
+        .select()
+        .single()
 
-    if (roundError) {
-      console.error('Error creating round:', roundError)
-      setLoading(false)
-      return
-    }
+      if (roundError) throw roundError
 
-    // Ajouter le stop
-    await supabase
-      .from('delivery_round_stops')
-      .insert({
-        round_id: round.id,
-        order_id: orderId,
-        stop_order: 1,
-        address: order.delivery_address,
-        latitude: order.delivery_lat,
-        longitude: order.delivery_lng,
-        customer_slot_start: order.scheduled_time,
-        customer_slot_end: order.scheduled_time,
-        status: 'pending',
-      })
+      // Récupérer les infos de la commande
+      const order = availableOrders.find(o => o.id === orderId)
+      if (!order) throw new Error('Commande non trouvée')
 
-    // Lier la commande à la tournée
-    await supabase
-      .from('orders')
-      .update({ delivery_round_id: round.id })
-      .eq('id', orderId)
-
-    // Mettre le livreur en livraison
-    await supabase
-      .from('drivers')
-      .update({ status: 'delivering' })
-      .eq('id', driver.id)
-
-    await loadData()
-    setLoading(false)
-  }
-
-  async function takeSuggestedRound(suggestion: SuggestedRound) {
-    if (!driver) return
-
-    setLoading(true)
-
-    // Créer la tournée
-    const { data: round, error: roundError } = await supabase
-      .from('delivery_rounds')
-      .insert({
-        establishment_id: establishmentId,
-        driver_id: driver.id,
-        status: 'ready',
-        total_stops: suggestion.orders.length,
-        planned_departure: suggestion.departAt.toISOString(),
-      })
-      .select()
-      .single()
-
-    if (roundError) {
-      console.error('Error creating round:', roundError)
-      setLoading(false)
-      return
-    }
-
-    // Ajouter tous les stops
-    for (let i = 0; i < suggestion.deliveries.length; i++) {
-      const delivery = suggestion.deliveries[i]
-      const order = delivery.order
-
+      // Créer le stop
       await supabase
         .from('delivery_round_stops')
         .insert({
-          round_id: round.id,
-          order_id: order.id,
-          stop_order: i + 1,
+          delivery_round_id: round.id,
+          order_id: orderId,
+          stop_order: 1,
           address: order.delivery_address,
           latitude: order.delivery_lat,
           longitude: order.delivery_lng,
-          customer_slot_start: order.scheduled_time,
-          customer_slot_end: order.scheduled_time,
-          estimated_arrival: delivery.estimatedDelivery.toISOString(),
           status: 'pending',
+          customer_slot_start: order.scheduled_time,
         })
 
       // Lier la commande à la tournée
       await supabase
         .from('orders')
         .update({ delivery_round_id: round.id })
-        .eq('id', order.id)
+        .eq('id', orderId)
+
+      loadData()
+    } catch (e) {
+      console.error('Erreur prise de commande:', e)
+      setError('Erreur lors de la prise de commande')
+    } finally {
+      setLoading(false)
     }
+  }
 
-    // Mettre le livreur en livraison
-    await supabase
-      .from('drivers')
-      .update({ status: 'delivering' })
-      .eq('id', driver.id)
+  async function takeSuggestedRound(suggestion: SuggestedRound) {
+    if (!driver) return
+    setLoading(true)
 
-    await loadData()
-    setLoading(false)
+    try {
+      // Accepter la suggestion via la fonction RPC
+      const { data, error } = await supabase.rpc('accept_suggested_round', {
+        p_suggested_round_id: suggestion.id
+      })
+
+      if (error) {
+        console.error('Erreur acceptation suggestion:', error)
+        setError('Erreur lors de l\'acceptation de la tournée')
+        return
+      }
+
+      if (!data?.success) {
+        setError(data?.error || 'Erreur inconnue')
+        return
+      }
+
+      // Créer une nouvelle tournée avec toutes les commandes
+      const { data: round, error: roundError } = await supabase
+        .from('delivery_rounds')
+        .insert({
+          establishment_id: establishmentId,
+          driver_id: driver.id,
+          status: 'ready',
+          total_stops: suggestion.orders.length,
+          planned_departure: suggestion.depart_at,
+        })
+        .select()
+        .single()
+
+      if (roundError) throw roundError
+
+      // Créer les stops pour chaque commande
+      for (const order of suggestion.orders) {
+        await supabase
+          .from('delivery_round_stops')
+          .insert({
+            delivery_round_id: round.id,
+            order_id: order.order_id,
+            stop_order: order.sequence_order,
+            address: order.delivery_address || '',
+            status: 'pending',
+            customer_slot_start: order.scheduled_time,
+            estimated_arrival: order.estimated_delivery,
+          })
+
+        // Lier la commande à la tournée
+        await supabase
+          .from('orders')
+          .update({ delivery_round_id: round.id })
+          .eq('id', order.order_id)
+      }
+
+      loadData()
+    } catch (e) {
+      console.error('Erreur prise de tournée:', e)
+      setError('Erreur lors de la prise de tournée')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function addToRound(orderId: string) {
     if (!driver || !myRound) return
-
-    const order = availableOrders.find(o => o.id === orderId)
-    if (!order) return
+    if (myRound.total_stops >= MAX_DELIVERIES_PER_ROUND) {
+      setError(`Maximum ${MAX_DELIVERIES_PER_ROUND} livraisons par tournée`)
+      return
+    }
 
     setLoading(true)
 
-    const newStopOrder = myRound.total_stops + 1
+    try {
+      const order = availableOrders.find(o => o.id === orderId)
+      if (!order) throw new Error('Commande non trouvée')
 
-    // Ajouter le stop
-    await supabase
-      .from('delivery_round_stops')
-      .insert({
-        round_id: myRound.id,
-        order_id: orderId,
-        stop_order: newStopOrder,
-        address: order.delivery_address,
-        latitude: order.delivery_lat,
-        longitude: order.delivery_lng,
-        customer_slot_start: order.scheduled_time,
-        customer_slot_end: order.scheduled_time,
-        status: 'pending',
-      })
+      const newStopOrder = myRound.total_stops + 1
 
-    // Mettre à jour le nombre de stops
-    await supabase
-      .from('delivery_rounds')
-      .update({ total_stops: newStopOrder })
-      .eq('id', myRound.id)
+      await supabase
+        .from('delivery_round_stops')
+        .insert({
+          delivery_round_id: myRound.id,
+          order_id: orderId,
+          stop_order: newStopOrder,
+          address: order.delivery_address,
+          latitude: order.delivery_lat,
+          longitude: order.delivery_lng,
+          status: 'pending',
+          customer_slot_start: order.scheduled_time,
+        })
 
-    // Lier la commande
-    await supabase
-      .from('orders')
-      .update({ delivery_round_id: myRound.id })
-      .eq('id', orderId)
+      await supabase
+        .from('delivery_rounds')
+        .update({ total_stops: newStopOrder })
+        .eq('id', myRound.id)
 
-    await loadData()
-    setLoading(false)
+      await supabase
+        .from('orders')
+        .update({ delivery_round_id: myRound.id })
+        .eq('id', orderId)
+
+      loadData()
+    } catch (e) {
+      console.error('Erreur ajout commande:', e)
+      setError('Erreur lors de l\'ajout à la tournée')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function startDelivery() {
     if (!myRound) return
+    setLoading(true)
 
     await supabase
       .from('delivery_rounds')
-      .update({
+      .update({ 
         status: 'in_progress',
-        actual_departure: new Date().toISOString(),
+        actual_departure: new Date().toISOString()
       })
       .eq('id', myRound.id)
 
-    // Premier stop en transit
-    if (myRound.stops[0]) {
-      await supabase
-        .from('delivery_round_stops')
-        .update({ status: 'in_transit' })
-        .eq('id', myRound.stops[0].id)
-    }
-
-    await loadData()
+    loadData()
+    setLoading(false)
   }
 
   async function markDelivered(stopId: string) {
+    setLoading(true)
+
     await supabase
       .from('delivery_round_stops')
-      .update({
+      .update({ 
         status: 'delivered',
-        actual_arrival: new Date().toISOString(),
+        actual_arrival: new Date().toISOString()
       })
       .eq('id', stopId)
 
-    // Mettre à jour la commande
-    const stop = myRound?.stops.find(s => s.id === stopId)
-    if (stop) {
-      await supabase
-        .from('orders')
-        .update({ status: 'completed', updated_at: new Date().toISOString() })
-        .eq('id', stop.order_id)
-    }
-
-    // Passer au stop suivant
-    const nextStopIndex = currentStop + 1
-    if (myRound && nextStopIndex < myRound.stops.length) {
-      await supabase
-        .from('delivery_round_stops')
-        .update({ status: 'in_transit' })
-        .eq('id', myRound.stops[nextStopIndex].id)
-      
-      setCurrentStop(nextStopIndex)
-    } else {
-      // Tournée terminée
+    // Vérifier si c'était le dernier stop
+    if (myRound && currentStop === myRound.stops.length - 1) {
       await supabase
         .from('delivery_rounds')
-        .update({
-          status: 'completed',
-          actual_return: new Date().toISOString(),
-        })
-        .eq('id', myRound!.id)
-
-      // Livreur disponible
-      await supabase
-        .from('drivers')
-        .update({ status: 'available' })
-        .eq('id', driver!.id)
+        .update({ status: 'completed' })
+        .eq('id', myRound.id)
     }
 
-    await loadData()
+    loadData()
+    setLoading(false)
   }
 
   async function releaseOrder(stopId: string, orderId: string) {
-    if (!confirm('Relâcher cette commande ? Elle redeviendra disponible.')) return
-
+    if (!myRound) return
     setLoading(true)
 
     try {
@@ -672,156 +494,129 @@ export default function DriverPage() {
         .delete()
         .eq('id', stopId)
 
-      // Retirer la commande de la tournée
+      // Délier la commande
       await supabase
         .from('orders')
-        .update({ delivery_round_id: null, status: 'ready' })
+        .update({ delivery_round_id: null })
         .eq('id', orderId)
 
-      if (myRound) {
-        const newTotalStops = myRound.total_stops - 1
-
-        if (newTotalStops === 0) {
-          // Supprimer la tournée vide
-          await supabase
-            .from('delivery_rounds')
-            .delete()
-            .eq('id', myRound.id)
-
-          await supabase
-            .from('drivers')
-            .update({ status: 'available' })
-            .eq('id', driver!.id)
-        } else {
-          await supabase
-            .from('delivery_rounds')
-            .update({ total_stops: newTotalStops })
-            .eq('id', myRound.id)
-
-          // Réordonner les stops
-          const remainingStops = myRound.stops.filter(s => s.id !== stopId)
-          for (let i = 0; i < remainingStops.length; i++) {
-            await supabase
-              .from('delivery_round_stops')
-              .update({ stop_order: i + 1 })
-              .eq('id', remainingStops[i].id)
-          }
-        }
+      // Mettre à jour le nombre de stops
+      const newTotal = myRound.total_stops - 1
+      
+      if (newTotal === 0) {
+        // Supprimer la tournée vide
+        await supabase
+          .from('delivery_rounds')
+          .delete()
+          .eq('id', myRound.id)
+      } else {
+        await supabase
+          .from('delivery_rounds')
+          .update({ total_stops: newTotal })
+          .eq('id', myRound.id)
       }
 
-      await loadData()
-    } catch (error) {
-      console.error('Erreur release:', error)
-      alert('Erreur lors du relâchement')
+      loadData()
+    } catch (e) {
+      console.error('Erreur relâchement:', e)
     } finally {
       setLoading(false)
     }
   }
 
   function openNavigation(address: string, lat?: number | null, lng?: number | null) {
-    let url: string
     if (lat && lng) {
-      url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank')
     } else {
-      url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`, '_blank')
     }
-    window.open(url, '_blank')
   }
 
-  function logout() {
-    if (driver) {
-      supabase
-        .from('drivers')
-        .update({ status: 'offline' })
-        .eq('id', driver.id)
+  // Formatage
+  function formatTime(isoString: string): string {
+    try {
+      return new Date(isoString).toLocaleTimeString('fr-BE', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      })
+    } catch {
+      return '--:--'
     }
-    localStorage.removeItem('driver_id')
-    setDriver(null)
-    setPin('')
   }
 
-  // ==================== FORMATAGE ====================
+  function formatDateTime(isoString: string): string {
+    try {
+      const date = new Date(isoString)
+      const today = new Date()
+      const tomorrow = new Date(today)
+      tomorrow.setDate(tomorrow.getDate() + 1)
 
-  function formatDateTime(dateString: string): string {
-    const date = new Date(dateString)
-    const now = new Date()
-    const tomorrow = new Date(now)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    
-    const timeStr = date.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
-    
-    // Aujourd'hui
-    if (date.toDateString() === now.toDateString()) {
-      return `Aujourd'hui ${timeStr}`
+      const isToday = date.toDateString() === today.toDateString()
+      const isTomorrow = date.toDateString() === tomorrow.toDateString()
+
+      const time = date.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
+
+      if (isToday) return `Aujourd'hui ${time}`
+      if (isTomorrow) return `Demain ${time}`
+      return date.toLocaleDateString('fr-BE', { day: '2-digit', month: '2-digit' }) + ` ${time}`
+    } catch {
+      return '--'
     }
-    
-    // Demain
-    if (date.toDateString() === tomorrow.toDateString()) {
-      return `Demain ${timeStr}`
+  }
+
+  function getTimeUntil(isoString: string): string {
+    try {
+      const target = new Date(isoString).getTime()
+      const now = currentTime.getTime()
+      const diffMinutes = Math.round((target - now) / (60 * 1000))
+
+      if (diffMinutes < 0) return 'Passé'
+      if (diffMinutes < 60) return `Dans ${diffMinutes} min`
+      const hours = Math.floor(diffMinutes / 60)
+      const mins = diffMinutes % 60
+      return `Dans ${hours}h${mins.toString().padStart(2, '0')}`
+    } catch {
+      return '--'
     }
-    
-    // Autre jour
-    return date.toLocaleDateString('fr-BE', { 
-      day: '2-digit', 
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
   }
 
-  function formatTime(dateString: string): string {
-    return new Date(dateString).toLocaleTimeString('fr-BE', {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  function getTimeUntil(dateString: string): string {
-    const target = new Date(dateString)
-    const now = new Date()
-    const diffMs = target.getTime() - now.getTime()
-    const diffMinutes = Math.round(diffMs / (60 * 1000))
-    
-    if (diffMinutes < 0) return 'Passé'
-    if (diffMinutes < 60) return `Dans ${diffMinutes} min`
-    const hours = Math.floor(diffMinutes / 60)
-    const mins = diffMinutes % 60
-    return `Dans ${hours}h${mins > 0 ? mins.toString().padStart(2, '0') : ''}`
-  }
-
-  // ==================== ÉCRAN DE LOGIN ====================
-
+  // Login screen
   if (!driver) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-b from-orange-500 to-orange-600 flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl">
           <div className="text-center mb-8">
             <span className="text-6xl block mb-4">🛵</span>
-            <h1 className="text-2xl font-bold text-gray-900">FritOS Driver</h1>
-            <p className="text-gray-500">Entrez votre code PIN</p>
+            <h1 className="text-2xl font-bold text-gray-900">Espace Livreur</h1>
+            <p className="text-gray-500">MDjambo</p>
           </div>
 
           {error && (
-            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl mb-4 text-center">
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4 text-center">
               {error}
             </div>
           )}
 
-          <input
-            type="tel"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            maxLength={6}
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-            className="w-full text-center text-4xl font-mono tracking-widest px-4 py-6 rounded-xl border-2 border-gray-200 focus:border-orange-500 focus:outline-none mb-6"
-            placeholder="• • • • • •"
-          />
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Code PIN
+            </label>
+            <input
+              type="tel"
+              inputMode="numeric"
+              maxLength={6}
+              value={pin}
+              onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+              className="w-full text-center text-3xl font-mono tracking-[0.5em] px-4 py-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-orange-500"
+              placeholder="••••••"
+              autoFocus
+            />
+          </div>
 
           <button
             onClick={loginWithPin}
             disabled={loading || pin.length !== 6}
-            className="w-full bg-orange-500 text-white font-bold py-4 rounded-xl text-lg hover:bg-orange-600 disabled:opacity-50"
+            className="w-full bg-orange-500 text-white font-bold py-4 rounded-xl disabled:opacity-50"
           >
             {loading ? 'Connexion...' : 'Se connecter'}
           </button>
@@ -830,98 +625,95 @@ export default function DriverPage() {
     )
   }
 
-  // ==================== APPLICATION PRINCIPALE ====================
-
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-100 pb-20">
       {/* Header */}
-      <header className="bg-orange-500 text-white p-4 sticky top-0 z-10">
+      <header className="bg-orange-500 text-white p-4 sticky top-0 z-40">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-2xl">🛵</span>
             <div>
               <h1 className="font-bold">{driver.name}</h1>
-              <p className="text-orange-100 text-sm flex items-center gap-1">
-                <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-                {myRound ? `Tournée (${myRound.total_stops} stops)` : 'Disponible'}
-              </p>
+              <span className="text-xs bg-green-400 px-2 py-0.5 rounded-full">
+                ● Disponible
+              </span>
             </div>
           </div>
           <button
             onClick={logout}
-            className="bg-white/20 px-3 py-1 rounded-lg text-sm"
+            className="bg-white/20 px-4 py-2 rounded-lg text-sm"
           >
             Déconnexion
           </button>
         </div>
+
+        {/* Tabs */}
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={() => setView('available')}
+            className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
+              view === 'available'
+                ? 'bg-white text-orange-500'
+                : 'bg-white/20 text-white'
+            }`}
+          >
+            📋 Disponibles ({availableOrders.length + suggestedRounds.reduce((sum, s) => sum + s.orders.length, 0)})
+          </button>
+          <button
+            onClick={() => setView('round')}
+            className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
+              view === 'round'
+                ? 'bg-white text-orange-500'
+                : 'bg-white/20 text-white'
+            }`}
+          >
+            🚗 Ma tournée
+          </button>
+        </div>
       </header>
 
-      {/* Tabs */}
-      <div className="bg-white border-b flex">
-        <button
-          onClick={() => setView('available')}
-          className={`flex-1 py-3 font-medium transition-colors ${
-            view === 'available' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'
-          }`}
-        >
-          📋 Disponibles ({availableOrders.length})
-        </button>
-        <button
-          onClick={() => setView('round')}
-          disabled={!myRound}
-          className={`flex-1 py-3 font-medium transition-colors ${
-            view === 'round' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-500'
-          } disabled:opacity-50`}
-        >
-          🚗 Ma tournée
-        </button>
-      </div>
-
-      {/* Content */}
-      <div className="p-4">
+      <div className="p-4 space-y-4">
         {view === 'available' && (
           <div className="space-y-4">
-            
-            {/* Suggestions de tournées */}
+            {/* Suggestions de tournées depuis la DB */}
             {suggestedRounds.length > 0 && showSuggestions && (
-              <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-4 text-white">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="font-bold text-lg">🚀 Tournées suggérées</h2>
-                  <button 
-                    onClick={() => setShowSuggestions(false)}
-                    className="text-white/70 hover:text-white"
-                  >
-                    ✕
-                  </button>
-                </div>
+              <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-2xl p-4 text-white relative">
+                <button 
+                  onClick={() => setShowSuggestions(false)}
+                  className="absolute top-2 right-2 text-white/70 hover:text-white"
+                >
+                  ✕
+                </button>
+                
+                <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
+                  🚀 Tournées suggérées
+                </h3>
                 
                 {suggestedRounds.map((suggestion, idx) => (
-                  <div key={idx} className="bg-white/20 rounded-xl p-3 mb-2">
+                  <div key={suggestion.id} className="bg-white/10 rounded-xl p-3 mb-3">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium">
-                        {suggestion.orders.length} livraisons groupées
-                      </span>
+                      <span className="font-bold">{suggestion.orders.length} livraisons groupées</span>
                       <span className="text-sm bg-white/30 px-2 py-0.5 rounded">
-                        ~{suggestion.totalDistance + MAX_DISTANCE_MINUTES} min trajet
+                        ~{suggestion.total_distance_minutes} min trajet
                       </span>
                     </div>
                     
                     <div className="space-y-1 mb-3">
-                      {suggestion.deliveries.map((d, i) => (
+                      {suggestion.orders.map((o, i) => (
                         <div key={i} className="flex items-center justify-between text-sm">
                           <span>
-                            #{d.order.order_number} - {d.order.delivery_address.substring(0, 25)}...
+                            #{o.order_number} - {(o.delivery_address || '').substring(0, 25)}...
                           </span>
                           <span className="text-white/80">
-                            ~{formatTime(d.estimatedDelivery.toISOString())}
+                            ~{formatTime(o.estimated_delivery)}
                           </span>
                         </div>
                       ))}
                     </div>
                     
                     <div className="flex items-center justify-between text-sm mb-3 text-white/80">
-                      <span>⏰ Préparer: {formatTime(suggestion.prepareAt.toISOString())}</span>
-                      <span>🚗 Départ: {formatTime(suggestion.departAt.toISOString())}</span>
+                      <span>⏰ Préparer: {formatTime(suggestion.prep_at)}</span>
+                      <span>🚗 Départ: {formatTime(suggestion.depart_at)}</span>
                     </div>
                     
                     <button
@@ -936,14 +728,14 @@ export default function DriverPage() {
               </div>
             )}
 
-            {/* Liste des commandes individuelles */}
-            {availableOrders.length === 0 ? (
+            {/* Liste des commandes individuelles (hors suggestions) */}
+            {availableOrders.length === 0 && suggestedRounds.length === 0 ? (
               <div className="bg-white rounded-2xl p-8 text-center">
                 <span className="text-5xl block mb-4">📭</span>
                 <p className="text-gray-500">Aucune livraison disponible</p>
                 <p className="text-gray-400 text-sm mt-2">Les prochaines livraisons apparaîtront ici</p>
               </div>
-            ) : (
+            ) : availableOrders.length > 0 && (
               <>
                 <h3 className="font-medium text-gray-600 mb-2">
                   Livraisons individuelles
@@ -1108,6 +900,16 @@ export default function DriverPage() {
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {view === 'round' && !myRound && (
+          <div className="bg-white rounded-2xl p-8 text-center">
+            <span className="text-5xl block mb-4">🚗</span>
+            <p className="text-gray-500">Pas de tournée en cours</p>
+            <p className="text-gray-400 text-sm mt-2">
+              Prenez des commandes depuis l'onglet "Disponibles"
+            </p>
           </div>
         )}
       </div>
