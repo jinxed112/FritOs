@@ -934,7 +934,8 @@ export default function KitchenPage() {
             <span className={`font-mono text-sm ${getLaunchTimeColor(order)}`}>
               {getTimeSinceLaunch(order).display}
             </span>
-            {column.nextStatus && (
+            {/* Bouton individuel - SEULEMENT si pas dans une tournée */}
+            {column.nextStatus && !isInRound && (
               <button onClick={() => updateStatus(order.id, column.nextStatus!)} className={`${colorClasses.btn} text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors text-lg`}>
                 {column.nextLabel}
               </button>
@@ -981,9 +982,76 @@ export default function KitchenPage() {
   }
 
   // Render un groupe de commandes (tournée ou commande seule)
+  // Avancer toutes les commandes d'une tournée en même temps
+  async function advanceRoundOrders(roundId: string, orders: Order[], nextStatus: string) {
+    const orderIds = orders.map(o => o.id)
+    
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: nextStatus })
+      .in('id', orderIds)
+    
+    if (error) {
+      console.error('Erreur avancement tournée:', error)
+    } else {
+      playSound()
+    }
+  }
+
+  // Dégrouper une tournée
+  async function ungroupRound(roundId: string, orders: Order[]) {
+    const orderIds = orders.map(o => o.id)
+    
+    // Mettre suggested_round_id à null sur les commandes
+    const { error: ordersError } = await supabase
+      .from('orders')
+      .update({ suggested_round_id: null })
+      .in('id', orderIds)
+    
+    if (ordersError) {
+      console.error('Erreur dégroupage commandes:', ordersError)
+      return
+    }
+
+    // Mettre la suggestion en cancelled
+    const { error: roundError } = await supabase
+      .from('suggested_rounds')
+      .update({ status: 'cancelled' })
+      .eq('id', roundId)
+    
+    if (roundError) {
+      console.error('Erreur annulation suggestion:', roundError)
+    } else {
+      playSound()
+    }
+  }
+
   function renderOrderGroup(group: { round: SuggestedRound | null, orders: Order[] }, column: typeof COLUMNS[number]) {
     if (group.round) {
-      // Tournée groupée
+      // Tournée groupée - déterminer le prochain statut
+      const allStatuses = group.orders.map(o => o.status)
+      const allSameStatus = allStatuses.every(s => s === allStatuses[0])
+      const currentStatus = allSameStatus ? allStatuses[0] : 'mixed'
+      
+      // Déterminer le bouton à afficher
+      let nextStatus: string | null = null
+      let nextLabel = ''
+      let buttonColor = 'bg-purple-500 hover:bg-purple-600'
+      
+      if (currentStatus === 'pending') {
+        nextStatus = 'preparing'
+        nextLabel = '▶️'
+        buttonColor = 'bg-orange-500 hover:bg-orange-600'
+      } else if (currentStatus === 'preparing') {
+        nextStatus = 'ready'
+        nextLabel = '✅'
+        buttonColor = 'bg-blue-500 hover:bg-blue-600'
+      } else if (currentStatus === 'ready') {
+        nextStatus = 'completed'
+        nextLabel = '🏁'
+        buttonColor = 'bg-green-500 hover:bg-green-600'
+      }
+
       return (
         <div key={group.round.id} className="bg-purple-500/10 border-2 border-purple-500 rounded-xl p-2 space-y-2">
           <div className="flex items-center justify-between px-2 py-1 bg-purple-500/20 rounded-lg">
@@ -991,11 +1059,32 @@ export default function KitchenPage() {
               <span className="text-purple-400 font-bold">🔗 TOURNÉE</span>
               <span className="text-sm text-purple-300">{group.orders.length} livraisons</span>
             </div>
-            <div className="flex items-center gap-2 text-sm text-purple-300">
+            <div className="flex items-center gap-3 text-sm text-purple-300">
               <span>🚀 Lancer à {formatTime(group.round.prep_at)}</span>
               <span>🚗 Départ {formatTime(group.round.depart_at)}</span>
             </div>
           </div>
+          
+          {/* Boutons de contrôle du groupe */}
+          <div className="flex items-center justify-between px-2 py-1">
+            <button
+              onClick={() => ungroupRound(group.round!.id, group.orders)}
+              className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 transition-colors"
+            >
+              🔓 Dégrouper
+            </button>
+            
+            {nextStatus && (
+              <button
+                onClick={() => advanceRoundOrders(group.round!.id, group.orders, nextStatus)}
+                className={`${buttonColor} text-white px-4 py-1.5 rounded-lg text-sm flex items-center gap-2 transition-colors`}
+              >
+                {nextLabel} Tout {nextStatus === 'preparing' ? 'en prépa' : nextStatus === 'ready' ? 'prêt' : 'terminé'}
+              </button>
+            )}
+          </div>
+          
+          {/* Commandes de la tournée - SANS boutons individuels */}
           {group.orders.map((order, idx) => renderOrder(order, column, true, { sequence: idx + 1, totalInRound: group.orders.length }))}
         </div>
       )
