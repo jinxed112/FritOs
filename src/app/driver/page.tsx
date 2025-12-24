@@ -30,6 +30,7 @@ type SuggestedRoundOrder = {
   customer_name: string | null
   delivery_address: string | null
   scheduled_time: string | null
+  status: string
 }
 
 type SuggestedRound = {
