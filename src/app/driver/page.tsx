@@ -337,23 +337,27 @@ export default function DriverPage() {
     setLoading(true)
 
     try {
-      // Accepter la suggestion via la fonction RPC
-      const { data, error } = await supabase.rpc('accept_suggested_round', {
-        p_suggested_round_id: suggestion.id
-      })
+      // Si la suggestion n'est pas encore acceptée, l'accepter d'abord
+      if (suggestion.status === 'pending') {
+        const { data, error } = await supabase.rpc('accept_suggested_round', {
+          p_suggested_round_id: suggestion.id
+        })
 
-      if (error) {
-        console.error('Erreur acceptation suggestion:', error)
-        setError('Erreur lors de l\'acceptation de la tournée')
-        return
+        if (error) {
+          console.error('Erreur acceptation suggestion:', error)
+          setError('Erreur lors de l\'acceptation de la tournée')
+          setLoading(false)
+          return
+        }
+
+        if (!data?.success) {
+          setError(data?.error || 'Erreur inconnue')
+          setLoading(false)
+          return
+        }
       }
 
-      if (!data?.success) {
-        setError(data?.error || 'Erreur inconnue')
-        return
-      }
-
-      // Créer une nouvelle tournée avec toutes les commandes
+      // Créer une nouvelle tournée livreur avec toutes les commandes
       const { data: round, error: roundError } = await supabase
         .from('delivery_rounds')
         .insert({
@@ -843,10 +847,21 @@ export default function DriverPage() {
                   Livraisons individuelles
                 </h3>
                 {availableOrders.map(order => (
-                  <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm">
+                  <div key={order.id} className={`bg-white rounded-2xl p-4 shadow-sm ${order.status !== 'ready' ? 'opacity-70' : ''}`}>
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        <span className="text-xl font-bold">#{order.order_number}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xl font-bold">#{order.order_number}</span>
+                          {order.status === 'ready' && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Prêt</span>
+                          )}
+                          {order.status === 'preparing' && (
+                            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">🍳 En prépa</span>
+                          )}
+                          {order.status === 'pending' && (
+                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">⏳ En attente</span>
+                          )}
+                        </div>
                         <p className="text-gray-500 text-sm">
                           {formatDateTime(order.scheduled_time)}
                         </p>
@@ -877,18 +892,26 @@ export default function DriverPage() {
                       {myRound ? (
                         <button
                           onClick={() => addToRound(order.id)}
-                          disabled={loading || myRound.total_stops >= MAX_DELIVERIES_PER_ROUND}
+                          disabled={loading || myRound.total_stops >= MAX_DELIVERIES_PER_ROUND || order.status !== 'ready'}
                           className="flex-1 bg-blue-500 text-white font-medium py-3 rounded-xl disabled:opacity-50"
                         >
-                          ➕ Ajouter à ma tournée
+                          {order.status !== 'ready' ? '👨‍🍳 En préparation...' : '➕ Ajouter à ma tournée'}
                         </button>
                       ) : (
                         <button
                           onClick={() => takeOrder(order.id)}
-                          disabled={loading}
-                          className="flex-1 bg-orange-500 text-white font-medium py-3 rounded-xl"
+                          disabled={loading || order.status !== 'ready'}
+                          className={`flex-1 font-medium py-3 rounded-xl disabled:opacity-50 ${
+                            order.status === 'ready' 
+                              ? 'bg-orange-500 text-white' 
+                              : 'bg-gray-300 text-gray-600'
+                          }`}
                         >
-                          🚗 Prendre cette livraison
+                          {order.status === 'ready' 
+                            ? '🚗 Prendre cette livraison' 
+                            : order.status === 'preparing' 
+                              ? '👨‍🍳 En préparation...' 
+                              : '⏳ En attente...'}
                         </button>
                       )}
                     </div>
