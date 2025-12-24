@@ -497,7 +497,7 @@ export default function DriverPage() {
       // Délier la commande
       await supabase
         .from('orders')
-        .update({ delivery_round_id: null })
+        .update({ delivery_round_id: null, suggested_round_id: null })
         .eq('id', orderId)
 
       // Mettre à jour le nombre de stops
@@ -519,6 +519,66 @@ export default function DriverPage() {
       loadData()
     } catch (e) {
       console.error('Erreur relâchement:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Relâcher toute la tournée (remet la suggestion en pending)
+  async function releaseEntireRound() {
+    if (!myRound) return
+    setLoading(true)
+
+    try {
+      // Récupérer tous les order_ids de la tournée
+      const orderIds = myRound.stops.map(s => s.order_id)
+
+      // Trouver la suggestion associée (si elle existe)
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('suggested_round_id')
+        .in('id', orderIds)
+        .not('suggested_round_id', 'is', null)
+        .limit(1)
+
+      const suggestedRoundId = orders?.[0]?.suggested_round_id
+
+      // Supprimer tous les stops
+      await supabase
+        .from('delivery_round_stops')
+        .delete()
+        .eq('delivery_round_id', myRound.id)
+
+      // Délier toutes les commandes
+      await supabase
+        .from('orders')
+        .update({ delivery_round_id: null })
+        .in('id', orderIds)
+
+      // Supprimer la tournée livreur
+      await supabase
+        .from('delivery_rounds')
+        .delete()
+        .eq('id', myRound.id)
+
+      // Remettre la suggestion en pending (si elle existe et n'est pas expirée)
+      if (suggestedRoundId) {
+        const now = new Date().toISOString()
+        await supabase
+          .from('suggested_rounds')
+          .update({ 
+            status: 'pending',
+            accepted_at: null,
+            driver_id: null
+          })
+          .eq('id', suggestedRoundId)
+          .gt('expires_at', now) // Seulement si pas expirée
+      }
+
+      loadData()
+    } catch (e) {
+      console.error('Erreur relâchement tournée:', e)
+      setError('Erreur lors du relâchement de la tournée')
     } finally {
       setLoading(false)
     }
@@ -813,12 +873,25 @@ export default function DriverPage() {
               </div>
 
               {myRound.status === 'ready' && (
-                <button
-                  onClick={startDelivery}
-                  className="w-full bg-green-500 text-white font-bold py-4 rounded-xl text-lg"
-                >
-                  🚀 Démarrer la tournée
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={startDelivery}
+                    className="w-full bg-green-500 text-white font-bold py-4 rounded-xl text-lg"
+                  >
+                    🚀 Démarrer la tournée
+                  </button>
+                  
+                  {/* Bouton relâcher toute la tournée - seulement si tournée groupée (2+ stops) */}
+                  {myRound.total_stops >= 2 && (
+                    <button
+                      onClick={releaseEntireRound}
+                      disabled={loading}
+                      className="w-full bg-gray-100 text-gray-600 font-medium py-3 rounded-xl hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                    >
+                      ↩️ Relâcher la tournée ({myRound.total_stops} livraisons)
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -827,6 +900,8 @@ export default function DriverPage() {
               const isCurrentStop = index === currentStop && myRound.status === 'in_progress'
               const isCompleted = stop.status === 'delivered'
               const order = stop.order as any
+              // Une tournée est "groupée" si elle a 2+ stops
+              const isGroupedRound = myRound.total_stops >= 2
 
               return (
                 <div
@@ -886,7 +961,8 @@ export default function DriverPage() {
                         </div>
                       )}
 
-                      {!isCompleted && (
+                      {/* Bouton relâcher individuel - SEULEMENT si commande seule (pas groupée) */}
+                      {!isCompleted && !isGroupedRound && (
                         <button
                           onClick={() => releaseOrder(stop.id, stop.order_id)}
                           disabled={loading}
