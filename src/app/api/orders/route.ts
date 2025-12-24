@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
         for (const opt of item.options) {
           optionsTotal += opt.price || 0
           optionsData.push({
-            item_name: opt.name,
+            item_name: opt.item_name || opt.name || 'Option',  // Fix: frontend envoie item_name
             price: opt.price || 0,
           })
         }
