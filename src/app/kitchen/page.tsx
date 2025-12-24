@@ -19,7 +19,7 @@ type OrderMetadata = {
   slot_time?: string
   delivery_lat?: number
   delivery_lng?: number
-  delivery_duration?: number // Temps de trajet en minutes (si pré-calculé)
+  delivery_duration?: number
 }
 
 type Order = {
@@ -30,7 +30,6 @@ type Order = {
   created_at: string
   order_items: OrderItem[]
   is_offered?: boolean
-  // Infos client Click & Collect
   customer_name?: string | null
   customer_phone?: string | null
   customer_email?: string | null
@@ -38,6 +37,29 @@ type Order = {
   delivery_notes?: string | null
   delivery_fee?: number
   metadata?: OrderMetadata | null
+  suggested_round_id?: string | null
+}
+
+type SuggestedRoundOrder = {
+  order_id: string
+  order_number: string
+  sequence_order: number
+  estimated_delivery: string
+  customer_name: string | null
+  delivery_address: string | null
+  scheduled_time: string | null
+  total: number
+  status: string
+}
+
+type SuggestedRound = {
+  id: string
+  status: 'pending' | 'accepted' | 'rejected' | 'expired'
+  prep_at: string
+  depart_at: string
+  total_distance_minutes: number
+  expires_at: string
+  orders: SuggestedRoundOrder[]
 }
 
 type DeviceInfo = {
@@ -100,8 +122,8 @@ const COLUMNS = [
 
 const DEFAULT_COLUMNS = ['pending', 'preparing', 'ready', 'completed']
 const DEFAULT_COLLAPSED_CATEGORIES = ['boissons', 'bières', 'biere', 'softs', 'drinks']
-const DEFAULT_PREP_TIME = 10 // Temps de préparation par défaut en minutes
-const DEFAULT_DELIVERY_TIME = 15 // Temps de livraison par défaut en minutes
+const DEFAULT_PREP_TIME = 10
+const DEFAULT_DELIVERY_TIME = 15
 
 const CATEGORY_CONFIG: Record<string, { icon: string, bgClass: string, textClass: string }> = {
   'frites': { icon: '🍟', bgClass: 'bg-orange-500/20', textClass: 'text-orange-400' },
@@ -197,11 +219,7 @@ function parseOptions(optionsJson: string | null): ParsedOption[] {
 
 function getItemKey(productName: string, options: ParsedOption[]): string {
   const safeName = productName || 'unknown'
-  const optionsStr = options
-    .filter(o => o && o.item_name)
-    .map(o => o.item_name)
-    .sort()
-    .join('|')
+  const optionsStr = options.filter(o => o && o.item_name).map(o => o.item_name).sort().join('|')
   return `${safeName}::${optionsStr}`
 }
 
@@ -218,13 +236,7 @@ function groupAndMergeItems(items: OrderItem[]): GroupedItems[] {
     
     if (!categoryGroups[catName]) categoryGroups[catName] = {}
     if (!categoryGroups[catName][key]) {
-      categoryGroups[catName][key] = { 
-        key, 
-        product_name: item.product_name || 'Produit inconnu', 
-        totalQuantity: 0, 
-        options, 
-        notes: [] 
-      }
+      categoryGroups[catName][key] = { key, product_name: item.product_name || 'Produit inconnu', totalQuantity: 0, options, notes: [] }
     }
     
     categoryGroups[catName][key].totalQuantity += (item.quantity || 1)
@@ -238,12 +250,8 @@ function groupAndMergeItems(items: OrderItem[]): GroupedItems[] {
       const config = getCategoryConfig(categoryName)
       const itemsArray = Object.values(mergedItems)
       return {
-        categoryName,
-        categoryIcon: config.icon,
-        textClass: config.textClass,
-        bgClass: config.bgClass,
-        items: itemsArray,
-        totalCount: itemsArray.reduce((sum, item) => sum + item.totalQuantity, 0),
+        categoryName, categoryIcon: config.icon, textClass: config.textClass, bgClass: config.bgClass,
+        items: itemsArray, totalCount: itemsArray.reduce((sum, item) => sum + item.totalQuantity, 0),
       }
     })
     .sort((a, b) => {
@@ -263,33 +271,31 @@ function getOrderTypeEmoji(orderType: string | undefined | null): string {
   return ORDER_TYPE_EMOJI[orderType] || '📋'
 }
 
-// Vérifie si c'est une commande Click & Collect
 function isClickAndCollect(order: Order): boolean {
-  return order.metadata?.source === 'click_and_collect' || 
-         order.order_type === 'pickup' || 
-         order.order_type === 'delivery'
+  return order.metadata?.source === 'click_and_collect' || order.order_type === 'pickup' || order.order_type === 'delivery'
 }
 
-// Formate l'heure (de ISO à HH:MM)
 function formatTime(isoString: string | null | undefined): string {
   if (!isoString) return '--:--'
   try {
     const date = new Date(isoString)
     return date.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return '--:--'
-  }
+  } catch { return '--:--' }
 }
 
 // ==================== MAIN COMPONENT ====================
 export default function KitchenPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [offeredOrders, setOfferedOrders] = useState<Order[]>([])
+  const [suggestedRounds, setSuggestedRounds] = useState<SuggestedRound[]>([])
+  const [acceptedRounds, setAcceptedRounds] = useState<SuggestedRound[]>([])
+  const [availableDrivers, setAvailableDrivers] = useState<number>(0)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [loading, setLoading] = useState(true)
   const [authChecking, setAuthChecking] = useState(true)
   const [device, setDevice] = useState<DeviceInfo | null>(null)
   const [showConfig, setShowConfig] = useState(false)
+  const [showDeliveryPanel, setShowDeliveryPanel] = useState(false)
   const [columnConfig, setColumnConfig] = useState<ColumnConfig>({ pending: true, preparing: true, ready: true, completed: true })
   const [displayMode, setDisplayMode] = useState<'compact' | 'detailed'>('detailed')
   const [draggedOrder, setDraggedOrder] = useState<string | null>(null)
@@ -308,10 +314,8 @@ export default function KitchenPage() {
     return () => clearInterval(timer)
   }, [])
 
-  // Charger le temps de préparation moyen (basé sur preparation_started_at)
   async function loadAvgPrepTime(estId: string) {
     try {
-      // Récupérer les commandes complétées des dernières 24h avec preparation_started_at
       const yesterday = new Date()
       yesterday.setHours(yesterday.getHours() - 24)
       
@@ -325,21 +329,115 @@ export default function KitchenPage() {
         .not('updated_at', 'is', null)
       
       if (data && data.length > 0) {
-        // Calculer la moyenne basée sur le vrai temps de préparation
         const times = data.map(o => {
           const started = new Date(o.preparation_started_at).getTime()
           const completed = new Date(o.updated_at).getTime()
-          return (completed - started) / (60 * 1000) // En minutes
-        }).filter(t => t > 0 && t < 60) // Filtrer les valeurs aberrantes (> 1h)
+          return (completed - started) / (60 * 1000)
+        }).filter(t => t > 0 && t < 60)
         
         if (times.length > 0) {
           const avg = times.reduce((a, b) => a + b, 0) / times.length
           setAvgPrepTime(Math.round(avg))
-          console.log(`⏱️ Temps prépa moyen calculé: ${Math.round(avg)} min (sur ${times.length} commandes)`)
         }
       }
     } catch (error) {
       console.error('Error loading avg prep time:', error)
+    }
+  }
+
+  async function loadAvailableDrivers(estId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('drivers')
+        .select('id')
+        .eq('establishment_id', estId)
+        .eq('status', 'available')
+        .eq('is_active', true)
+      
+      if (!error && data) {
+        setAvailableDrivers(data.length)
+      }
+    } catch (error) {
+      console.error('Error loading drivers:', error)
+    }
+  }
+
+  async function loadSuggestedRounds(estId: string) {
+    try {
+      // Charger les suggestions pending
+      const { data: pendingData } = await supabase
+        .from('v_suggested_rounds_details')
+        .select('*')
+        .eq('establishment_id', estId)
+        .eq('status', 'pending')
+        .order('prep_at', { ascending: true })
+      
+      if (pendingData) {
+        setSuggestedRounds(pendingData.map((r: any) => ({
+          ...r,
+          orders: r.orders || []
+        })))
+      }
+
+      // Charger les tournées acceptées (pour affichage groupé)
+      const { data: acceptedData } = await supabase
+        .from('v_suggested_rounds_details')
+        .select('*')
+        .eq('establishment_id', estId)
+        .eq('status', 'accepted')
+        .order('prep_at', { ascending: true })
+      
+      if (acceptedData) {
+        setAcceptedRounds(acceptedData.map((r: any) => ({
+          ...r,
+          orders: r.orders || []
+        })))
+      }
+    } catch (error) {
+      console.error('Error loading suggested rounds:', error)
+    }
+  }
+
+  async function acceptSuggestedRound(roundId: string) {
+    try {
+      const { data, error } = await supabase.rpc('accept_suggested_round', {
+        p_suggested_round_id: roundId
+      })
+      
+      if (error) {
+        console.error('Error accepting round:', error)
+        alert('Erreur lors de l\'acceptation de la tournée')
+        return
+      }
+      
+      if (data?.success) {
+        // Recharger les données
+        loadSuggestedRounds(establishmentId)
+        loadOrders(establishmentId)
+      } else {
+        alert(data?.error || 'Erreur inconnue')
+      }
+    } catch (error) {
+      console.error('Error accepting round:', error)
+    }
+  }
+
+  async function rejectSuggestedRound(roundId: string) {
+    try {
+      const { data, error } = await supabase.rpc('reject_suggested_round', {
+        p_suggested_round_id: roundId
+      })
+      
+      if (error) {
+        console.error('Error rejecting round:', error)
+        return
+      }
+      
+      if (data?.success) {
+        loadSuggestedRounds(establishmentId)
+      }
+    } catch (error) {
+      console.error('Error rejecting round:', error)
     }
   }
 
@@ -352,6 +450,8 @@ export default function KitchenPage() {
         loadOrders(establishmentId)
         loadTempOrders(establishmentId)
         loadAvgPrepTime(establishmentId)
+        loadSuggestedRounds(establishmentId)
+        loadAvailableDrivers(establishmentId)
         setupRealtime(establishmentId)
         return
       }
@@ -376,6 +476,8 @@ export default function KitchenPage() {
       loadOrders(estId)
       loadTempOrders(estId)
       loadAvgPrepTime(estId)
+      loadSuggestedRounds(estId)
+      loadAvailableDrivers(estId)
       setupRealtime(estId)
     } catch (error) {
       console.error('Auth check error:', error)
@@ -383,6 +485,8 @@ export default function KitchenPage() {
       loadOrders(establishmentId)
       loadTempOrders(establishmentId)
       loadAvgPrepTime(establishmentId)
+      loadSuggestedRounds(establishmentId)
+      loadAvailableDrivers(establishmentId)
       setupRealtime(establishmentId)
     }
   }
@@ -392,12 +496,8 @@ export default function KitchenPage() {
       const { data } = await supabase.from('temp_orders').select('*').eq('establishment_id', estId).neq('status', 'completed').order('created_at', { ascending: true })
       if (data) {
         setOfferedOrders(data.map(t => ({ 
-          id: t.id, 
-          order_number: t.order_number || 'X', 
-          order_type: t.order_type || 'takeaway', 
-          status: t.status || 'pending', 
-          created_at: t.created_at, 
-          is_offered: true, 
+          id: t.id, order_number: t.order_number || 'X', order_type: t.order_type || 'takeaway', 
+          status: t.status || 'pending', created_at: t.created_at, is_offered: true, 
           order_items: Array.isArray(t.order_items) ? t.order_items : [] 
         })))
       }
@@ -408,8 +508,8 @@ export default function KitchenPage() {
 
   function setupRealtime(estId: string) {
     const dbChannel = supabase.channel('orders-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: `establishment_id=eq.${estId}` }, () => { loadOrders(estId); playNotificationSound() })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `establishment_id=eq.${estId}` }, () => loadOrders(estId))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: `establishment_id=eq.${estId}` }, () => { loadOrders(estId); loadSuggestedRounds(estId); playNotificationSound() })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `establishment_id=eq.${estId}` }, () => { loadOrders(estId); loadSuggestedRounds(estId) })
       .subscribe()
 
     const tempChannel = supabase.channel('temp-orders-realtime')
@@ -418,7 +518,20 @@ export default function KitchenPage() {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'temp_orders' }, () => loadTempOrders(estId))
       .subscribe()
 
-    return () => { supabase.removeChannel(dbChannel); supabase.removeChannel(tempChannel) }
+    const suggestedChannel = supabase.channel('suggested-rounds-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'suggested_rounds', filter: `establishment_id=eq.${estId}` }, () => loadSuggestedRounds(estId))
+      .subscribe()
+
+    const driversChannel = supabase.channel('drivers-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers', filter: `establishment_id=eq.${estId}` }, () => loadAvailableDrivers(estId))
+      .subscribe()
+
+    return () => { 
+      supabase.removeChannel(dbChannel)
+      supabase.removeChannel(tempChannel)
+      supabase.removeChannel(suggestedChannel)
+      supabase.removeChannel(driversChannel)
+    }
   }
 
   function playNotificationSound() {
@@ -437,7 +550,7 @@ export default function KitchenPage() {
         .select(`
           id, order_number, order_type, status, created_at,
           customer_name, customer_phone, customer_email,
-          scheduled_time, delivery_notes, delivery_fee, metadata,
+          scheduled_time, delivery_notes, delivery_fee, metadata, suggested_round_id,
           order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )
         `)
         .eq('establishment_id', estId)
@@ -451,10 +564,7 @@ export default function KitchenPage() {
           order_type: order.order_type || 'takeaway',
           metadata: typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata,
           order_items: Array.isArray(order.order_items) 
-            ? order.order_items.map((item: any) => ({ 
-                ...item, 
-                category_name: item.product?.category?.name || 'Autres' 
-              })) 
+            ? order.order_items.map((item: any) => ({ ...item, category_name: item.product?.category?.name || 'Autres' })) 
             : []
         })))
       }
@@ -471,26 +581,15 @@ export default function KitchenPage() {
         if (newStatus === 'completed') await supabase.from('temp_orders').delete().eq('id', orderId)
         else await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
       } else {
-        // Préparer les données de mise à jour
-        const updateData: any = { 
-          status: newStatus, 
-          updated_at: new Date().toISOString() 
-        }
-        
-        // Si on passe en "preparing", enregistrer l'heure de début de préparation
+        const updateData: any = { status: newStatus, updated_at: new Date().toISOString() }
         if (newStatus === 'preparing') {
           updateData.preparation_started_at = new Date().toISOString()
         }
-        
         await supabase.from('orders').update(updateData).eq('id', orderId)
       }
       
       if (newStatus === 'completed' || newStatus === 'ready') {
-        setCheckedItems(prev => {
-          const newState = { ...prev }
-          delete newState[orderId]
-          return newState
-        })
+        setCheckedItems(prev => { const newState = { ...prev }; delete newState[orderId]; return newState })
       }
     } catch (error) {
       console.error('Update status error:', error)
@@ -515,34 +614,24 @@ export default function KitchenPage() {
     setExpandedOrderInfo(prev => ({ ...prev, [orderId]: !prev[orderId] }))
   }
 
-  // Fonction pour calculer l'heure à laquelle on doit LANCER la préparation
   function getLaunchTime(order: Order): number {
-    // Commande sur place (borne, comptoir, table) → created_at (immédiat)
     if (!order.scheduled_time || order.metadata?.source !== 'click_and_collect') {
       return new Date(order.created_at).getTime()
     }
-    
-    // Commande C&C avec heure programmée
     const scheduledTime = new Date(order.scheduled_time).getTime()
-    const prepTime = avgPrepTime * 60 * 1000 // Temps de prépa en ms
-    
-    // Livraison = soustraire aussi le temps de trajet
+    const prepTime = avgPrepTime * 60 * 1000
     if (order.order_type === 'delivery') {
       const deliveryTime = (order.metadata?.delivery_duration || DEFAULT_DELIVERY_TIME) * 60 * 1000
       return scheduledTime - prepTime - deliveryTime
     }
-    
-    // Retrait = juste le temps de prépa
     return scheduledTime - prepTime
   }
 
-  // Fonction pour formater l'heure de lancement pour affichage
   function formatLaunchTime(order: Order): { time: string, isNow: boolean, isPast: boolean, isUpcoming: boolean } {
     const launchTime = getLaunchTime(order)
     const now = currentTime.getTime()
     const diffMinutes = (launchTime - now) / (60 * 1000)
     
-    // Sur place = toujours "maintenant"
     if (!order.scheduled_time || order.metadata?.source !== 'click_and_collect') {
       return { time: 'MAINTENANT', isNow: true, isPast: false, isUpcoming: false }
     }
@@ -552,13 +641,61 @@ export default function KitchenPage() {
     
     return {
       time: timeStr,
-      isNow: diffMinutes <= 0 && diffMinutes > -10, // Dans les 10 dernières minutes
-      isPast: diffMinutes <= -10, // En retard de plus de 10 min
-      isUpcoming: diffMinutes > 0 && diffMinutes <= 15 // Dans les 15 prochaines minutes
+      isNow: diffMinutes <= 0 && diffMinutes > -10,
+      isPast: diffMinutes <= -10,
+      isUpcoming: diffMinutes > 0 && diffMinutes <= 15
     }
   }
 
+  // Trouver la tournée acceptée pour une commande
+  function getAcceptedRoundForOrder(orderId: string): SuggestedRound | null {
+    for (const round of acceptedRounds) {
+      if (round.orders.some(o => o.order_id === orderId)) {
+        return round
+      }
+    }
+    return null
+  }
+
+  // Vérifier si une commande fait partie d'une tournée acceptée
+  function isInAcceptedRound(orderId: string): boolean {
+    return getAcceptedRoundForOrder(orderId) !== null
+  }
+
   const allOrders = [...orders, ...offeredOrders].sort((a, b) => getLaunchTime(a) - getLaunchTime(b))
+
+  // Grouper les commandes par tournée acceptée
+  function getOrdersGroupedByRound(columnOrders: Order[]): { round: SuggestedRound | null, orders: Order[] }[] {
+    const result: { round: SuggestedRound | null, orders: Order[] }[] = []
+    const processedOrderIds = new Set<string>()
+    
+    // D'abord, grouper les commandes par tournée
+    for (const order of columnOrders) {
+      if (processedOrderIds.has(order.id)) continue
+      
+      const round = getAcceptedRoundForOrder(order.id)
+      if (round) {
+        // Trouver toutes les commandes de cette tournée dans cette colonne
+        const roundOrderIds = round.orders.map(o => o.order_id)
+        const roundOrders = columnOrders.filter(o => roundOrderIds.includes(o.id))
+        
+        // Trier par sequence_order
+        roundOrders.sort((a, b) => {
+          const seqA = round.orders.find(o => o.order_id === a.id)?.sequence_order || 0
+          const seqB = round.orders.find(o => o.order_id === b.id)?.sequence_order || 0
+          return seqA - seqB
+        })
+        
+        result.push({ round, orders: roundOrders })
+        roundOrders.forEach(o => processedOrderIds.add(o.id))
+      } else {
+        result.push({ round: null, orders: [order] })
+        processedOrderIds.add(order.id)
+      }
+    }
+    
+    return result
+  }
 
   async function saveConfig(newConfig: ColumnConfig, newDisplayMode: 'compact' | 'detailed') {
     if (!device) return
@@ -569,21 +706,12 @@ export default function KitchenPage() {
     if (!error) { setColumnConfig(newConfig); setDisplayMode(newDisplayMode); setDevice({ ...device, config: updatedConfig }) }
   }
 
-  function getTimeSince(dateString: string): string {
-    const diff = Math.floor((currentTime.getTime() - new Date(dateString).getTime()) / 1000 / 60)
-    if (diff < 1) return '< 1 min'
-    if (diff < 60) return `${diff} min`
-    return `${Math.floor(diff / 60)}h${(diff % 60).toString().padStart(2, '0')}`
-  }
-
-  // Nouveau: obtenir le temps depuis le launch_time (pas created_at)
   function getTimeSinceLaunch(order: Order): { display: string, isWaiting: boolean, minutesUntilLaunch: number } {
     const launchTime = getLaunchTime(order)
     const now = currentTime.getTime()
     const diffMs = now - launchTime
     const diffMinutes = Math.floor(diffMs / (60 * 1000))
     
-    // Si l'heure de lancement n'est pas encore arrivée
     if (diffMinutes < 0) {
       const minutesUntil = Math.abs(diffMinutes)
       if (minutesUntil < 60) {
@@ -595,30 +723,17 @@ export default function KitchenPage() {
       }
     }
     
-    // Heure de lancement passée - afficher le temps écoulé
     if (diffMinutes < 1) return { display: '< 1 min', isWaiting: false, minutesUntilLaunch: 0 }
     if (diffMinutes < 60) return { display: `${diffMinutes} min`, isWaiting: false, minutesUntilLaunch: 0 }
     return { display: `${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}`, isWaiting: false, minutesUntilLaunch: 0 }
   }
 
-  function getTimeColor(dateString: string): string {
-    const diff = Math.floor((currentTime.getTime() - new Date(dateString).getTime()) / 1000 / 60)
-    if (diff < 5) return 'text-green-400'
-    if (diff < 10) return 'text-yellow-400'
-    if (diff < 15) return 'text-orange-400'
-    return 'text-red-400'
-  }
-
-  // Nouveau: couleur basée sur le launch_time
   function getLaunchTimeColor(order: Order): string {
     const launchTime = getLaunchTime(order)
     const now = currentTime.getTime()
     const diffMinutes = Math.floor((now - launchTime) / (60 * 1000))
     
-    // Pas encore l'heure
     if (diffMinutes < 0) return 'text-gray-400'
-    
-    // Heure passée - dégradé selon le retard
     if (diffMinutes < 5) return 'text-green-400'
     if (diffMinutes < 10) return 'text-yellow-400'
     if (diffMinutes < 15) return 'text-orange-400'
@@ -712,7 +827,6 @@ export default function KitchenPage() {
     )
   }
 
-  // Render les infos client pour Click & Collect
   function renderOrderInfo(order: Order) {
     if (!isClickAndCollect(order)) return null
     
@@ -721,11 +835,8 @@ export default function KitchenPage() {
     
     return (
       <div className="border-t border-slate-600">
-        {/* Bouton pour toggle + indicateur temps de préparation */}
-        <button 
-          onClick={(e) => { e.stopPropagation(); toggleOrderInfo(order.id) }}
-          className="w-full p-2 flex items-center justify-between hover:bg-slate-600/50 transition-colors"
-        >
+        <button onClick={(e) => { e.stopPropagation(); toggleOrderInfo(order.id) }}
+          className="w-full p-2 flex items-center justify-between hover:bg-slate-600/50 transition-colors">
           <div className="flex items-center gap-2">
             <span className={`text-xs font-bold px-2 py-1 rounded ${
               launchInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
@@ -739,62 +850,23 @@ export default function KitchenPage() {
             {order.order_type === 'takeaway' && <span className="text-xs text-gray-400">🛍️ Retrait</span>}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">
-              📅 Pour {formatTime(order.scheduled_time)}
-            </span>
+            <span className="text-xs text-gray-400">📅 Pour {formatTime(order.scheduled_time)}</span>
             <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
           </div>
         </button>
         
-        {/* Détails client (expanded) */}
         {isExpanded && (
           <div className="p-3 bg-slate-800/50 space-y-2 text-sm">
-            {order.customer_name && (
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400">👤</span>
-                <span className="text-white">{order.customer_name}</span>
-              </div>
-            )}
-            {order.customer_phone && (
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400">📞</span>
-                <a href={`tel:${order.customer_phone}`} className="text-cyan-400 hover:underline">
-                  {order.customer_phone}
-                </a>
-              </div>
-            )}
-            {order.customer_email && (
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400">✉️</span>
-                <span className="text-gray-300 text-xs truncate">{order.customer_email}</span>
-              </div>
-            )}
-            {order.scheduled_time && (
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400">🎯</span>
-                <span className="text-white">
-                  {order.order_type === 'delivery' ? 'Livrer' : 'Prêt'} pour {formatTime(order.scheduled_time)}
-                </span>
-              </div>
-            )}
-            {order.order_type === 'delivery' && order.delivery_notes && (
-              <div className="flex items-start gap-2">
-                <span className="text-gray-400">📍</span>
-                <span className="text-white">{order.delivery_notes}</span>
-              </div>
-            )}
-            {order.delivery_fee && order.delivery_fee > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400">💰</span>
-                <span className="text-green-400">Frais livraison: {order.delivery_fee.toFixed(2)}€</span>
-              </div>
-            )}
+            {order.customer_name && <div className="flex items-center gap-2"><span className="text-gray-400">👤</span><span className="text-white">{order.customer_name}</span></div>}
+            {order.customer_phone && <div className="flex items-center gap-2"><span className="text-gray-400">📞</span><a href={`tel:${order.customer_phone}`} className="text-cyan-400 hover:underline">{order.customer_phone}</a></div>}
+            {order.customer_email && <div className="flex items-center gap-2"><span className="text-gray-400">✉️</span><span className="text-gray-300 text-xs truncate">{order.customer_email}</span></div>}
+            {order.scheduled_time && <div className="flex items-center gap-2"><span className="text-gray-400">🎯</span><span className="text-white">{order.order_type === 'delivery' ? 'Livrer' : 'Prêt'} pour {formatTime(order.scheduled_time)}</span></div>}
+            {order.order_type === 'delivery' && order.delivery_notes && <div className="flex items-start gap-2"><span className="text-gray-400">📍</span><span className="text-white">{order.delivery_notes}</span></div>}
+            {order.delivery_fee && order.delivery_fee > 0 && <div className="flex items-center gap-2"><span className="text-gray-400">💰</span><span className="text-green-400">Frais livraison: {order.delivery_fee.toFixed(2)}€</span></div>}
             <div className="pt-2 border-t border-slate-600 text-xs text-gray-500">
               <div className="flex justify-between">
                 <span>⏱️ Prépa: ~{avgPrepTime} min</span>
-                {order.order_type === 'delivery' && (
-                  <span>🚗 Trajet: ~{order.metadata?.delivery_duration || DEFAULT_DELIVERY_TIME} min</span>
-                )}
+                {order.order_type === 'delivery' && <span>🚗 Trajet: ~{order.metadata?.delivery_duration || DEFAULT_DELIVERY_TIME} min</span>}
               </div>
             </div>
           </div>
@@ -803,7 +875,7 @@ export default function KitchenPage() {
     )
   }
 
-  function renderOrder(order: Order, column: typeof COLUMNS[number]) {
+  function renderOrder(order: Order, column: typeof COLUMNS[number], isInRound: boolean = false, roundInfo?: { sequence: number, totalInRound: number }) {
     const colorClasses = {
       orange: { text: 'text-orange-400', bg: 'bg-orange-400', bgLight: 'bg-orange-400/20', border: 'border-orange-400', btn: 'bg-orange-500 hover:bg-orange-600' },
       blue: { text: 'text-blue-400', bg: 'bg-blue-400', bgLight: 'bg-blue-400/20', border: 'border-blue-400', btn: 'bg-blue-500 hover:bg-blue-600' },
@@ -817,21 +889,23 @@ export default function KitchenPage() {
     const allChecked = totalItems > 0 && checkedCount === totalItems
     const isCC = isClickAndCollect(order)
     const launchInfo = formatLaunchTime(order)
-    
-    // Déterminer le style d'urgence
     const showUrgentStyle = launchInfo.isNow || launchInfo.isPast
     const showUpcomingStyle = launchInfo.isUpcoming
     
     return (
       <div key={order.id} draggable onDragStart={(e) => handleDragStart(e, order.id)} onDragEnd={handleDragEnd}
-        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${showUrgentStyle && column.key === 'pending' ? 'ring-2 ring-red-500' : ''} ${showUpcomingStyle && column.key === 'pending' ? 'ring-2 ring-orange-500' : ''}`}>
+        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${isInRound ? 'border-purple-500' : colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${showUrgentStyle && column.key === 'pending' ? 'ring-2 ring-red-500' : ''} ${showUpcomingStyle && column.key === 'pending' ? 'ring-2 ring-orange-500' : ''}`}>
         
-        <div className={`p-3 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/40' : launchInfo.isNow ? 'bg-red-500/30' : launchInfo.isUpcoming ? 'bg-orange-500/20' : 'bg-slate-600/50'}`}>
+        <div className={`p-3 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/40' : launchInfo.isNow ? 'bg-red-500/30' : launchInfo.isUpcoming ? 'bg-orange-500/20' : isInRound ? 'bg-purple-500/20' : 'bg-slate-600/50'}`}>
           <div className="flex items-center gap-2">
+            {isInRound && roundInfo && (
+              <span className="bg-purple-500 text-white text-xs px-2 py-1 rounded-full font-bold">
+                {roundInfo.sequence}/{roundInfo.totalInRound}
+              </span>
+            )}
             <span className={`${column.key === 'completed' ? 'text-xl' : 'text-2xl'} font-bold`}>{order.order_number || '?'}</span>
             <span className="text-xl">{getOrderTypeEmoji(order.order_type)}</span>
             {order.is_offered && <span className="text-lg" title="Offert">🎁</span>}
-            {/* Badge de timing */}
             {column.key !== 'completed' && (
               <span className={`text-xs px-2 py-1 rounded font-bold ${
                 launchInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
@@ -864,7 +938,6 @@ export default function KitchenPage() {
           </div>
         </div>
         
-        {/* Infos Click & Collect */}
         {column.key !== 'completed' && renderOrderInfo(order)}
         
         {column.key !== 'completed' && (
@@ -903,6 +976,172 @@ export default function KitchenPage() {
     )
   }
 
+  // Render un groupe de commandes (tournée ou commande seule)
+  function renderOrderGroup(group: { round: SuggestedRound | null, orders: Order[] }, column: typeof COLUMNS[number]) {
+    if (group.round) {
+      // Tournée groupée
+      return (
+        <div key={group.round.id} className="bg-purple-500/10 border-2 border-purple-500 rounded-xl p-2 space-y-2">
+          <div className="flex items-center justify-between px-2 py-1 bg-purple-500/20 rounded-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-purple-400 font-bold">🔗 TOURNÉE</span>
+              <span className="text-sm text-purple-300">{group.orders.length} livraisons</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-purple-300">
+              <span>🚀 Lancer à {formatTime(group.round.prep_at)}</span>
+              <span>🚗 Départ {formatTime(group.round.depart_at)}</span>
+            </div>
+          </div>
+          {group.orders.map((order, idx) => renderOrder(order, column, true, { sequence: idx + 1, totalInRound: group.orders.length }))}
+        </div>
+      )
+    } else {
+      // Commande seule
+      return group.orders.map(order => renderOrder(order, column))
+    }
+  }
+
+  // Render le panneau de suggestions de livraison
+  function renderDeliveryPanel() {
+    const pendingDeliveries = orders.filter(o => o.order_type === 'delivery' && ['pending', 'preparing', 'ready'].includes(o.status))
+    
+    return (
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+        <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold">🚗 Gestion des livraisons</h2>
+            <button onClick={() => setShowDeliveryPanel(false)} className="text-gray-400 hover:text-white text-2xl">✕</button>
+          </div>
+          
+          {/* Statut livreurs */}
+          <div className="bg-slate-700 rounded-xl p-4 mb-4">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-300">Livreurs disponibles</span>
+              <span className={`text-2xl font-bold ${availableDrivers > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {availableDrivers} 🛵
+              </span>
+            </div>
+            {availableDrivers === 0 && (
+              <p className="text-yellow-400 text-sm mt-2">⚠️ Aucun livreur connecté - les suggestions sont désactivées</p>
+            )}
+          </div>
+          
+          {/* Suggestions de tournées */}
+          {suggestedRounds.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold mb-3 text-green-400">💡 Tournées suggérées</h3>
+              <div className="space-y-3">
+                {suggestedRounds.map(round => (
+                  <div key={round.id} className="bg-green-500/10 border border-green-500/30 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <span className="font-bold text-green-400">{round.orders.length} livraisons groupées</span>
+                        <span className="text-sm text-gray-400 ml-2">~{round.total_distance_minutes} min trajet</span>
+                      </div>
+                      <div className="text-sm text-gray-400">
+                        Expire à {formatTime(round.expires_at)}
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2 mb-3">
+                      {round.orders.map((o, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-slate-700/50 rounded-lg p-2">
+                          <div className="flex items-center gap-2">
+                            <span className="bg-green-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">{o.sequence_order}</span>
+                            <span className="font-medium">#{o.order_number}</span>
+                            <span className="text-gray-400 text-sm truncate max-w-[200px]">{o.delivery_address}</span>
+                          </div>
+                          <span className="text-sm text-gray-400">~{formatTime(o.estimated_delivery)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div className="flex items-center justify-between text-sm mb-3 text-gray-400">
+                      <span>⏰ Préparer: {formatTime(round.prep_at)}</span>
+                      <span>🚗 Départ: {formatTime(round.depart_at)}</span>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => acceptSuggestedRound(round.id)}
+                        className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-2 rounded-lg transition-colors"
+                      >
+                        ✅ Accepter
+                      </button>
+                      <button
+                        onClick={() => rejectSuggestedRound(round.id)}
+                        className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 rounded-lg transition-colors"
+                      >
+                        ❌ Ignorer
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Tournées acceptées */}
+          {acceptedRounds.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold mb-3 text-purple-400">🔗 Tournées en cours</h3>
+              <div className="space-y-3">
+                {acceptedRounds.map(round => (
+                  <div key={round.id} className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-bold text-purple-400">{round.orders.length} livraisons</span>
+                      <span className="text-sm bg-purple-500/30 text-purple-300 px-2 py-1 rounded">Acceptée</span>
+                    </div>
+                    <div className="space-y-1">
+                      {round.orders.map((o, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-sm">
+                          <span className="text-purple-400">{o.sequence_order}.</span>
+                          <span>#{o.order_number}</span>
+                          <span className="text-gray-400">- {o.customer_name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Livraisons individuelles */}
+          <div>
+            <h3 className="text-lg font-semibold mb-3 text-gray-300">📦 Livraisons en attente ({pendingDeliveries.length})</h3>
+            {pendingDeliveries.length === 0 ? (
+              <p className="text-gray-500 text-center py-4">Aucune livraison en attente</p>
+            ) : (
+              <div className="space-y-2">
+                {pendingDeliveries.map(order => (
+                  <div key={order.id} className={`bg-slate-700 rounded-lg p-3 ${order.suggested_round_id ? 'border-l-4 border-purple-500' : ''}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-bold">#{order.order_number}</span>
+                        <span className="text-gray-400 text-sm ml-2">{order.customer_name}</span>
+                        {order.suggested_round_id && <span className="text-purple-400 text-xs ml-2">🔗 En tournée</span>}
+                      </div>
+                      <span className="text-sm text-gray-400">{formatTime(order.scheduled_time)}</span>
+                    </div>
+                    <p className="text-sm text-gray-400 mt-1">{order.delivery_notes}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          <button
+            onClick={() => setShowDeliveryPanel(false)}
+            className="w-full mt-6 bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 rounded-xl transition-colors"
+          >
+            Fermer
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (authChecking) return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center">
       <div className="text-white text-center">
@@ -914,6 +1153,8 @@ export default function KitchenPage() {
 
   const visibleColumns = COLUMNS.filter(col => columnConfig[col.key as keyof ColumnConfig])
   const gridCols = visibleColumns.length === 1 ? 'grid-cols-1' : visibleColumns.length === 2 ? 'grid-cols-2' : visibleColumns.length === 3 ? 'grid-cols-3' : 'grid-cols-4'
+  
+  const pendingDeliveriesCount = orders.filter(o => o.order_type === 'delivery' && ['pending', 'preparing', 'ready'].includes(o.status)).length
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-4">
@@ -928,6 +1169,25 @@ export default function KitchenPage() {
           </p>
         </div>
         <div className="flex items-center gap-4">
+          {/* Bouton livraisons */}
+          <button 
+            onClick={() => setShowDeliveryPanel(true)} 
+            className={`relative px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+              suggestedRounds.length > 0 ? 'bg-green-500 hover:bg-green-600 animate-pulse' : 'bg-slate-700 hover:bg-slate-600'
+            }`}
+          >
+            <span>🚗</span>
+            <span>{pendingDeliveriesCount}</span>
+            {suggestedRounds.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                {suggestedRounds.length}
+              </span>
+            )}
+            <span className={`text-sm ${availableDrivers > 0 ? 'text-green-300' : 'text-red-300'}`}>
+              ({availableDrivers} 🛵)
+            </span>
+          </button>
+          
           <button onClick={() => setDisplayMode(displayMode === 'compact' ? 'detailed' : 'compact')} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg transition-colors" title="Changer le mode d'affichage">
             {displayMode === 'compact' ? '📖' : '📋'}
           </button>
@@ -946,16 +1206,18 @@ export default function KitchenPage() {
         <span className="bg-orange-500 text-white px-2 py-0.5 rounded">⏰ Bientôt</span>
         <span className="bg-cyan-500/30 text-cyan-300 px-2 py-0.5 rounded">⏰ Programmé</span>
         <span className="text-gray-400">|</span>
+        <span className="bg-purple-500/30 text-purple-300 px-2 py-0.5 rounded">🔗 Tournée groupée</span>
+        <span className="text-gray-400">|</span>
         <span className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded">✓ = dans le sac</span>
-        <span className="bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded">2+ qté</span>
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center h-96"><p className="text-2xl text-gray-400">Chargement des commandes...</p></div>
       ) : (
-        <div className={`grid ${gridCols} gap-4`} style={{ height: 'calc(100vh - 180px)' }}>
+        <div className={`grid ${gridCols} gap-4`} style={{ height: 'calc(100vh - 200px)' }}>
           {visibleColumns.map(column => {
             const columnOrders = column.key === 'completed' ? allOrders.filter(o => o.status === column.key).slice(-10) : allOrders.filter(o => o.status === column.key)
+            const groupedOrders = getOrdersGroupedByRound(columnOrders)
             const colorClasses = { orange: { text: 'text-orange-400', bg: 'bg-orange-400', bgLight: 'bg-orange-400/20' }, blue: { text: 'text-blue-400', bg: 'bg-blue-400', bgLight: 'bg-blue-400/20' }, green: { text: 'text-green-400', bg: 'bg-green-400', bgLight: 'bg-green-400/20' }, gray: { text: 'text-gray-400', bg: 'bg-gray-400', bgLight: 'bg-gray-400/20' } }[column.color]
 
             return (
@@ -967,7 +1229,7 @@ export default function KitchenPage() {
                   <span className={`ml-auto ${colorClasses.bgLight} px-2 py-0.5 rounded text-sm`}>{columnOrders.length}</span>
                 </h2>
                 <div className="space-y-3">
-                  {columnOrders.length === 0 ? <p className="text-gray-500 text-center py-8">Aucune commande</p> : columnOrders.map(order => renderOrder(order, column))}
+                  {groupedOrders.length === 0 ? <p className="text-gray-500 text-center py-8">Aucune commande</p> : groupedOrders.map((group, idx) => <div key={idx}>{renderOrderGroup(group, column)}</div>)}
                 </div>
               </div>
             )
@@ -976,10 +1238,12 @@ export default function KitchenPage() {
       )}
 
       <div className="mt-4 flex justify-between items-center text-gray-500 text-sm">
-        <span>💡 Cliquez sur un item pour le cocher • Cliquez sur ⏰ pour voir les infos client</span>
+        <span>💡 Cliquez sur 🚗 pour gérer les livraisons et tournées</span>
         <span>{allOrders.length} commande{allOrders.length > 1 ? 's' : ''} aujourd'hui</span>
-        <span>FritOS KDS v3.0 Smart</span>
+        <span>FritOS KDS v4.0 Smart Delivery</span>
       </div>
+
+      {showDeliveryPanel && renderDeliveryPanel()}
 
       {showConfig && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -990,10 +1254,10 @@ export default function KitchenPage() {
             <p className="text-gray-300 mb-3">Mode d'affichage :</p>
             <div className="grid grid-cols-2 gap-3 mb-6">
               <button onClick={() => setDisplayMode('detailed')} className={`p-4 rounded-xl border-2 transition-all ${displayMode === 'detailed' ? 'border-orange-500 bg-orange-500/20' : 'border-slate-600 hover:border-slate-500'}`}>
-                <span className="text-2xl block mb-1">📖</span><span className="font-medium">Détaillé</span><p className="text-xs text-gray-400 mt-1">Options en texte complet</p>
+                <span className="text-2xl block mb-1">📖</span><span className="font-medium">Détaillé</span>
               </button>
               <button onClick={() => setDisplayMode('compact')} className={`p-4 rounded-xl border-2 transition-all ${displayMode === 'compact' ? 'border-orange-500 bg-orange-500/20' : 'border-slate-600 hover:border-slate-500'}`}>
-                <span className="text-2xl block mb-1">📋</span><span className="font-medium">Compact</span><p className="text-xs text-gray-400 mt-1">Options en icônes</p>
+                <span className="text-2xl block mb-1">📋</span><span className="font-medium">Compact</span>
               </button>
             </div>
             
@@ -1009,43 +1273,6 @@ export default function KitchenPage() {
                   </label>
                 )
               })}
-            </div>
-
-            <div className="bg-slate-700 rounded-xl p-4 mb-6">
-              <p className="text-sm text-gray-400 mb-2">💡 Presets :</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setColumnConfig({ pending: true, preparing: true, ready: false, completed: false })} className="text-left px-3 py-2 rounded bg-slate-600 hover:bg-slate-500 text-sm">🍳 Cuisine</button>
-                <button onClick={() => setColumnConfig({ pending: false, preparing: true, ready: true, completed: false })} className="text-left px-3 py-2 rounded bg-slate-600 hover:bg-slate-500 text-sm">📦 Emballage</button>
-                <button onClick={() => setColumnConfig({ pending: false, preparing: false, ready: true, completed: false })} className="text-left px-3 py-2 rounded bg-slate-600 hover:bg-slate-500 text-sm">📢 Écran client</button>
-                <button onClick={() => setColumnConfig({ pending: true, preparing: true, ready: true, completed: true })} className="text-left px-3 py-2 rounded bg-slate-600 hover:bg-slate-500 text-sm">📺 Complet</button>
-              </div>
-            </div>
-
-            <div className="bg-cyan-500/20 rounded-xl p-4 mb-6">
-              <p className="text-sm text-cyan-300 mb-2">⏰ Calcul intelligent :</p>
-              <p className="text-xs text-cyan-200">
-                L'heure "Préparer à" est calculée automatiquement :<br/>
-                <strong>Heure demandée - Temps trajet (livraison) - Temps prépa moyen ({avgPrepTime}min)</strong>
-              </p>
-            </div>
-
-            <div className="bg-slate-700 rounded-xl p-4 mb-6">
-              <p className="text-sm text-gray-400 mb-3">📋 Légende des icônes :</p>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <span>🧀 Cheddar/Fromage</span><span>🔳 Feta</span>
-                <span>🟡 Provolone</span><span>⚪ Mozzarella</span>
-                <span>🥓 Bacon</span><span>🥩 Viande/Steak</span>
-                <span>🥕 Carotte</span><span>🧅 Oignon</span>
-                <span>🥬 Salade</span><span>🍅 Tomate</span>
-                <span>🥒 Cornichon</span><span>🍳 Œuf</span>
-                <span>🌶️ Piquant</span><span>🚫 Sans...</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-3">Les sauces s'affichent en texte (pas d'icône)</p>
-            </div>
-            
-            <div className="bg-green-500/20 rounded-xl p-4 mb-6">
-              <p className="text-sm text-green-300 mb-2">✓ Fonction cochage :</p>
-              <p className="text-xs text-green-200">Cliquez sur un item pour le marquer comme "dans le sac". Un compteur X/Y s'affiche sur chaque commande.</p>
             </div>
 
             <div className="flex gap-3">
