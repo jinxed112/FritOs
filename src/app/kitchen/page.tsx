@@ -16,7 +16,7 @@ type OrderItem = {
 type Order = {
   id: string
   order_number: string
-  order_type: 'eat_in' | 'takeaway' | 'delivery' | 'table'
+  order_type: string // Plus flexible pour supporter pickup/delivery
   status: 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled'
   created_at: string
   order_items: OrderItem[]
@@ -68,7 +68,10 @@ const ORDER_TYPE_EMOJI: Record<string, string> = {
   eat_in: '🍽️',
   takeaway: '🥡',
   delivery: '🚗',
+  pickup: '🛍️',    // Click & Collect pickup
   table: '📍',
+  kiosk: '🖥️',
+  counter: '💳',
 }
 
 const COLUMNS = [
@@ -128,16 +131,19 @@ const SAUCE_KEYWORDS = ['mayo', 'mayonnaise', 'andalouse', 'américaine', 'ameri
 
 // ==================== HELPER FUNCTIONS ====================
 function isSauce(optionName: string): boolean {
+  if (!optionName) return false
   const lower = optionName.toLowerCase()
   return SAUCE_KEYWORDS.some(kw => lower.includes(kw))
 }
 
 function isExclusion(optionName: string): boolean {
+  if (!optionName) return false
   const lower = optionName.toLowerCase()
   return lower.startsWith('sans ') || lower.includes('pas de ')
 }
 
 function getOptionIcon(optionName: string): { icon: string, color: string } | null {
+  if (!optionName) return null
   const lower = optionName.toLowerCase()
   if (isSauce(lower)) return null
   for (const m of OPTION_ICONS) {
@@ -146,7 +152,8 @@ function getOptionIcon(optionName: string): { icon: string, color: string } | nu
   return null
 }
 
-function getCategoryConfig(categoryName: string) {
+function getCategoryConfig(categoryName: string | undefined | null) {
+  if (!categoryName) return CATEGORY_CONFIG['default']
   const lower = categoryName.toLowerCase()
   for (const [key, config] of Object.entries(CATEGORY_CONFIG)) {
     if (key !== 'default' && lower.includes(key)) return config
@@ -154,35 +161,56 @@ function getCategoryConfig(categoryName: string) {
   return CATEGORY_CONFIG['default']
 }
 
-function isDefaultCollapsed(categoryName: string): boolean {
+function isDefaultCollapsed(categoryName: string | undefined | null): boolean {
+  if (!categoryName) return false
   const lower = categoryName.toLowerCase()
   return DEFAULT_COLLAPSED_CATEGORIES.some(cat => lower.includes(cat))
 }
 
 function parseOptions(optionsJson: string | null): ParsedOption[] {
   if (!optionsJson) return []
-  try { return JSON.parse(optionsJson) } catch { return [] }
+  try { 
+    const parsed = JSON.parse(optionsJson)
+    // S'assurer que chaque option a bien un item_name
+    return Array.isArray(parsed) ? parsed.filter(o => o && o.item_name) : []
+  } catch { 
+    return [] 
+  }
 }
 
 function getItemKey(productName: string, options: ParsedOption[]): string {
-  const optionsStr = options.map(o => o.item_name).sort().join('|')
-  return `${productName}::${optionsStr}`
+  const safeName = productName || 'unknown'
+  const optionsStr = options
+    .filter(o => o && o.item_name)
+    .map(o => o.item_name)
+    .sort()
+    .join('|')
+  return `${safeName}::${optionsStr}`
 }
 
 function groupAndMergeItems(items: OrderItem[]): GroupedItems[] {
+  if (!items || !Array.isArray(items)) return []
+  
   const categoryGroups: Record<string, Record<string, MergedItem>> = {}
   
   for (const item of items) {
+    if (!item) continue
     const catName = item.category_name || 'Autres'
     const options = parseOptions(item.options_selected)
     const key = getItemKey(item.product_name, options)
     
     if (!categoryGroups[catName]) categoryGroups[catName] = {}
     if (!categoryGroups[catName][key]) {
-      categoryGroups[catName][key] = { key, product_name: item.product_name, totalQuantity: 0, options, notes: [] }
+      categoryGroups[catName][key] = { 
+        key, 
+        product_name: item.product_name || 'Produit inconnu', 
+        totalQuantity: 0, 
+        options, 
+        notes: [] 
+      }
     }
     
-    categoryGroups[catName][key].totalQuantity += item.quantity
+    categoryGroups[catName][key].totalQuantity += (item.quantity || 1)
     if (item.notes) categoryGroups[catName][key].notes.push(item.notes)
   }
   
@@ -202,13 +230,20 @@ function groupAndMergeItems(items: OrderItem[]): GroupedItems[] {
       }
     })
     .sort((a, b) => {
-      const aIdx = categoryOrder.findIndex(c => a.categoryName.toLowerCase().includes(c))
-      const bIdx = categoryOrder.findIndex(c => b.categoryName.toLowerCase().includes(c))
+      const aLower = (a.categoryName || '').toLowerCase()
+      const bLower = (b.categoryName || '').toLowerCase()
+      const aIdx = categoryOrder.findIndex(c => aLower.includes(c))
+      const bIdx = categoryOrder.findIndex(c => bLower.includes(c))
       if (aIdx === -1 && bIdx === -1) return 0
       if (aIdx === -1) return 1
       if (bIdx === -1) return -1
       return aIdx - bIdx
     })
+}
+
+function getOrderTypeEmoji(orderType: string | undefined | null): string {
+  if (!orderType) return '📋'
+  return ORDER_TYPE_EMOJI[orderType] || '📋'
 }
 
 // ==================== MAIN COMPONENT ====================
@@ -230,47 +265,69 @@ export default function KitchenPage() {
   
   const supabase = createClient()
 
-  useEffect(() => { checkAuth() }, [])
+  useEffect(() => { 
+    checkAuth() 
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   async function checkAuth() {
-    const { data: { session } } = await supabase.auth.getSession()
-    
-    if (!session) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        setAuthChecking(false)
+        loadOrders(establishmentId)
+        loadTempOrders(establishmentId)
+        setupRealtime(establishmentId)
+        return
+      }
+
+      const { data: profile } = await supabase.from('profiles').select('role, establishment_id').eq('id', session.user.id).single()
+
+      if (profile?.role?.startsWith('device_kds')) {
+        const { data: deviceData } = await supabase.from('devices').select('id, name, device_code, establishment_id, config').eq('auth_user_id', session.user.id).single()
+        if (deviceData) {
+          const config = typeof deviceData.config === 'string' ? JSON.parse(deviceData.config || '{}') : deviceData.config || {}
+          const columns = config.columns || DEFAULT_COLUMNS
+          setDevice({ ...deviceData, config })
+          setColumnConfig({ pending: columns.includes('pending'), preparing: columns.includes('preparing'), ready: columns.includes('ready'), completed: columns.includes('completed') })
+          setDisplayMode(config.displayMode || 'detailed')
+          setEstablishmentId(deviceData.establishment_id)
+          await supabase.from('devices').update({ last_seen_at: new Date().toISOString() }).eq('id', deviceData.id)
+        }
+      }
+
+      setAuthChecking(false)
+      const estId = device?.establishment_id || establishmentId
+      loadOrders(estId)
+      loadTempOrders(estId)
+      setupRealtime(estId)
+    } catch (error) {
+      console.error('Auth check error:', error)
       setAuthChecking(false)
       loadOrders(establishmentId)
       loadTempOrders(establishmentId)
       setupRealtime(establishmentId)
-      const timer = setInterval(() => setCurrentTime(new Date()), 1000)
-      return () => clearInterval(timer)
     }
-
-    const { data: profile } = await supabase.from('profiles').select('role, establishment_id').eq('id', session.user.id).single()
-
-    if (profile?.role?.startsWith('device_kds')) {
-      const { data: deviceData } = await supabase.from('devices').select('id, name, device_code, establishment_id, config').eq('auth_user_id', session.user.id).single()
-      if (deviceData) {
-        const config = typeof deviceData.config === 'string' ? JSON.parse(deviceData.config || '{}') : deviceData.config || {}
-        const columns = config.columns || DEFAULT_COLUMNS
-        setDevice({ ...deviceData, config })
-        setColumnConfig({ pending: columns.includes('pending'), preparing: columns.includes('preparing'), ready: columns.includes('ready'), completed: columns.includes('completed') })
-        setDisplayMode(config.displayMode || 'detailed')
-        setEstablishmentId(deviceData.establishment_id)
-        await supabase.from('devices').update({ last_seen_at: new Date().toISOString() }).eq('id', deviceData.id)
-      }
-    }
-
-    setAuthChecking(false)
-    loadOrders(establishmentId)
-    loadTempOrders(establishmentId)
-    setupRealtime(establishmentId)
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
-    return () => clearInterval(timer)
   }
 
   async function loadTempOrders(estId: string) {
-    const { data } = await supabase.from('temp_orders').select('*').eq('establishment_id', estId).neq('status', 'completed').order('created_at', { ascending: true })
-    if (data) {
-      setOfferedOrders(data.map(t => ({ id: t.id, order_number: t.order_number, order_type: t.order_type, status: t.status, created_at: t.created_at, is_offered: true, order_items: t.order_items || [] })))
+    try {
+      const { data } = await supabase.from('temp_orders').select('*').eq('establishment_id', estId).neq('status', 'completed').order('created_at', { ascending: true })
+      if (data) {
+        setOfferedOrders(data.map(t => ({ 
+          id: t.id, 
+          order_number: t.order_number || 'X', 
+          order_type: t.order_type || 'takeaway', 
+          status: t.status || 'pending', 
+          created_at: t.created_at, 
+          is_offered: true, 
+          order_items: Array.isArray(t.order_items) ? t.order_items : [] 
+        })))
+      }
+    } catch (error) {
+      console.error('Load temp orders error:', error)
     }
   }
 
@@ -298,30 +355,47 @@ export default function KitchenPage() {
   }
 
   async function loadOrders(estId: string) {
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    const { data, error } = await supabase.from('orders').select(`id, order_number, order_type, status, created_at, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
-      .eq('establishment_id', estId).gte('created_at', today.toISOString()).neq('status', 'cancelled').order('created_at', { ascending: true })
-    if (!error && data) {
-      setOrders(data.map(order => ({ ...order, order_items: order.order_items.map((item: any) => ({ ...item, category_name: item.product?.category?.name || 'Autres' })) })))
+    try {
+      const today = new Date(); today.setHours(0, 0, 0, 0)
+      const { data, error } = await supabase.from('orders').select(`id, order_number, order_type, status, created_at, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
+        .eq('establishment_id', estId).gte('created_at', today.toISOString()).neq('status', 'cancelled').order('created_at', { ascending: true })
+      if (!error && data) {
+        setOrders(data.map(order => ({ 
+          ...order, 
+          order_type: order.order_type || 'takeaway',
+          order_items: Array.isArray(order.order_items) 
+            ? order.order_items.map((item: any) => ({ 
+                ...item, 
+                category_name: item.product?.category?.name || 'Autres' 
+              })) 
+            : []
+        })))
+      }
+    } catch (error) {
+      console.error('Load orders error:', error)
     }
     setLoading(false)
   }
 
   async function updateStatus(orderId: string, newStatus: string) {
-    const isOffered = offeredOrders.some(o => o.id === orderId)
-    if (isOffered) {
-      if (newStatus === 'completed') await supabase.from('temp_orders').delete().eq('id', orderId)
-      else await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
-    } else {
-      await supabase.from('orders').update({ status: newStatus }).eq('id', orderId)
-    }
-    
-    if (newStatus === 'completed' || newStatus === 'ready') {
-      setCheckedItems(prev => {
-        const newState = { ...prev }
-        delete newState[orderId]
-        return newState
-      })
+    try {
+      const isOffered = offeredOrders.some(o => o.id === orderId)
+      if (isOffered) {
+        if (newStatus === 'completed') await supabase.from('temp_orders').delete().eq('id', orderId)
+        else await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
+      } else {
+        await supabase.from('orders').update({ status: newStatus }).eq('id', orderId)
+      }
+      
+      if (newStatus === 'completed' || newStatus === 'ready') {
+        setCheckedItems(prev => {
+          const newState = { ...prev }
+          delete newState[orderId]
+          return newState
+        })
+      }
+    } catch (error) {
+      console.error('Update status error:', error)
     }
   }
 
@@ -471,8 +545,8 @@ export default function KitchenPage() {
         
         <div className="p-3 bg-slate-600/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`${column.key === 'completed' ? 'text-xl' : 'text-2xl'} font-bold`}>{order.order_number}</span>
-            <span className="text-xl">{ORDER_TYPE_EMOJI[order.order_type]}</span>
+            <span className={`${column.key === 'completed' ? 'text-xl' : 'text-2xl'} font-bold`}>{order.order_number || '?'}</span>
+            <span className="text-xl">{getOrderTypeEmoji(order.order_type)}</span>
             {order.is_offered && <span className="text-lg" title="Offert">🎁</span>}
             {column.key !== 'completed' && totalItems > 0 && (
               <span className={`text-xs px-2 py-0.5 rounded-full ${allChecked ? 'bg-green-500 text-white' : 'bg-slate-500 text-gray-300'}`}>
@@ -519,7 +593,7 @@ export default function KitchenPage() {
         
         {column.key === 'completed' && (
           <div className="p-3">
-            <p className="text-gray-400 text-sm">{order.order_items.reduce((sum, item) => sum + item.quantity, 0)} article(s)</p>
+            <p className="text-gray-400 text-sm">{order.order_items.reduce((sum, item) => sum + (item.quantity || 0), 0)} article(s)</p>
           </div>
         )}
       </div>
@@ -568,6 +642,8 @@ export default function KitchenPage() {
         <span className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded">✓ = dans le sac</span>
         <span className="text-gray-400">|</span>
         <span>🙋 Self-service</span>
+        <span>🛍️ Click&Collect</span>
+        <span>🚗 Livraison</span>
         <span>Cliquer item = cocher</span>
       </div>
 
@@ -599,7 +675,7 @@ export default function KitchenPage() {
       <div className="mt-4 flex justify-between items-center text-gray-500 text-sm">
         <span>💡 Cliquez sur un item pour le cocher quand il est dans le sac</span>
         <span>{allOrders.length} commande{allOrders.length > 1 ? 's' : ''} aujourd'hui</span>
-        <span>FritOS KDS v2.2</span>
+        <span>FritOS KDS v2.3</span>
       </div>
 
       {showConfig && (
