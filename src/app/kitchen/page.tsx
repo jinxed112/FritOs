@@ -308,32 +308,34 @@ export default function KitchenPage() {
     return () => clearInterval(timer)
   }, [])
 
-  // Charger le temps de préparation moyen
+  // Charger le temps de préparation moyen (basé sur preparation_started_at)
   async function loadAvgPrepTime(estId: string) {
     try {
-      // Récupérer les commandes complétées des dernières 24h
+      // Récupérer les commandes complétées des dernières 24h avec preparation_started_at
       const yesterday = new Date()
       yesterday.setHours(yesterday.getHours() - 24)
       
       const { data } = await supabase
         .from('orders')
-        .select('created_at, updated_at')
+        .select('preparation_started_at, updated_at')
         .eq('establishment_id', estId)
         .eq('status', 'completed')
         .gte('created_at', yesterday.toISOString())
+        .not('preparation_started_at', 'is', null)
         .not('updated_at', 'is', null)
       
       if (data && data.length > 0) {
-        // Calculer la moyenne
+        // Calculer la moyenne basée sur le vrai temps de préparation
         const times = data.map(o => {
-          const created = new Date(o.created_at).getTime()
-          const updated = new Date(o.updated_at).getTime()
-          return (updated - created) / (60 * 1000) // En minutes
-        }).filter(t => t > 0 && t < 120) // Filtrer les valeurs aberrantes
+          const started = new Date(o.preparation_started_at).getTime()
+          const completed = new Date(o.updated_at).getTime()
+          return (completed - started) / (60 * 1000) // En minutes
+        }).filter(t => t > 0 && t < 60) // Filtrer les valeurs aberrantes (> 1h)
         
         if (times.length > 0) {
           const avg = times.reduce((a, b) => a + b, 0) / times.length
           setAvgPrepTime(Math.round(avg))
+          console.log(`⏱️ Temps prépa moyen calculé: ${Math.round(avg)} min (sur ${times.length} commandes)`)
         }
       }
     } catch (error) {
@@ -469,7 +471,18 @@ export default function KitchenPage() {
         if (newStatus === 'completed') await supabase.from('temp_orders').delete().eq('id', orderId)
         else await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
       } else {
-        await supabase.from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId)
+        // Préparer les données de mise à jour
+        const updateData: any = { 
+          status: newStatus, 
+          updated_at: new Date().toISOString() 
+        }
+        
+        // Si on passe en "preparing", enregistrer l'heure de début de préparation
+        if (newStatus === 'preparing') {
+          updateData.preparation_started_at = new Date().toISOString()
+        }
+        
+        await supabase.from('orders').update(updateData).eq('id', orderId)
       }
       
       if (newStatus === 'completed' || newStatus === 'ready') {
@@ -563,11 +576,52 @@ export default function KitchenPage() {
     return `${Math.floor(diff / 60)}h${(diff % 60).toString().padStart(2, '0')}`
   }
 
+  // Nouveau: obtenir le temps depuis le launch_time (pas created_at)
+  function getTimeSinceLaunch(order: Order): { display: string, isWaiting: boolean, minutesUntilLaunch: number } {
+    const launchTime = getLaunchTime(order)
+    const now = currentTime.getTime()
+    const diffMs = now - launchTime
+    const diffMinutes = Math.floor(diffMs / (60 * 1000))
+    
+    // Si l'heure de lancement n'est pas encore arrivée
+    if (diffMinutes < 0) {
+      const minutesUntil = Math.abs(diffMinutes)
+      if (minutesUntil < 60) {
+        return { display: `dans ${minutesUntil} min`, isWaiting: true, minutesUntilLaunch: minutesUntil }
+      } else {
+        const hours = Math.floor(minutesUntil / 60)
+        const mins = minutesUntil % 60
+        return { display: `dans ${hours}h${mins.toString().padStart(2, '0')}`, isWaiting: true, minutesUntilLaunch: minutesUntil }
+      }
+    }
+    
+    // Heure de lancement passée - afficher le temps écoulé
+    if (diffMinutes < 1) return { display: '< 1 min', isWaiting: false, minutesUntilLaunch: 0 }
+    if (diffMinutes < 60) return { display: `${diffMinutes} min`, isWaiting: false, minutesUntilLaunch: 0 }
+    return { display: `${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}`, isWaiting: false, minutesUntilLaunch: 0 }
+  }
+
   function getTimeColor(dateString: string): string {
     const diff = Math.floor((currentTime.getTime() - new Date(dateString).getTime()) / 1000 / 60)
     if (diff < 5) return 'text-green-400'
     if (diff < 10) return 'text-yellow-400'
     if (diff < 15) return 'text-orange-400'
+    return 'text-red-400'
+  }
+
+  // Nouveau: couleur basée sur le launch_time
+  function getLaunchTimeColor(order: Order): string {
+    const launchTime = getLaunchTime(order)
+    const now = currentTime.getTime()
+    const diffMinutes = Math.floor((now - launchTime) / (60 * 1000))
+    
+    // Pas encore l'heure
+    if (diffMinutes < 0) return 'text-gray-400'
+    
+    // Heure passée - dégradé selon le retard
+    if (diffMinutes < 5) return 'text-green-400'
+    if (diffMinutes < 10) return 'text-yellow-400'
+    if (diffMinutes < 15) return 'text-orange-400'
     return 'text-red-400'
   }
 
@@ -799,7 +853,9 @@ export default function KitchenPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className={`font-mono text-sm ${getTimeColor(order.created_at)}`}>{getTimeSince(order.created_at)}</span>
+            <span className={`font-mono text-sm ${getLaunchTimeColor(order)}`}>
+              {getTimeSinceLaunch(order).display}
+            </span>
             {column.nextStatus && (
               <button onClick={() => updateStatus(order.id, column.nextStatus!)} className={`${colorClasses.btn} text-white w-9 h-9 rounded-lg flex items-center justify-center transition-colors text-lg`}>
                 {column.nextLabel}
