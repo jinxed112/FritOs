@@ -434,7 +434,7 @@ export default function CounterPage() {
           tax_amount: taxAmount,
           total: totalTTC,
           source: 'counter',
-          payment_method: paymentMethod,
+          payment_method: paymentMethod === 'offered' ? 'cash' : paymentMethod,
           payment_status: 'paid',
           is_offered: isOffered,
           metadata: isOffered && offeredReason ? JSON.stringify({ offered_reason: offeredReason }) : null,
