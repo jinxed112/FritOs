@@ -31,6 +31,7 @@ type SuggestedRoundOrder = {
   delivery_address: string | null
   scheduled_time: string | null
   status: string
+  delivery_round_id: string | null
 }
 
 type SuggestedRound = {
@@ -218,16 +219,24 @@ export default function DriverPage() {
       .in('status', ['pending', 'accepted'])
       .order('prep_at', { ascending: true })
 
-    const suggestions: SuggestedRound[] = (suggestionsData || []).map((r: any) => ({
-      ...r,
-      orders: r.orders || []
-    }))
-    setSuggestedRounds(suggestions)
+    // Filtrer les suggestions dont au moins une commande n'a pas de delivery_round_id
+    // (= la suggestion n'a pas encore été entièrement prise par un livreur)
+    const activeSuggestions: SuggestedRound[] = (suggestionsData || [])
+      .map((r: any) => ({
+        ...r,
+        orders: r.orders || []
+      }))
+      .filter((s: any) => {
+        // Garder seulement si au moins une commande n'a pas de delivery_round_id
+        return s.orders.some((o: any) => !o.delivery_round_id)
+      })
+    
+    setSuggestedRounds(activeSuggestions)
 
-    // Récupérer les IDs des commandes déjà dans une suggestion
+    // Récupérer les IDs des commandes déjà dans une suggestion active
     const orderIdsInSuggestions = new Set<string>()
-    suggestions.forEach(s => {
-      s.orders.forEach(o => orderIdsInSuggestions.add(o.order_id))
+    activeSuggestions.forEach(s => {
+      s.orders.forEach((o: any) => orderIdsInSuggestions.add(o.order_id))
     })
 
     // Charger les commandes disponibles (non assignées, futures uniquement)
