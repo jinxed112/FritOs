@@ -136,7 +136,6 @@ export default function CounterPage() {
     loadData()
     loadLateOrders()
     
-    // Rafraîchir les commandes en retard toutes les minutes
     const interval = setInterval(loadLateOrders, 60000)
     return () => clearInterval(interval)
   }, [])
@@ -146,7 +145,6 @@ export default function CounterPage() {
   async function loadData() {
     console.log('=== LOADING COUNTER DATA ===')
     
-    // Charger catégories avec la bonne syntaxe (comme le kiosk)
     const { data: categoriesData, error: catError } = await supabase
       .from('categories')
       .select(`
@@ -166,12 +164,10 @@ export default function CounterPage() {
       .eq('establishment_id', establishmentId)
       .eq('is_active', true)
       .order('display_order')
-    // Note: pas de filtre visible_on_kiosk pour la caisse - on affiche tout
 
     console.log('Categories error:', catError)
     console.log('Categories loaded:', categoriesData?.length)
 
-    // Charger produits
     const { data: productsData, error: prodError } = await supabase
       .from('products')
       .select(`
@@ -196,7 +192,6 @@ export default function CounterPage() {
     console.log('Products error:', prodError)
     console.log('Products loaded:', productsData?.length)
 
-    // Charger tous les option_groups pour les triggers
     const { data: allOptionGroupsData } = await supabase
       .from('option_groups')
       .select(`
@@ -271,7 +266,6 @@ export default function CounterPage() {
     setCurrentPropositions(propositions)
     setCurrentPropositionIndex(0)
     
-    // Pré-sélectionner les options par défaut
     const defaultOptions: SelectedOption[] = []
     propositions.forEach(og => {
       og.option_group_items.forEach(item => {
@@ -396,7 +390,6 @@ export default function CounterPage() {
 
   function getCartTotal(): number {
     const subtotal = getCartSubtotal()
-    // Sur place : +6% pour TVA plus élevée (12% vs 6%)
     if (orderType === 'eat_in') {
       return subtotal * 1.06
     }
@@ -430,7 +423,7 @@ export default function CounterPage() {
       
       const isOffered = paymentMethod === 'offered'
       
-      // Créer la commande
+      // Créer la commande avec les bons noms de colonnes
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert({
@@ -444,12 +437,15 @@ export default function CounterPage() {
           payment_method: paymentMethod,
           payment_status: 'paid',
           is_offered: isOffered,
-          metadata: isOffered && offeredReason ? { offered_reason: offeredReason } : null,
+          metadata: isOffered && offeredReason ? JSON.stringify({ offered_reason: offeredReason }) : null,
         })
         .select()
         .single()
       
-      if (orderError) throw orderError
+      if (orderError) {
+        console.error('Order error:', orderError)
+        throw orderError
+      }
       
       // Créer les items
       const orderItems = cart.map(item => ({
@@ -468,7 +464,10 @@ export default function CounterPage() {
         .from('order_items')
         .insert(orderItems)
       
-      if (itemsError) throw itemsError
+      if (itemsError) {
+        console.error('Items error:', itemsError)
+        throw itemsError
+      }
       
       // Succès !
       setOrderNumber(order.order_number)
@@ -563,7 +562,7 @@ export default function CounterPage() {
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="text-center">
           <span className="text-6xl block mb-4 animate-pulse">🍟</span>
-          <p className="text-gray-500">Chargement...</p>
+          <p className="text-gray-500 text-xl">Chargement...</p>
         </div>
       </div>
     )
@@ -572,17 +571,17 @@ export default function CounterPage() {
   // Écran de confirmation
   if (orderNumber) {
     return (
-      <div className="min-h-screen bg-green-500 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-green-500 flex items-center justify-center p-6">
         <div className="text-center text-white">
-          <span className="text-8xl block mb-6">✅</span>
-          <h1 className="text-4xl font-bold mb-4">Commande validée !</h1>
+          <span className="text-[100px] block mb-6">✅</span>
+          <h1 className="text-4xl font-bold mb-6">Commande validée !</h1>
           <div className="bg-white/20 rounded-3xl p-8 inline-block mb-8">
-            <p className="text-xl mb-2">Numéro de commande</p>
-            <p className="text-6xl font-bold">#{orderNumber}</p>
+            <p className="text-2xl mb-2">Numéro de commande</p>
+            <p className="text-7xl font-bold">#{orderNumber}</p>
           </div>
           <button
             onClick={() => setOrderNumber(null)}
-            className="bg-white text-green-600 font-bold px-8 py-4 rounded-xl text-xl"
+            className="bg-white text-green-600 font-bold px-12 py-5 rounded-2xl text-2xl active:scale-95 transition-transform"
           >
             Nouvelle commande
           </button>
@@ -592,30 +591,34 @@ export default function CounterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex">
+    <div className="h-screen bg-gray-100 flex overflow-hidden">
       {/* Zone principale */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <header className="bg-slate-800 text-white px-6 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            📋 Prise de commande
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header - Plus grand pour tablette */}
+        <header className="bg-slate-800 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+          <h1 className="text-lg font-bold flex items-center gap-2">
+            📋 Caisse
           </h1>
           
-          <div className="flex items-center gap-4">
-            {/* Bouton type de commande */}
+          <div className="flex items-center gap-3">
+            {/* Type de commande - Boutons plus grands */}
             <div className="flex gap-2">
               <button
                 onClick={() => setOrderType('eat_in')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  orderType === 'eat_in' ? 'bg-orange-500 text-white' : 'text-gray-300 hover:text-white'
+                className={`px-5 py-3 rounded-xl font-semibold text-base transition-all active:scale-95 ${
+                  orderType === 'eat_in' 
+                    ? 'bg-orange-500 text-white shadow-lg' 
+                    : 'bg-slate-700 text-gray-300'
                 }`}
               >
                 🍽️ Sur place
               </button>
               <button
                 onClick={() => setOrderType('takeaway')}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  orderType === 'takeaway' ? 'bg-orange-500 text-white' : 'text-gray-300 hover:text-white'
+                className={`px-5 py-3 rounded-xl font-semibold text-base transition-all active:scale-95 ${
+                  orderType === 'takeaway' 
+                    ? 'bg-orange-500 text-white shadow-lg' 
+                    : 'bg-slate-700 text-gray-300'
                 }`}
               >
                 🥡 Emporter
@@ -625,15 +628,15 @@ export default function CounterPage() {
             {/* Badge commandes en retard */}
             <button
               onClick={() => setShowLateOrdersModal(true)}
-              className={`relative px-4 py-2 rounded-lg font-medium transition-colors ${
+              className={`relative px-5 py-3 rounded-xl font-semibold transition-all active:scale-95 ${
                 lateOrders.length > 0 
                   ? 'bg-red-500 text-white animate-pulse' 
-                  : 'bg-gray-600 text-gray-300'
+                  : 'bg-slate-700 text-gray-400'
               }`}
             >
               ⚠️ Retards
               {lateOrders.length > 0 && (
-                <span className="absolute -top-2 -right-2 bg-yellow-400 text-yellow-900 text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">
+                <span className="absolute -top-2 -right-2 bg-yellow-400 text-yellow-900 text-sm font-bold w-7 h-7 rounded-full flex items-center justify-center">
                   {lateOrders.length}
                 </span>
               )}
@@ -641,17 +644,17 @@ export default function CounterPage() {
           </div>
         </header>
 
-        {/* Categories */}
-        <div className="bg-white border-b p-4">
-          <div className="flex gap-3 overflow-x-auto pb-2">
+        {/* Categories - Scrollable horizontal, boutons plus grands */}
+        <div className="bg-white border-b px-3 py-3 flex-shrink-0">
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
             {categories.map(cat => (
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`px-6 py-3 rounded-full font-semibold whitespace-nowrap transition-colors ${
+                className={`px-5 py-3 rounded-xl font-semibold whitespace-nowrap transition-all active:scale-95 text-base ${
                   selectedCategory === cat.id
-                    ? 'bg-orange-500 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    ? 'bg-orange-500 text-white shadow-lg'
+                    : 'bg-gray-100 text-gray-700'
                 }`}
               >
                 {cat.name}
@@ -660,29 +663,33 @@ export default function CounterPage() {
           </div>
         </div>
 
-        {/* Products grid */}
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* Products grid - Optimisé pour 10 pouces */}
+        <div className="flex-1 overflow-y-auto p-3">
           {filteredProducts.length === 0 ? (
             <div className="text-center text-gray-400 py-12">
-              <span className="text-4xl block mb-2">📦</span>
-              <p>Aucun produit dans cette catégorie</p>
+              <span className="text-5xl block mb-3">📦</span>
+              <p className="text-lg">Aucun produit dans cette catégorie</p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {filteredProducts.map(product => (
                 <button
                   key={product.id}
                   onClick={() => openProductModal(product)}
-                  className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow text-left"
+                  className="bg-white rounded-2xl shadow-sm overflow-hidden active:scale-95 transition-transform text-left"
                 >
-                  <div className="aspect-square bg-gray-100 flex items-center justify-center text-4xl">
+                  <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center">
                     {product.image_url ? (
                       <img src={product.image_url} alt="" className="w-full h-full object-cover" />
-                    ) : '🍔'}
+                    ) : (
+                      <span className="text-5xl">🍔</span>
+                    )}
                   </div>
                   <div className="p-3">
-                    <h3 className="font-bold text-gray-900 text-sm mb-1 line-clamp-2">{product.name}</h3>
-                    <p className="text-lg font-bold text-orange-500">{product.price.toFixed(2)} €</p>
+                    <h3 className="font-bold text-gray-900 text-sm leading-tight line-clamp-2 min-h-[2.5rem]">
+                      {product.name}
+                    </h3>
+                    <p className="text-xl font-bold text-orange-500 mt-1">{product.price.toFixed(2)} €</p>
                   </div>
                 </button>
               ))}
@@ -691,53 +698,56 @@ export default function CounterPage() {
         </div>
       </div>
 
-      {/* Cart sidebar */}
-      <div className="w-80 bg-white shadow-xl flex flex-col">
-        <div className="p-4 border-b bg-slate-800 text-white">
+      {/* Cart sidebar - Plus large pour tablette */}
+      <div className="w-72 bg-white shadow-xl flex flex-col flex-shrink-0 border-l">
+        <div className="p-4 bg-slate-800 text-white flex-shrink-0">
           <h2 className="text-lg font-bold">🛒 Commande</h2>
         </div>
         
         <div className="flex-1 overflow-y-auto p-3">
           {cart.length === 0 ? (
             <div className="text-center text-gray-400 py-8">
-              <span className="text-4xl block mb-2">🛒</span>
-              <p className="text-sm">Panier vide</p>
+              <span className="text-5xl block mb-3">🛒</span>
+              <p>Panier vide</p>
             </div>
           ) : (
             <div className="space-y-3">
               {cart.map(item => (
                 <div key={item.id} className="bg-gray-50 rounded-xl p-3">
                   <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <h3 className="font-bold text-sm">{item.name}</h3>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-sm truncate">{item.name}</h3>
                       {item.options.length > 0 && (
                         <div className="text-xs text-gray-500 mt-1">
-                          {item.options.map(o => (
-                            <div key={o.item_id}>+ {o.item_name}</div>
+                          {item.options.slice(0, 2).map(o => (
+                            <div key={o.item_id} className="truncate">+ {o.item_name}</div>
                           ))}
+                          {item.options.length > 2 && (
+                            <div className="text-gray-400">+{item.options.length - 2} autres</div>
+                          )}
                         </div>
                       )}
                     </div>
                     <button
                       onClick={() => removeFromCart(item.id)}
-                      className="text-gray-400 hover:text-red-500 text-sm"
+                      className="text-gray-400 active:text-red-500 p-1 -mr-1"
                     >
                       ✕
                     </button>
                   </div>
                   
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
                       <button
                         onClick={() => updateQuantity(item.id, -1)}
-                        className="w-8 h-8 rounded-full bg-gray-200 font-bold"
+                        className="w-9 h-9 rounded-full bg-gray-200 font-bold text-lg active:bg-gray-300"
                       >
                         -
                       </button>
-                      <span className="font-bold w-6 text-center">{item.quantity}</span>
+                      <span className="font-bold w-8 text-center text-lg">{item.quantity}</span>
                       <button
                         onClick={() => updateQuantity(item.id, 1)}
-                        className="w-8 h-8 rounded-full bg-gray-200 font-bold"
+                        className="w-9 h-9 rounded-full bg-gray-200 font-bold text-lg active:bg-gray-300"
                       >
                         +
                       </button>
@@ -753,58 +763,62 @@ export default function CounterPage() {
         </div>
         
         {/* Cart footer */}
-        <div className="border-t p-4 bg-gray-50">
-          <div className="flex justify-between mb-2">
+        <div className="border-t p-4 bg-gray-50 flex-shrink-0">
+          <div className="flex justify-between mb-1 text-sm">
             <span className="text-gray-600">Sous-total</span>
-            <span className="font-bold">{getCartSubtotal().toFixed(2)} €</span>
+            <span className="font-semibold">{getCartSubtotal().toFixed(2)} €</span>
           </div>
           {orderType === 'eat_in' && (
-            <div className="flex justify-between mb-2 text-sm text-gray-500">
-              <span>Ajustement sur place (+6%)</span>
+            <div className="flex justify-between mb-1 text-xs text-gray-500">
+              <span>Sur place (+6%)</span>
               <span>+{(getCartSubtotal() * 0.06).toFixed(2)} €</span>
             </div>
           )}
           <div className="flex justify-between mb-4 text-lg">
-            <span className="font-bold">Total TTC ({getVatRate()}%)</span>
-            <span className="font-bold text-orange-500">{getCartTotal().toFixed(2)} €</span>
+            <span className="font-bold">Total</span>
+            <span className="font-bold text-orange-500 text-xl">{getCartTotal().toFixed(2)} €</span>
           </div>
           
           <button
             onClick={() => setShowPaymentModal(true)}
             disabled={cart.length === 0}
-            className="w-full bg-green-500 text-white font-bold py-4 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-green-500 text-white font-bold py-4 rounded-xl disabled:opacity-50 active:scale-95 transition-transform text-lg"
           >
             💶 Encaisser
           </button>
         </div>
       </div>
 
-      {/* Modal Produit */}
+      {/* Modal Produit - Optimisé tactile */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="p-4 border-b flex items-center gap-4">
-              <div className="w-20 h-20 bg-gray-100 rounded-xl flex items-center justify-center text-4xl">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="p-4 border-b flex items-center gap-4 flex-shrink-0">
+              <div className="w-20 h-20 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0">
                 {selectedProduct.image_url ? (
-                  <img src={selectedProduct.image_url} alt="" className="w-full h-full object-cover rounded-xl" />
-                ) : '🍔'}
+                  <img src={selectedProduct.image_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-4xl">🍔</span>
+                )}
               </div>
-              <div className="flex-1">
-                <h2 className="text-xl font-bold">{selectedProduct.name}</h2>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-lg font-bold truncate">{selectedProduct.name}</h2>
                 <p className="text-2xl font-bold text-orange-500">{selectedProduct.price.toFixed(2)} €</p>
               </div>
-              <button onClick={closeProductModal} className="text-gray-400 hover:text-gray-600 text-2xl">
+              <button 
+                onClick={closeProductModal} 
+                className="text-gray-400 active:text-gray-600 text-3xl p-2"
+              >
                 ✕
               </button>
             </div>
             
-            {/* Progress dots */}
             {currentPropositions.length > 1 && (
-              <div className="px-4 py-2 flex justify-center gap-2">
+              <div className="px-4 py-2 flex justify-center gap-2 flex-shrink-0 bg-gray-50">
                 {currentPropositions.map((_, i) => (
                   <div
                     key={i}
-                    className={`w-2 h-2 rounded-full transition-colors ${
+                    className={`w-3 h-3 rounded-full transition-colors ${
                       i === currentPropositionIndex ? 'bg-orange-500' : 
                       i < currentPropositionIndex ? 'bg-green-500' : 'bg-gray-300'
                     }`}
@@ -815,18 +829,18 @@ export default function CounterPage() {
             
             <div className="flex-1 overflow-y-auto p-4">
               {currentPropositions.length === 0 ? (
-                <div className="text-center py-6">
+                <div className="text-center py-8">
                   <button
                     onClick={addToCart}
-                    className="bg-orange-500 text-white font-bold px-8 py-3 rounded-xl"
+                    className="bg-orange-500 text-white font-bold px-10 py-4 rounded-xl text-lg active:scale-95 transition-transform"
                   >
                     Ajouter au panier
                   </button>
                 </div>
               ) : currentGroup ? (
                 <div>
-                  <h3 className="text-lg font-bold mb-2">{currentGroup.name}</h3>
-                  <p className="text-gray-500 text-sm mb-3">
+                  <h3 className="text-lg font-bold mb-1">{currentGroup.name}</h3>
+                  <p className="text-gray-500 text-sm mb-4">
                     {currentGroup.selection_type === 'single' ? 'Choisissez une option' : 'Choisissez vos options'}
                     {currentGroup.min_selections > 0 && <span className="text-red-500 ml-1">(obligatoire)</span>}
                   </p>
@@ -840,21 +854,21 @@ export default function CounterPage() {
                         <button
                           key={item.id}
                           onClick={() => selectOption(currentGroup, item)}
-                          className={`w-full p-3 rounded-xl border-2 flex items-center gap-3 transition-all ${
+                          className={`w-full p-4 rounded-xl border-2 flex items-center gap-3 transition-all active:scale-[0.98] ${
                             isSelected
                               ? 'border-orange-500 bg-orange-50'
-                              : 'border-gray-200 hover:border-gray-300'
+                              : 'border-gray-200'
                           }`}
                         >
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
                             isSelected ? 'border-orange-500 bg-orange-500' : 'border-gray-300'
                           }`}>
-                            {isSelected && <span className="text-white text-xs">✓</span>}
+                            {isSelected && <span className="text-white text-sm">✓</span>}
                           </div>
                           
                           <span className="flex-1 text-left font-medium">{item.product.name}</span>
                           
-                          <span className={`font-bold ${price === 0 ? 'text-green-600' : 'text-orange-500'}`}>
+                          <span className={`font-bold flex-shrink-0 ${price === 0 ? 'text-green-600' : 'text-orange-500'}`}>
                             {price === 0 ? 'Inclus' : `+${price.toFixed(2)} €`}
                           </span>
                         </button>
@@ -866,22 +880,22 @@ export default function CounterPage() {
             </div>
             
             {currentPropositions.length > 0 && (
-              <div className="p-4 border-t flex items-center justify-between">
+              <div className="p-4 border-t flex items-center justify-between flex-shrink-0 bg-gray-50">
                 <button
                   onClick={currentPropositionIndex === 0 ? closeProductModal : prevProposition}
-                  className="px-4 py-2 rounded-xl border border-gray-200 font-medium"
+                  className="px-5 py-3 rounded-xl border border-gray-300 font-semibold active:bg-gray-100"
                 >
                   {currentPropositionIndex === 0 ? 'Annuler' : '← Retour'}
                 </button>
                 
-                <p className="text-lg font-bold text-orange-500">
+                <p className="text-xl font-bold text-orange-500">
                   {(selectedProduct.price + selectedOptions.reduce((sum, o) => sum + o.price, 0)).toFixed(2)} €
                 </p>
                 
                 <button
                   onClick={nextProposition}
                   disabled={!canProceed()}
-                  className="px-4 py-2 rounded-xl bg-orange-500 text-white font-medium disabled:opacity-50"
+                  className="px-5 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50 active:scale-95 transition-transform"
                 >
                   {currentPropositionIndex === currentPropositions.length - 1 ? 'Ajouter' : 'Suivant →'}
                 </button>
@@ -891,90 +905,91 @@ export default function CounterPage() {
         </div>
       )}
 
-      {/* Modal Paiement */}
+      {/* Modal Paiement - Optimisé tactile */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden">
-            <div className="p-6 bg-slate-800 text-white">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-5 bg-slate-800 text-white flex-shrink-0">
               <h2 className="text-2xl font-bold">💶 Encaissement</h2>
-              <p className="text-3xl font-bold text-orange-400 mt-2">{getTotalWithVat().toFixed(2)} €</p>
+              <p className="text-4xl font-bold text-orange-400 mt-2">{getTotalWithVat().toFixed(2)} €</p>
             </div>
             
-            <div className="p-6">
+            <div className="flex-1 overflow-y-auto p-5">
               {/* Payment method */}
-              <p className="font-medium text-gray-700 mb-3">Mode de paiement</p>
+              <p className="font-semibold text-gray-700 mb-3">Mode de paiement</p>
               <div className="grid grid-cols-3 gap-3 mb-6">
                 <button
                   onClick={() => setPaymentMethod('cash')}
-                  className={`p-4 rounded-xl border-2 text-center transition-all ${
+                  className={`p-4 rounded-xl border-2 text-center transition-all active:scale-95 ${
                     paymentMethod === 'cash'
                       ? 'border-green-500 bg-green-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'border-gray-200'
                   }`}
                 >
-                  <span className="text-3xl block mb-1">💵</span>
-                  <span className="font-medium">Espèces</span>
+                  <span className="text-4xl block mb-1">💵</span>
+                  <span className="font-semibold">Espèces</span>
                 </button>
                 <button
                   onClick={() => setPaymentMethod('card')}
-                  className={`p-4 rounded-xl border-2 text-center transition-all ${
+                  className={`p-4 rounded-xl border-2 text-center transition-all active:scale-95 ${
                     paymentMethod === 'card'
                       ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'border-gray-200'
                   }`}
                 >
-                  <span className="text-3xl block mb-1">💳</span>
-                  <span className="font-medium">Carte</span>
+                  <span className="text-4xl block mb-1">💳</span>
+                  <span className="font-semibold">Carte</span>
                 </button>
                 <button
                   onClick={() => setPaymentMethod('offered')}
-                  className={`p-4 rounded-xl border-2 text-center transition-all ${
+                  className={`p-4 rounded-xl border-2 text-center transition-all active:scale-95 ${
                     paymentMethod === 'offered'
                       ? 'border-purple-500 bg-purple-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'border-gray-200'
                   }`}
                 >
-                  <span className="text-3xl block mb-1">🎁</span>
-                  <span className="font-medium">Offert</span>
+                  <span className="text-4xl block mb-1">🎁</span>
+                  <span className="font-semibold">Offert</span>
                 </button>
               </div>
               
               {/* Cash received */}
               {paymentMethod === 'cash' && (
                 <div className="mb-6">
-                  <label className="font-medium text-gray-700 block mb-2">Montant reçu</label>
+                  <label className="font-semibold text-gray-700 block mb-2">Montant reçu</label>
                   <input
                     type="number"
+                    inputMode="decimal"
                     step="0.01"
                     value={cashReceived || ''}
                     onChange={(e) => setCashReceived(parseFloat(e.target.value) || 0)}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-2xl font-bold text-center"
+                    className="w-full px-4 py-4 rounded-xl border border-gray-200 text-3xl font-bold text-center"
                     placeholder="0.00"
                   />
                   
                   {/* Quick amounts */}
-                  <div className="flex gap-2 mt-3">
-                    {[10, 20, 50].map(amount => (
+                  <div className="grid grid-cols-4 gap-2 mt-3">
+                    {[5, 10, 20, 50].map(amount => (
                       <button
                         key={amount}
                         onClick={() => setCashReceived(amount)}
-                        className="flex-1 py-2 rounded-lg bg-gray-100 font-medium hover:bg-gray-200"
+                        className="py-3 rounded-xl bg-gray-100 font-semibold text-lg active:bg-gray-200"
                       >
                         {amount}€
                       </button>
                     ))}
-                    <button
-                      onClick={() => setCashReceived(Math.ceil(getTotalWithVat()))}
-                      className="flex-1 py-2 rounded-lg bg-green-100 text-green-700 font-medium hover:bg-green-200"
-                    >
-                      Exact
-                    </button>
                   </div>
+                  <button
+                    onClick={() => setCashReceived(Math.ceil(getTotalWithVat()))}
+                    className="w-full mt-2 py-3 rounded-xl bg-green-100 text-green-700 font-semibold active:bg-green-200"
+                  >
+                    Montant exact
+                  </button>
                   
-                  {cashReceived > 0 && (
+                  {cashReceived >= getTotalWithVat() && (
                     <div className="mt-4 p-4 bg-green-50 rounded-xl text-center">
                       <p className="text-gray-600">Monnaie à rendre</p>
-                      <p className="text-3xl font-bold text-green-600">{getChange().toFixed(2)} €</p>
+                      <p className="text-4xl font-bold text-green-600">{getChange().toFixed(2)} €</p>
                     </div>
                   )}
                 </div>
@@ -983,36 +998,36 @@ export default function CounterPage() {
               {/* Offered reason */}
               {paymentMethod === 'offered' && (
                 <div className="mb-6">
-                  <label className="font-medium text-gray-700 block mb-2">Raison (optionnel)</label>
+                  <label className="font-semibold text-gray-700 block mb-2">Raison (optionnel)</label>
                   <input
                     type="text"
                     value={offeredReason}
                     onChange={(e) => setOfferedReason(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200"
+                    className="w-full px-4 py-4 rounded-xl border border-gray-200 text-lg"
                     placeholder="Ex: Amis, erreur cuisine..."
                   />
                   <p className="text-sm text-purple-600 mt-2">
-                    ⚠️ Cette commande ne sera pas comptabilisée dans le chiffre d'affaires
+                    ⚠️ Commande non comptabilisée dans le CA
                   </p>
                 </div>
               )}
-              
-              {/* Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowPaymentModal(false)}
-                  className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={submitOrder}
-                  disabled={isSubmitting || (paymentMethod === 'cash' && cashReceived < getTotalWithVat())}
-                  className="flex-1 px-6 py-3 rounded-xl bg-green-500 text-white font-semibold disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Envoi...' : '✓ Valider'}
-                </button>
-              </div>
+            </div>
+            
+            {/* Buttons */}
+            <div className="p-5 border-t flex gap-3 flex-shrink-0 bg-gray-50">
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="flex-1 px-6 py-4 rounded-xl border border-gray-300 font-semibold text-lg active:bg-gray-100"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={submitOrder}
+                disabled={isSubmitting || (paymentMethod === 'cash' && cashReceived < getTotalWithVat())}
+                className="flex-1 px-6 py-4 rounded-xl bg-green-500 text-white font-semibold text-lg disabled:opacity-50 active:scale-95 transition-transform"
+              >
+                {isSubmitting ? 'Envoi...' : '✓ Valider'}
+              </button>
             </div>
           </div>
         </div>
@@ -1021,15 +1036,15 @@ export default function CounterPage() {
       {/* Modal Commandes en retard */}
       {showLateOrdersModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="p-6 bg-red-500 text-white flex items-center justify-between">
+          <div className="bg-white rounded-3xl w-full max-w-xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-5 bg-red-500 text-white flex items-center justify-between flex-shrink-0">
               <div>
                 <h2 className="text-2xl font-bold">⚠️ Commandes en retard</h2>
-                <p className="text-red-100">{lateOrders.length} commande(s) en attente depuis plus de 30 min</p>
+                <p className="text-red-100">{lateOrders.length} commande(s) depuis +30 min</p>
               </div>
               <button
                 onClick={() => setShowLateOrdersModal(false)}
-                className="text-white/70 hover:text-white text-2xl"
+                className="text-white/70 active:text-white text-3xl p-2"
               >
                 ✕
               </button>
@@ -1038,8 +1053,8 @@ export default function CounterPage() {
             <div className="flex-1 overflow-y-auto p-4">
               {lateOrders.length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
-                  <span className="text-5xl block mb-4">✅</span>
-                  <p>Aucune commande en retard !</p>
+                  <span className="text-6xl block mb-4">✅</span>
+                  <p className="text-lg">Aucune commande en retard !</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1050,7 +1065,7 @@ export default function CounterPage() {
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-xl font-bold">#{order.order_number}</span>
                             <span className="text-xl">{getOrderTypeEmoji(order.order_type)}</span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                               order.status === 'ready' ? 'bg-green-100 text-green-700' :
                               order.status === 'preparing' ? 'bg-blue-100 text-blue-700' :
                               'bg-yellow-100 text-yellow-700'
@@ -1058,18 +1073,18 @@ export default function CounterPage() {
                               {getStatusLabel(order.status)}
                             </span>
                           </div>
-                          <p className="text-gray-600 text-sm">
+                          <p className="text-gray-600">
                             {order.customer_name || 'Client'} • {order.total?.toFixed(2)} €
                           </p>
                           {order.delivery_notes && (
-                            <p className="text-gray-500 text-sm">{order.delivery_notes}</p>
+                            <p className="text-gray-500 text-sm truncate max-w-[200px]">{order.delivery_notes}</p>
                           )}
                         </div>
                         <div className="text-right">
-                          <p className="text-red-500 font-bold text-lg">
+                          <p className="text-red-500 font-bold text-xl">
                             +{order.minutes_late} min
                           </p>
-                          <p className="text-gray-400 text-xs">
+                          <p className="text-gray-400 text-sm">
                             Prévu: {formatTime(order.scheduled_time || order.created_at)}
                           </p>
                         </div>
@@ -1078,19 +1093,19 @@ export default function CounterPage() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => markOrderCompleted(order.id)}
-                          className="flex-1 bg-green-500 text-white font-medium py-2 rounded-lg hover:bg-green-600"
+                          className="flex-1 bg-green-500 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform"
                         >
                           ✅ Terminée
                         </button>
                         <button
                           onClick={() => postponeOrder(order.id, 30)}
-                          className="flex-1 bg-blue-500 text-white font-medium py-2 rounded-lg hover:bg-blue-600"
+                          className="flex-1 bg-blue-500 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform"
                         >
                           📅 +30 min
                         </button>
                         <button
                           onClick={() => cancelOrder(order.id)}
-                          className="flex-1 bg-gray-200 text-gray-700 font-medium py-2 rounded-lg hover:bg-red-100 hover:text-red-600"
+                          className="flex-1 bg-gray-200 text-gray-700 font-semibold py-3 rounded-xl active:bg-red-100 active:text-red-600"
                         >
                           ❌ Annuler
                         </button>
@@ -1101,12 +1116,10 @@ export default function CounterPage() {
               )}
             </div>
             
-            <div className="p-4 border-t bg-gray-50">
+            <div className="p-4 border-t bg-gray-50 flex-shrink-0">
               <button
-                onClick={() => {
-                  loadLateOrders()
-                }}
-                className="w-full bg-gray-200 text-gray-700 font-medium py-3 rounded-xl hover:bg-gray-300"
+                onClick={loadLateOrders}
+                className="w-full bg-gray-200 text-gray-700 font-semibold py-4 rounded-xl active:bg-gray-300"
               >
                 🔄 Rafraîchir
               </button>
@@ -1114,6 +1127,17 @@ export default function CounterPage() {
           </div>
         </div>
       )}
+
+      {/* CSS pour masquer scrollbar */}
+      <style jsx global>{`
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
     </div>
   )
 }
