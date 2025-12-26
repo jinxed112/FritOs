@@ -110,6 +110,9 @@ export default function KioskPage() {
   // Viva Payment
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'pending' | 'success' | 'failed'>('idle')
   const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null)
+  
+  // Allergen modal
+  const [allergenModalProduct, setAllergenModalProduct] = useState<Product | null>(null)
 
   const supabase = createClient()
   const router = useRouter()
@@ -873,42 +876,50 @@ export default function KioskPage() {
                 const allergens = getProductAllergens(product)
                 
                 return (
-                <button
+                <div
                   key={product.id}
-                  onClick={() => openProductModal(product)}
-                  className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow text-left"
+                  className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow text-left relative"
                 >
-                  <div className="aspect-square bg-gray-100 flex items-center justify-center text-6xl">
-                    {product.image_url ? (
-                      <img src={product.image_url} alt="" className="w-full h-full object-cover" />
-                    ) : '🍔'}
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-bold text-gray-900 mb-1">{product.name}</h3>
-                    {product.description && (
-                      <p className="text-sm text-gray-500 mb-2 line-clamp-2">{product.description}</p>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <p className="text-xl font-bold text-orange-500">{product.price.toFixed(2)} €</p>
-                      {allergens.length > 0 && (
-                        <div className="flex gap-0.5">
-                          {allergens.slice(0, 5).map(a => (
-                            <span 
-                              key={a.name} 
-                              title={a.is_trace ? `Traces: ${a.name}` : a.name}
-                              className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}
-                            >
-                              {a.emoji}
-                            </span>
-                          ))}
-                          {allergens.length > 5 && (
-                            <span className="text-xs text-gray-400">+{allergens.length - 5}</span>
-                          )}
-                        </div>
-                      )}
+                  <button
+                    onClick={() => openProductModal(product)}
+                    className="w-full"
+                  >
+                    <div className="aspect-square bg-gray-100 flex items-center justify-center text-6xl">
+                      {product.image_url ? (
+                        <img src={product.image_url} alt="" className="w-full h-full object-cover" />
+                      ) : '🍔'}
                     </div>
-                  </div>
-                </button>
+                    <div className="p-4">
+                      <h3 className="font-bold text-gray-900 mb-1">{product.name}</h3>
+                      {product.description && (
+                        <p className="text-sm text-gray-500 mb-2 line-clamp-2">{product.description}</p>
+                      )}
+                      <p className="text-xl font-bold text-orange-500">{product.price.toFixed(2)} €</p>
+                    </div>
+                  </button>
+                  {/* Bouton allergènes cliquable */}
+                  {allergens.length > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setAllergenModalProduct(product)
+                      }}
+                      className="absolute bottom-4 right-4 flex gap-0.5 bg-gray-100 hover:bg-orange-100 rounded-lg px-2 py-1 transition-colors"
+                    >
+                      {allergens.slice(0, 5).map(a => (
+                        <span 
+                          key={a.name} 
+                          className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}
+                        >
+                          {a.emoji}
+                        </span>
+                      ))}
+                      {allergens.length > 5 && (
+                        <span className="text-xs text-gray-400">+{allergens.length - 5}</span>
+                      )}
+                    </button>
+                  )}
+                </div>
               )})}
             </div>
           )}
@@ -1182,6 +1193,119 @@ export default function KioskPage() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Allergènes */}
+      {allergenModalProduct && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setAllergenModalProduct(null)}
+        >
+          <div 
+            className="bg-white rounded-3xl w-full max-w-lg max-h-[80vh] overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-6 bg-gradient-to-r from-orange-500 to-orange-600 text-white">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 bg-white/20 rounded-xl flex items-center justify-center">
+                    {allergenModalProduct.image_url ? (
+                      <img src={allergenModalProduct.image_url} alt="" className="w-full h-full object-cover rounded-xl" />
+                    ) : (
+                      <span className="text-3xl">🍔</span>
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-2xl">{allergenModalProduct.name}</h2>
+                    <p className="text-orange-100">Informations allergènes</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAllergenModalProduct(null)}
+                  className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6 overflow-y-auto max-h-[50vh]">
+              {(() => {
+                const allergens = getProductAllergens(allergenModalProduct)
+                const contains = allergens.filter(a => !a.is_trace)
+                const traces = allergens.filter(a => a.is_trace)
+                
+                if (allergens.length === 0) {
+                  return (
+                    <div className="text-center py-8">
+                      <span className="text-6xl block mb-4">✅</span>
+                      <p className="text-green-600 font-bold text-xl">Aucun allergène déclaré</p>
+                    </div>
+                  )
+                }
+                
+                return (
+                  <div className="space-y-6">
+                    {/* Contient */}
+                    {contains.length > 0 && (
+                      <div>
+                        <h3 className="font-bold text-red-700 text-lg mb-3 flex items-center gap-2">
+                          <span className="w-4 h-4 bg-red-500 rounded-full"></span>
+                          Contient
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3">
+                          {contains.map(a => (
+                            <div key={a.name} className="flex items-center gap-3 bg-red-50 rounded-2xl p-4">
+                              <span className="text-3xl">{a.emoji}</span>
+                              <span className="font-bold text-red-800">{a.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Traces */}
+                    {traces.length > 0 && (
+                      <div>
+                        <h3 className="font-bold text-yellow-700 text-lg mb-3 flex items-center gap-2">
+                          <span className="w-4 h-4 bg-yellow-500 rounded-full"></span>
+                          Peut contenir des traces de
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3">
+                          {traces.map(a => (
+                            <div key={a.name} className="flex items-center gap-3 bg-yellow-50 rounded-2xl p-4">
+                              <span className="text-3xl">{a.emoji}</span>
+                              <span className="font-bold text-yellow-800">{a.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Note légale */}
+                    <div className="bg-gray-100 rounded-2xl p-4 mt-4">
+                      <p className="text-sm text-gray-600">
+                        ⚠️ Ces informations sont fournies à titre indicatif. En cas d'allergie sévère, veuillez consulter notre personnel.
+                      </p>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+            
+            {/* Footer */}
+            <div className="p-6 border-t">
+              <button
+                onClick={() => setAllergenModalProduct(null)}
+                className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl text-xl hover:bg-orange-600"
+              >
+                Fermer
+              </button>
+            </div>
           </div>
         </div>
       )}
