@@ -6,178 +6,125 @@ import Link from 'next/link'
 
 // ==================== TYPES ====================
 
+type Allergen = {
+  id: string
+  code: string
+  name_fr: string
+  emoji: string
+}
+
+type IngredientAllergen = {
+  allergen_id: string
+  is_trace: boolean
+  allergen: Allergen
+}
+
 type Ingredient = {
   id: string
   name: string
   category: string | null
   is_available: boolean
-  stock_current: number | null
-  stock_min: number | null
-  unit: string | null
-  affected_products_count?: number
+  is_active: boolean
+  ingredient_allergens: IngredientAllergen[]
+  linked_products_count?: number
 }
 
 type Product = {
   id: string
   name: string
   is_available: boolean
-  category_name?: string
+  category_name: string
 }
 
-type ProductIngredient = {
-  product_id: string
-  product: {
-    id: string
-    name: string
-    is_available: boolean
-    category: { name: string } | null
-  }
-}
-
-type Order = {
-  id: string
-  order_number: string
-  order_type: string
-  status: string
-  total: number
-  payment_method: string | null
-  payment_status: string | null
-  source: string | null
-  customer_name: string | null
-  customer_phone: string | null
-  is_offered: boolean
-  created_at: string
-  order_items: {
-    id: string
-    product_name: string
-    quantity: number
-    line_total: number
-    options_selected: any
-  }[]
-}
-
-type DeliveryRound = {
-  id: string
-  status: string
-  total_stops: number
-  driver: { id: string; name: string; status: string } | null
-  stops: {
-    id: string
-    stop_order: number
-    status: string
-    order: {
-      order_number: string
-      customer_name: string | null
-      delivery_notes: string | null
-    }
-  }[]
-}
-
-type Driver = {
-  id: string
-  name: string
-  status: string
-  current_lat: number | null
-  current_lng: number | null
-  last_location_at: string | null
-}
+const CATEGORIES = [
+  'Viandes & Snacks',
+  'Pains & Buns',
+  'Fromages',
+  'Sauces',
+  'Légumes & Crudités',
+  'Viandes Fraîches',
+  'Autres'
+]
 
 // ==================== COMPONENT ====================
 
 export default function BackofficePage() {
-  const [activeTab, setActiveTab] = useState<'ingredients' | 'orders' | 'deliveries'>('ingredients')
-  
-  // Ingredients state
+  // State
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
-  const [ingredientSearch, setIngredientSearch] = useState('')
-  const [selectedIngredient, setSelectedIngredient] = useState<Ingredient | null>(null)
-  const [affectedProducts, setAffectedProducts] = useState<Product[]>([])
-  
-  // Orders state
-  const [orders, setOrders] = useState<Order[]>([])
-  const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'preparing' | 'ready' | 'completed'>('all')
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
-  
-  // Deliveries state
-  const [deliveryRounds, setDeliveryRounds] = useState<DeliveryRound[]>([])
-  const [drivers, setDrivers] = useState<Driver[]>([])
-  
+  const [allergens, setAllergens] = useState<Allergen[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showInactive, setShowInactive] = useState(false)
+  const [filterCategory, setFilterCategory] = useState<string>('')
+  
+  // Modal state
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [showImpactModal, setShowImpactModal] = useState(false)
+  const [selectedIngredient, setSelectedIngredient] = useState<Ingredient | null>(null)
+  const [impactedProducts, setImpactedProducts] = useState<Product[]>([])
+  
+  // Form state
+  const [form, setForm] = useState({
+    name: '',
+    category: 'Autres',
+    allergens: [] as { allergen_id: string, is_trace: boolean }[]
+  })
+  const [saving, setSaving] = useState(false)
   
   const supabase = createClient()
   const establishmentId = 'a0000000-0000-0000-0000-000000000001'
 
   useEffect(() => {
     loadData()
-    
-    // Realtime pour les commandes
-    const ordersChannel = supabase
-      .channel('backoffice-orders')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => loadOrders())
-      .subscribe()
-    
-    // Refresh drivers toutes les 30s
-    const driverInterval = setInterval(loadDrivers, 30000)
-    
-    return () => {
-      supabase.removeChannel(ordersChannel)
-      clearInterval(driverInterval)
-    }
   }, [])
 
   async function loadData() {
     setLoading(true)
-    await Promise.all([
-      loadIngredients(),
-      loadOrders(),
-      loadDeliveries(),
-      loadDrivers()
-    ])
-    setLoading(false)
-  }
-
-  async function loadIngredients() {
-    // Charger ingrédients avec comptage des produits affectés
-    const { data } = await supabase
+    
+    // Charger les ingrédients avec leurs allergènes
+    const { data: ingredientsData } = await supabase
       .from('ingredients')
       .select(`
-        id, name, category, is_available, stock_current, stock_min, unit,
-        product_ingredients (product_id)
+        id, name, category, is_available, is_active,
+        ingredient_allergens (
+          allergen_id,
+          is_trace,
+          allergen:allergens (id, code, name_fr, emoji)
+        )
       `)
       .eq('establishment_id', establishmentId)
-      .eq('is_active', true)
       .order('category')
       .order('name')
     
-    if (data) {
-      setIngredients(data.map((ing: any) => ({
-        ...ing,
-        affected_products_count: ing.product_ingredients?.length || 0
-      })))
-    }
-  }
-
-  async function loadAffectedProducts(ingredientId: string) {
-    const { data } = await supabase
-      .from('product_ingredients')
-      .select(`
-        product_id,
-        product:products (id, name, is_available, category:categories (name))
-      `)
-      .eq('ingredient_id', ingredientId)
-      .eq('is_essential', true)
+    // Charger les allergènes disponibles
+    const { data: allergensData } = await supabase
+      .from('allergens')
+      .select('id, code, name_fr, emoji')
+      .order('name_fr')
     
-    if (data) {
-      setAffectedProducts(data.map((pi: any) => ({
-        id: pi.product.id,
-        name: pi.product.name,
-        is_available: pi.product.is_available,
-        category_name: pi.product.category?.name
+    // Compter les produits liés
+    const { data: links } = await supabase
+      .from('product_ingredients')
+      .select('ingredient_id')
+    
+    const linkCounts: Record<string, number> = {}
+    links?.forEach(l => {
+      linkCounts[l.ingredient_id] = (linkCounts[l.ingredient_id] || 0) + 1
+    })
+    
+    if (ingredientsData) {
+      setIngredients(ingredientsData.map((ing: any) => ({
+        ...ing,
+        ingredient_allergens: ing.ingredient_allergens || [],
+        linked_products_count: linkCounts[ing.id] || 0
       })))
     }
+    
+    setAllergens(allergensData || [])
+    setLoading(false)
   }
 
-  async function toggleIngredientAvailability(ingredient: Ingredient) {
+  async function toggleAvailability(ingredient: Ingredient) {
     const newStatus = !ingredient.is_available
     
     const { error } = await supabase
@@ -190,82 +137,172 @@ export default function BackofficePage() {
         ing.id === ingredient.id ? { ...ing, is_available: newStatus } : ing
       ))
       
-      // Si on vient de changer l'ingrédient sélectionné, recharger les produits affectés
-      if (selectedIngredient?.id === ingredient.id) {
-        setTimeout(() => loadAffectedProducts(ingredient.id), 500)
+      // Si on met en indispo et qu'il y a des produits liés, montrer l'impact
+      if (!newStatus && ingredient.linked_products_count && ingredient.linked_products_count > 0) {
+        loadImpactedProducts(ingredient)
       }
     }
   }
 
-  async function loadOrders() {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+  async function toggleActive(ingredient: Ingredient) {
+    const newStatus = !ingredient.is_active
     
-    const { data } = await supabase
-      .from('orders')
-      .select(`
-        id, order_number, order_type, status, total, 
-        payment_method, payment_status, source,
-        customer_name, customer_phone, is_offered, created_at,
-        order_items (id, product_name, quantity, line_total, options_selected)
-      `)
-      .eq('establishment_id', establishmentId)
-      .gte('created_at', today.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(100)
+    const { error } = await supabase
+      .from('ingredients')
+      .update({ is_active: newStatus })
+      .eq('id', ingredient.id)
     
-    setOrders(data || [])
-  }
-
-  async function updateOrderStatus(orderId: string, newStatus: string) {
-    await supabase
-      .from('orders')
-      .update({ status: newStatus })
-      .eq('id', orderId)
-    
-    setSelectedOrder(null)
-  }
-
-  async function loadDeliveries() {
-    const { data } = await supabase
-      .from('delivery_rounds')
-      .select(`
-        id, status, total_stops,
-        driver:drivers (id, name, status),
-        stops:delivery_round_stops (
-          id, stop_order, status,
-          order:orders (order_number, customer_name, delivery_notes)
-        )
-      `)
-      .eq('establishment_id', establishmentId)
-      .in('status', ['pending', 'ready', 'in_progress'])
-      .order('created_at', { ascending: false })
-    
-    if (data) {
-      setDeliveryRounds(data.map((r: any) => ({
-        ...r,
-        stops: (r.stops || []).sort((a: any, b: any) => a.stop_order - b.stop_order)
-      })))
+    if (!error) {
+      setIngredients(prev => prev.map(ing => 
+        ing.id === ingredient.id ? { ...ing, is_active: newStatus } : ing
+      ))
     }
   }
 
-  async function loadDrivers() {
+  async function loadImpactedProducts(ingredient: Ingredient) {
     const { data } = await supabase
-      .from('drivers')
-      .select('id, name, status, current_lat, current_lng, last_location_at')
-      .eq('establishment_id', establishmentId)
-      .eq('is_active', true)
+      .from('product_ingredients')
+      .select(`
+        product:products (id, name, is_available, category:categories(name))
+      `)
+      .eq('ingredient_id', ingredient.id)
+      .eq('is_essential', true)
     
-    setDrivers(data || [])
+    if (data) {
+      setImpactedProducts(data.map((pi: any) => ({
+        id: pi.product.id,
+        name: pi.product.name,
+        is_available: pi.product.is_available,
+        category_name: pi.product.category?.name || 'Sans catégorie'
+      })))
+      setSelectedIngredient(ingredient)
+      setShowImpactModal(true)
+    }
+  }
+
+  function openAddModal() {
+    setForm({ name: '', category: 'Autres', allergens: [] })
+    setSelectedIngredient(null)
+    setShowAddModal(true)
+  }
+
+  function openEditModal(ingredient: Ingredient) {
+    setForm({
+      name: ingredient.name,
+      category: ingredient.category || 'Autres',
+      allergens: ingredient.ingredient_allergens.map(ia => ({
+        allergen_id: ia.allergen_id,
+        is_trace: ia.is_trace
+      }))
+    })
+    setSelectedIngredient(ingredient)
+    setShowAddModal(true)
+  }
+
+  function toggleAllergen(allergenId: string) {
+    const existing = form.allergens.find(a => a.allergen_id === allergenId)
+    
+    if (!existing) {
+      // Ajouter comme "contient"
+      setForm({ ...form, allergens: [...form.allergens, { allergen_id: allergenId, is_trace: false }] })
+    } else if (!existing.is_trace) {
+      // Passer de "contient" à "traces"
+      setForm({
+        ...form,
+        allergens: form.allergens.map(a => 
+          a.allergen_id === allergenId ? { ...a, is_trace: true } : a
+        )
+      })
+    } else {
+      // Supprimer
+      setForm({
+        ...form,
+        allergens: form.allergens.filter(a => a.allergen_id !== allergenId)
+      })
+    }
+  }
+
+  function getAllergenState(allergenId: string): 'none' | 'contains' | 'trace' {
+    const existing = form.allergens.find(a => a.allergen_id === allergenId)
+    if (!existing) return 'none'
+    return existing.is_trace ? 'trace' : 'contains'
+  }
+
+  async function saveIngredient(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.name.trim()) return
+    
+    setSaving(true)
+    
+    try {
+      let ingredientId = selectedIngredient?.id
+      
+      if (selectedIngredient) {
+        // Update
+        await supabase
+          .from('ingredients')
+          .update({ name: form.name, category: form.category })
+          .eq('id', selectedIngredient.id)
+      } else {
+        // Insert
+        const { data } = await supabase
+          .from('ingredients')
+          .insert({
+            establishment_id: establishmentId,
+            name: form.name,
+            category: form.category,
+            is_available: true,
+            is_active: true
+          })
+          .select('id')
+          .single()
+        
+        ingredientId = data?.id
+      }
+      
+      if (ingredientId) {
+        // Supprimer les anciens allergènes
+        await supabase
+          .from('ingredient_allergens')
+          .delete()
+          .eq('ingredient_id', ingredientId)
+        
+        // Insérer les nouveaux
+        if (form.allergens.length > 0) {
+          await supabase
+            .from('ingredient_allergens')
+            .insert(form.allergens.map(a => ({
+              ingredient_id: ingredientId,
+              allergen_id: a.allergen_id,
+              is_trace: a.is_trace
+            })))
+        }
+      }
+      
+      setShowAddModal(false)
+      loadData()
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   // ==================== FILTERS ====================
-  
+
   const filteredIngredients = ingredients.filter(ing => {
-    if (!ingredientSearch) return true
-    return ing.name.toLowerCase().includes(ingredientSearch.toLowerCase())
+    // Filtre actif/inactif
+    if (!showInactive && !ing.is_active) return false
+    
+    // Filtre recherche
+    if (searchQuery && !ing.name.toLowerCase().includes(searchQuery.toLowerCase())) return false
+    
+    // Filtre catégorie
+    if (filterCategory && ing.category !== filterCategory) return false
+    
+    return true
   })
-  
+
   const groupedIngredients = filteredIngredients.reduce((acc, ing) => {
     const cat = ing.category || 'Autres'
     if (!acc[cat]) acc[cat] = []
@@ -273,56 +310,45 @@ export default function BackofficePage() {
     return acc
   }, {} as Record<string, Ingredient[]>)
 
-  const filteredOrders = orders.filter(order => {
-    if (orderFilter === 'all') return true
-    return order.status === orderFilter
-  })
-
-  const orderStats = {
-    pending: orders.filter(o => o.status === 'pending').length,
-    preparing: orders.filter(o => o.status === 'preparing').length,
-    ready: orders.filter(o => o.status === 'ready').length,
-    completed: orders.filter(o => o.status === 'completed').length,
-    revenue: orders
-      .filter(o => o.status === 'completed' && o.payment_status === 'paid' && !o.is_offered)
-      .reduce((sum, o) => sum + (o.total || 0), 0)
+  const stats = {
+    total: ingredients.filter(i => i.is_active).length,
+    available: ingredients.filter(i => i.is_active && i.is_available).length,
+    unavailable: ingredients.filter(i => i.is_active && !i.is_available).length,
+    inactive: ingredients.filter(i => !i.is_active).length
   }
 
   // ==================== HELPERS ====================
 
-  function formatTime(dateStr: string): string {
-    return new Date(dateStr).toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
-  }
-
-  function getStatusBadge(status: string) {
-    const config: Record<string, { bg: string; text: string; label: string }> = {
-      pending: { bg: 'bg-orange-100', text: 'text-orange-700', label: '⏳ En attente' },
-      preparing: { bg: 'bg-blue-100', text: 'text-blue-700', label: '🍳 En prépa' },
-      ready: { bg: 'bg-green-100', text: 'text-green-700', label: '✅ Prêt' },
-      completed: { bg: 'bg-gray-100', text: 'text-gray-700', label: '🏁 Terminé' },
-      cancelled: { bg: 'bg-red-100', text: 'text-red-700', label: '❌ Annulé' },
+  function renderAllergens(ingredientAllergens: IngredientAllergen[]) {
+    if (!ingredientAllergens || ingredientAllergens.length === 0) {
+      return <span className="text-gray-400 text-xs">Aucun allergène</span>
     }
-    const c = config[status] || config.pending
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${c.bg} ${c.text}`}>{c.label}</span>
-  }
-
-  function getSourceEmoji(source: string | null): string {
-    const emojis: Record<string, string> = {
-      kiosk: '🖥️',
-      counter: '💳',
-      click_and_collect: '📱',
-      delivery: '🚗'
-    }
-    return emojis[source || ''] || '📋'
-  }
-
-  function getOrderTypeEmoji(type: string): string {
-    const emojis: Record<string, string> = {
-      eat_in: '🍽️',
-      takeaway: '🥡',
-      delivery: '🚗'
-    }
-    return emojis[type] || '📋'
+    
+    const contains = ingredientAllergens.filter(ia => !ia.is_trace)
+    const traces = ingredientAllergens.filter(ia => ia.is_trace)
+    
+    return (
+      <div className="flex flex-wrap gap-1">
+        {contains.map(ia => (
+          <span 
+            key={ia.allergen_id} 
+            className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-xs"
+            title={ia.allergen.name_fr}
+          >
+            {ia.allergen.emoji}
+          </span>
+        ))}
+        {traces.map(ia => (
+          <span 
+            key={ia.allergen_id} 
+            className="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded text-xs opacity-70"
+            title={`Traces: ${ia.allergen.name_fr}`}
+          >
+            {ia.allergen.emoji}
+          </span>
+        ))}
+      </div>
+    )
   }
 
   // ==================== RENDER ====================
@@ -331,7 +357,7 @@ export default function BackofficePage() {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="text-center">
-          <span className="text-6xl block mb-4 animate-pulse">⚙️</span>
+          <span className="text-6xl block mb-4 animate-pulse">🥬</span>
           <p className="text-gray-500 text-xl">Chargement...</p>
         </div>
       </div>
@@ -349,550 +375,339 @@ export default function BackofficePage() {
           >
             ← Caisse
           </Link>
-          <h1 className="text-xl font-bold">⚙️ Backoffice</h1>
+          <h1 className="text-xl font-bold">🥬 Gestion Ingrédients</h1>
         </div>
         
-        <div className="flex gap-2">
-          <button
-            onClick={() => setActiveTab('ingredients')}
-            className={`px-4 py-2 rounded-xl font-medium transition-colors ${
-              activeTab === 'ingredients' ? 'bg-orange-500 text-white' : 'bg-slate-700 text-gray-300'
-            }`}
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin/ingredients"
+            className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-xl font-medium transition-colors text-sm"
           >
-            🥬 Ingrédients
-          </button>
+            ⚙️ Admin complet
+          </Link>
           <button
-            onClick={() => setActiveTab('orders')}
-            className={`px-4 py-2 rounded-xl font-medium transition-colors ${
-              activeTab === 'orders' ? 'bg-orange-500 text-white' : 'bg-slate-700 text-gray-300'
-            }`}
+            onClick={openAddModal}
+            className="bg-orange-500 hover:bg-orange-600 px-4 py-2 rounded-xl font-medium transition-colors"
           >
-            🧾 Commandes
-            {orderStats.pending > 0 && (
-              <span className="ml-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
-                {orderStats.pending}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('deliveries')}
-            className={`px-4 py-2 rounded-xl font-medium transition-colors ${
-              activeTab === 'deliveries' ? 'bg-orange-500 text-white' : 'bg-slate-700 text-gray-300'
-            }`}
-          >
-            🚗 Livraisons
-            {deliveryRounds.length > 0 && (
-              <span className="ml-2 bg-green-500 text-white text-xs px-2 py-0.5 rounded-full">
-                {deliveryRounds.length}
-              </span>
-            )}
+            + Ajouter
           </button>
         </div>
       </header>
 
-      {/* Content */}
+      {/* Stats */}
       <div className="p-4">
-        {/* ==================== INGREDIENTS TAB ==================== */}
-        {activeTab === 'ingredients' && (
-          <div className="flex gap-4 h-[calc(100vh-120px)]">
-            {/* Liste ingrédients */}
-            <div className="flex-1 bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col">
-              <div className="p-4 border-b">
-                <input
-                  type="text"
-                  placeholder="🔍 Rechercher un ingrédient..."
-                  value={ingredientSearch}
-                  onChange={(e) => setIngredientSearch(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                />
+        <div className="grid grid-cols-4 gap-3 mb-4">
+          <div className="bg-white rounded-xl p-4 text-center">
+            <p className="text-3xl font-bold text-gray-700">{stats.total}</p>
+            <p className="text-gray-500 text-sm">Total actifs</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 text-center">
+            <p className="text-3xl font-bold text-green-600">{stats.available}</p>
+            <p className="text-gray-500 text-sm">Disponibles</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 text-center">
+            <p className="text-3xl font-bold text-red-500">{stats.unavailable}</p>
+            <p className="text-gray-500 text-sm">En rupture</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 text-center">
+            <p className="text-3xl font-bold text-gray-400">{stats.inactive}</p>
+            <p className="text-gray-500 text-sm">Inactifs</p>
+          </div>
+        </div>
+
+        {/* Filtres */}
+        <div className="bg-white rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-center">
+          <input
+            type="text"
+            placeholder="🔍 Rechercher..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 min-w-[200px] px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+          
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="px-4 py-2 rounded-xl border border-gray-200"
+          >
+            <option value="">Toutes catégories</option>
+            {CATEGORIES.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+          
+          <label className="flex items-center gap-2 cursor-pointer bg-gray-100 px-4 py-2 rounded-xl">
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="w-4 h-4 rounded"
+            />
+            <span className="text-sm">Voir inactifs ({stats.inactive})</span>
+          </label>
+        </div>
+
+        {/* Liste des ingrédients */}
+        <div className="space-y-6">
+          {Object.entries(groupedIngredients).map(([category, ings]) => (
+            <div key={category} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+              <div className="bg-slate-50 px-4 py-3 border-b">
+                <h2 className="font-bold text-gray-700">{category} ({ings.length})</h2>
               </div>
               
-              <div className="flex-1 overflow-y-auto p-4">
-                {Object.entries(groupedIngredients).map(([category, ings]) => (
-                  <div key={category} className="mb-6">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">{category}</h3>
-                    <div className="space-y-2">
-                      {ings.map(ing => (
-                        <div
-                          key={ing.id}
-                          className={`flex items-center justify-between p-3 rounded-xl border-2 transition-all cursor-pointer ${
-                            selectedIngredient?.id === ing.id
-                              ? 'border-orange-500 bg-orange-50'
-                              : 'border-gray-100 hover:border-gray-200'
-                          } ${!ing.is_available ? 'opacity-60' : ''}`}
-                          onClick={() => {
-                            setSelectedIngredient(ing)
-                            loadAffectedProducts(ing.id)
-                          }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className={`text-2xl ${ing.is_available ? '' : 'grayscale'}`}>
-                              🥬
-                            </span>
-                            <div>
-                              <p className={`font-medium ${!ing.is_available ? 'line-through text-gray-400' : ''}`}>
-                                {ing.name}
-                              </p>
-                              {ing.affected_products_count ? (
-                                <p className="text-xs text-gray-400">
-                                  {ing.affected_products_count} produit(s) lié(s)
-                                </p>
-                              ) : null}
-                            </div>
-                          </div>
-                          
+              <div className="divide-y">
+                {ings.map(ing => (
+                  <div
+                    key={ing.id}
+                    className={`p-4 flex items-center gap-4 ${
+                      !ing.is_active ? 'bg-gray-50 opacity-60' : ''
+                    } ${!ing.is_available && ing.is_active ? 'bg-red-50' : ''}`}
+                  >
+                    {/* Nom et allergènes */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className={`font-medium ${!ing.is_available ? 'text-red-600' : ''}`}>
+                          {ing.name}
+                        </p>
+                        {!ing.is_active && (
+                          <span className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded">
+                            Inactif
+                          </span>
+                        )}
+                        {ing.linked_products_count && ing.linked_products_count > 0 && (
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              toggleIngredientAvailability(ing)
-                            }}
-                            className={`px-4 py-2 rounded-xl font-semibold transition-all active:scale-95 ${
-                              ing.is_available
-                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                                : 'bg-red-100 text-red-700 hover:bg-red-200'
-                            }`}
+                            onClick={() => loadImpactedProducts(ing)}
+                            className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded hover:bg-blue-200"
                           >
-                            {ing.is_available ? '✓ Dispo' : '✕ Indispo'}
+                            {ing.linked_products_count} produit(s)
                           </button>
-                        </div>
-                      ))}
+                        )}
+                      </div>
+                      <div className="mt-1">
+                        {renderAllergens(ing.ingredient_allergens)}
+                      </div>
+                    </div>
+                    
+                    {/* Actions */}
+                    <div className="flex items-center gap-2">
+                      {/* Toggle Dispo */}
+                      <button
+                        onClick={() => toggleAvailability(ing)}
+                        className={`px-4 py-2 rounded-xl font-semibold transition-all active:scale-95 ${
+                          ing.is_available
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-red-100 text-red-700 hover:bg-red-200'
+                        }`}
+                      >
+                        {ing.is_available ? '✓ Dispo' : '✕ Rupture'}
+                      </button>
+                      
+                      {/* Toggle Actif */}
+                      <button
+                        onClick={() => toggleActive(ing)}
+                        className={`px-3 py-2 rounded-xl transition-all active:scale-95 ${
+                          ing.is_active
+                            ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                        }`}
+                        title={ing.is_active ? 'Masquer' : 'Réactiver'}
+                      >
+                        {ing.is_active ? '👁️' : '👁️‍🗨️'}
+                      </button>
+                      
+                      {/* Edit */}
+                      <button
+                        onClick={() => openEditModal(ing)}
+                        className="px-3 py-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all active:scale-95"
+                      >
+                        ✏️
+                      </button>
                     </div>
                   </div>
                 ))}
-                
-                {filteredIngredients.length === 0 && (
-                  <div className="text-center py-12 text-gray-400">
-                    <span className="text-5xl block mb-3">🔍</span>
-                    <p>Aucun ingrédient trouvé</p>
-                  </div>
-                )}
               </div>
             </div>
-            
-            {/* Panel produits affectés */}
-            <div className="w-80 bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col">
-              <div className="p-4 border-b bg-slate-50">
-                <h2 className="font-bold text-gray-900">
-                  {selectedIngredient ? `🍔 Produits avec "${selectedIngredient.name}"` : '🍔 Produits affectés'}
-                </h2>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-4">
-                {!selectedIngredient ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <span className="text-5xl block mb-3">👈</span>
-                    <p>Sélectionnez un ingrédient</p>
-                  </div>
-                ) : affectedProducts.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <span className="text-5xl block mb-3">📦</span>
-                    <p>Aucun produit lié</p>
-                    <p className="text-sm mt-2">Liez des produits à cet ingrédient dans l'admin</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {affectedProducts.map(prod => (
-                      <div
-                        key={prod.id}
-                        className={`p-3 rounded-xl border ${
-                          prod.is_available
-                            ? 'border-green-200 bg-green-50'
-                            : 'border-red-200 bg-red-50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className={`font-medium ${!prod.is_available ? 'line-through text-gray-400' : ''}`}>
-                              {prod.name}
-                            </p>
-                            {prod.category_name && (
-                              <p className="text-xs text-gray-400">{prod.category_name}</p>
-                            )}
-                          </div>
-                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                            prod.is_available
-                              ? 'bg-green-200 text-green-700'
-                              : 'bg-red-200 text-red-700'
-                          }`}>
-                            {prod.is_available ? 'Dispo' : 'Indispo'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-              {selectedIngredient && !selectedIngredient.is_available && affectedProducts.length > 0 && (
-                <div className="p-4 border-t bg-red-50">
-                  <p className="text-red-700 text-sm text-center font-medium">
-                    ⚠️ {affectedProducts.filter(p => !p.is_available).length} produit(s) indisponible(s)
-                  </p>
-                </div>
-              )}
+          ))}
+          
+          {filteredIngredients.length === 0 && (
+            <div className="bg-white rounded-2xl p-12 text-center text-gray-400">
+              <span className="text-5xl block mb-3">🔍</span>
+              <p>Aucun ingrédient trouvé</p>
             </div>
-          </div>
-        )}
-
-        {/* ==================== ORDERS TAB ==================== */}
-        {activeTab === 'orders' && (
-          <div className="space-y-4">
-            {/* Stats */}
-            <div className="grid grid-cols-5 gap-3">
-              <div className="bg-white rounded-xl p-4 text-center">
-                <p className="text-3xl font-bold text-orange-500">{orderStats.pending}</p>
-                <p className="text-gray-500 text-sm">En attente</p>
-              </div>
-              <div className="bg-white rounded-xl p-4 text-center">
-                <p className="text-3xl font-bold text-blue-500">{orderStats.preparing}</p>
-                <p className="text-gray-500 text-sm">En prépa</p>
-              </div>
-              <div className="bg-white rounded-xl p-4 text-center">
-                <p className="text-3xl font-bold text-green-500">{orderStats.ready}</p>
-                <p className="text-gray-500 text-sm">Prêt</p>
-              </div>
-              <div className="bg-white rounded-xl p-4 text-center">
-                <p className="text-3xl font-bold text-gray-500">{orderStats.completed}</p>
-                <p className="text-gray-500 text-sm">Terminé</p>
-              </div>
-              <div className="bg-white rounded-xl p-4 text-center">
-                <p className="text-3xl font-bold text-green-600">{orderStats.revenue.toFixed(2)}€</p>
-                <p className="text-gray-500 text-sm">CA du jour</p>
-              </div>
-            </div>
-            
-            {/* Filtres */}
-            <div className="flex gap-2">
-              {(['all', 'pending', 'preparing', 'ready', 'completed'] as const).map(filter => (
-                <button
-                  key={filter}
-                  onClick={() => setOrderFilter(filter)}
-                  className={`px-4 py-2 rounded-xl font-medium transition-colors ${
-                    orderFilter === filter
-                      ? 'bg-orange-500 text-white'
-                      : 'bg-white text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {filter === 'all' ? 'Toutes' :
-                   filter === 'pending' ? '⏳ Attente' :
-                   filter === 'preparing' ? '🍳 Prépa' :
-                   filter === 'ready' ? '✅ Prêt' : '🏁 Terminé'}
-                </button>
-              ))}
-            </div>
-            
-            {/* Liste commandes */}
-            <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="text-left p-4 font-semibold text-gray-600">Commande</th>
-                      <th className="text-left p-4 font-semibold text-gray-600">Type</th>
-                      <th className="text-left p-4 font-semibold text-gray-600">Client</th>
-                      <th className="text-left p-4 font-semibold text-gray-600">Total</th>
-                      <th className="text-left p-4 font-semibold text-gray-600">Status</th>
-                      <th className="text-left p-4 font-semibold text-gray-600">Heure</th>
-                      <th className="text-right p-4 font-semibold text-gray-600">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredOrders.map(order => (
-                      <tr 
-                        key={order.id} 
-                        className="border-b hover:bg-gray-50 cursor-pointer"
-                        onClick={() => setSelectedOrder(order)}
-                      >
-                        <td className="p-4">
-                          <span className="font-bold">#{order.order_number}</span>
-                          {order.is_offered && <span className="ml-2 text-purple-500">🎁</span>}
-                        </td>
-                        <td className="p-4">
-                          <span className="text-xl mr-2">{getOrderTypeEmoji(order.order_type)}</span>
-                          <span className="text-gray-500">{getSourceEmoji(order.source)}</span>
-                        </td>
-                        <td className="p-4">
-                          <p className="font-medium">{order.customer_name || '-'}</p>
-                          {order.customer_phone && (
-                            <p className="text-sm text-gray-400">{order.customer_phone}</p>
-                          )}
-                        </td>
-                        <td className="p-4 font-bold">{order.total?.toFixed(2)}€</td>
-                        <td className="p-4">{getStatusBadge(order.status)}</td>
-                        <td className="p-4 text-gray-500">{formatTime(order.created_at)}</td>
-                        <td className="p-4 text-right">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedOrder(order)
-                            }}
-                            className="bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-lg text-sm"
-                          >
-                            👁️ Voir
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              
-              {filteredOrders.length === 0 && (
-                <div className="text-center py-12 text-gray-400">
-                  <span className="text-5xl block mb-3">🧾</span>
-                  <p>Aucune commande</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ==================== DELIVERIES TAB ==================== */}
-        {activeTab === 'deliveries' && (
-          <div className="grid grid-cols-2 gap-4 h-[calc(100vh-120px)]">
-            {/* Tournées en cours */}
-            <div className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col">
-              <div className="p-4 border-b bg-slate-50">
-                <h2 className="font-bold text-gray-900">🚗 Tournées en cours</h2>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-4">
-                {deliveryRounds.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <span className="text-5xl block mb-3">🚗</span>
-                    <p>Aucune tournée en cours</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {deliveryRounds.map(round => (
-                      <div
-                        key={round.id}
-                        className={`border-2 rounded-xl p-4 ${
-                          round.status === 'in_progress' ? 'border-green-300 bg-green-50' :
-                          round.status === 'ready' ? 'border-blue-300 bg-blue-50' :
-                          'border-gray-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                            round.status === 'in_progress' ? 'bg-green-200 text-green-700' :
-                            round.status === 'ready' ? 'bg-blue-200 text-blue-700' :
-                            'bg-gray-200 text-gray-700'
-                          }`}>
-                            {round.status === 'in_progress' ? '🚗 En cours' :
-                             round.status === 'ready' ? '✅ Prête' : '⏳ En attente'}
-                          </span>
-                          <span className="text-gray-500">{round.total_stops} stop(s)</span>
-                        </div>
-                        
-                        {round.driver && (
-                          <div className="flex items-center gap-2 mb-3 p-2 bg-white rounded-lg">
-                            <span className="text-xl">🛵</span>
-                            <span className="font-medium">{round.driver.name}</span>
-                            <span className={`ml-auto text-sm ${
-                              round.driver.status === 'delivering' ? 'text-green-600' : 'text-gray-400'
-                            }`}>
-                              {round.driver.status === 'delivering' ? '🟢 En livraison' : '⚪ En attente'}
-                            </span>
-                          </div>
-                        )}
-                        
-                        <div className="space-y-2">
-                          {round.stops.map(stop => (
-                            <div
-                              key={stop.id}
-                              className={`flex items-center gap-3 p-2 rounded-lg ${
-                                stop.status === 'delivered' ? 'bg-green-100' :
-                                stop.status === 'in_transit' ? 'bg-yellow-100' :
-                                'bg-gray-50'
-                              }`}
-                            >
-                              <span className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold ${
-                                stop.status === 'delivered' ? 'bg-green-500 text-white' :
-                                stop.status === 'in_transit' ? 'bg-yellow-500 text-white' :
-                                'bg-gray-300 text-gray-600'
-                              }`}>
-                                {stop.status === 'delivered' ? '✓' : stop.stop_order}
-                              </span>
-                              <div className="flex-1">
-                                <span className="font-medium">#{stop.order?.order_number}</span>
-                                <span className="text-gray-500 ml-2">{stop.order?.customer_name}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            {/* Livreurs + Carte */}
-            <div className="flex flex-col gap-4">
-              {/* Liste livreurs */}
-              <div className="bg-white rounded-2xl shadow-sm p-4">
-                <h2 className="font-bold text-gray-900 mb-4">🛵 Livreurs</h2>
-                
-                {drivers.length === 0 ? (
-                  <p className="text-gray-400 text-center py-4">Aucun livreur</p>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    {drivers.map(driver => (
-                      <div
-                        key={driver.id}
-                        className={`flex items-center justify-between p-3 rounded-xl ${
-                          driver.status === 'delivering' ? 'bg-green-50 border border-green-200' :
-                          driver.status === 'available' ? 'bg-blue-50 border border-blue-200' :
-                          'bg-gray-50 border border-gray-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-xl">🛵</span>
-                          <span className="font-medium">{driver.name}</span>
-                        </div>
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                          driver.status === 'delivering' ? 'bg-green-200 text-green-700' :
-                          driver.status === 'available' ? 'bg-blue-200 text-blue-700' :
-                          'bg-gray-200 text-gray-500'
-                        }`}>
-                          {driver.status === 'delivering' ? '🚗 Livraison' :
-                           driver.status === 'available' ? '✅ Dispo' : '⚪ Hors ligne'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-              {/* Carte placeholder */}
-              <div className="flex-1 bg-white rounded-2xl shadow-sm overflow-hidden">
-                <div className="p-4 border-b bg-slate-50">
-                  <h2 className="font-bold text-gray-900">🗺️ Carte GPS</h2>
-                </div>
-                <div className="h-full flex items-center justify-center bg-gray-100 p-8">
-                  <div className="text-center text-gray-400">
-                    <span className="text-6xl block mb-4">🗺️</span>
-                    <p className="font-medium">Carte GPS à venir</p>
-                    <p className="text-sm mt-2">Position des livreurs en temps réel</p>
-                    {drivers.filter(d => d.current_lat && d.current_lng).length > 0 && (
-                      <p className="text-xs mt-4 text-green-600">
-                        {drivers.filter(d => d.current_lat && d.current_lng).length} livreur(s) avec GPS actif
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* ==================== ORDER DETAIL MODAL ==================== */}
-      {selectedOrder && (
+      {/* Modal Ajouter/Modifier */}
+      {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="p-4 border-b flex items-center justify-between sticky top-0 bg-white">
-              <div>
-                <h2 className="text-xl font-bold">
-                  Commande #{selectedOrder.order_number}
-                  {selectedOrder.is_offered && <span className="ml-2 text-purple-500">🎁</span>}
-                </h2>
-                <p className="text-gray-500 text-sm">{formatTime(selectedOrder.created_at)}</p>
-              </div>
+            <div className="p-4 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold">
+                {selectedIngredient ? '✏️ Modifier' : '➕ Ajouter'} un ingrédient
+              </h2>
               <button
-                onClick={() => setSelectedOrder(null)}
+                onClick={() => setShowAddModal(false)}
                 className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200"
               >
                 ✕
               </button>
             </div>
             
-            <div className="p-4 space-y-4">
-              {/* Info */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-500">Type</p>
-                  <p className="font-medium">{getOrderTypeEmoji(selectedOrder.order_type)} {selectedOrder.order_type}</p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-500">Status</p>
-                  {getStatusBadge(selectedOrder.status)}
+            <form onSubmit={saveIngredient} className="p-4 space-y-4">
+              {/* Nom */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nom de l'ingrédient *
+                </label>
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="Ex: Fricadelle Snaky"
+                  required
+                />
+              </div>
+              
+              {/* Catégorie */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Catégorie
+                </label>
+                <select
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200"
+                >
+                  {CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Allergènes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Allergènes
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  Cliquez une fois = Contient • Deux fois = Traces • Trois fois = Aucun
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {allergens.map(allergen => {
+                    const state = getAllergenState(allergen.id)
+                    return (
+                      <button
+                        key={allergen.id}
+                        type="button"
+                        onClick={() => toggleAllergen(allergen.id)}
+                        className={`px-3 py-2 rounded-xl text-sm flex items-center gap-1.5 transition-all ${
+                          state === 'contains'
+                            ? 'bg-red-100 text-red-700 ring-2 ring-red-300'
+                            : state === 'trace'
+                            ? 'bg-yellow-100 text-yellow-700 ring-2 ring-yellow-300'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
+                      >
+                        <span>{allergen.emoji}</span>
+                        <span>{allergen.name_fr}</span>
+                        {state === 'trace' && <span className="text-xs italic">(traces)</span>}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
               
-              {/* Client */}
-              {(selectedOrder.customer_name || selectedOrder.customer_phone) && (
-                <div className="bg-blue-50 rounded-xl p-3">
-                  <p className="text-xs text-blue-600 mb-1">👤 Client</p>
-                  <p className="font-medium">{selectedOrder.customer_name || '-'}</p>
-                  {selectedOrder.customer_phone && (
-                    <p className="text-sm text-gray-600">{selectedOrder.customer_phone}</p>
-                  )}
+              {/* Actions */}
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 px-4 py-3 rounded-xl border border-gray-200 font-semibold"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving || !form.name.trim()}
+                  className="flex-1 px-4 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50"
+                >
+                  {saving ? '...' : '💾 Enregistrer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Impact produits */}
+      {showImpactModal && selectedIngredient && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold">
+                🔗 Produits liés à "{selectedIngredient.name}"
+              </h2>
+              <button
+                onClick={() => setShowImpactModal(false)}
+                className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-4">
+              {!selectedIngredient.is_available && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+                  <p className="text-red-700 text-sm font-medium">
+                    ⚠️ Cet ingrédient est en rupture. Les produits ci-dessous sont automatiquement indisponibles.
+                  </p>
                 </div>
               )}
               
-              {/* Items */}
-              <div>
-                <p className="text-sm font-medium text-gray-500 mb-2">Articles</p>
+              {impactedProducts.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <span className="text-4xl block mb-2">📦</span>
+                  <p>Aucun produit lié</p>
+                </div>
+              ) : (
                 <div className="space-y-2">
-                  {selectedOrder.order_items.map(item => (
-                    <div key={item.id} className="bg-gray-50 rounded-xl p-3 flex justify-between">
-                      <div>
-                        <p className="font-medium">{item.quantity}x {item.product_name}</p>
-                        {item.options_selected && Array.isArray(item.options_selected) && item.options_selected.length > 0 && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            {item.options_selected.map((opt: any, idx: number) => (
-                              <span key={idx}>+ {opt.item_name}{idx < item.options_selected.length - 1 ? ', ' : ''}</span>
-                            ))}
-                          </div>
-                        )}
+                  {impactedProducts.map(product => (
+                    <div
+                      key={product.id}
+                      className={`p-3 rounded-xl border ${
+                        product.is_available
+                          ? 'border-green-200 bg-green-50'
+                          : 'border-red-200 bg-red-50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">{product.name}</p>
+                          <p className="text-xs text-gray-400">{product.category_name}</p>
+                        </div>
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                          product.is_available
+                            ? 'bg-green-200 text-green-700'
+                            : 'bg-red-200 text-red-700'
+                        }`}>
+                          {product.is_available ? 'Dispo' : 'Indispo'}
+                        </span>
                       </div>
-                      <span className="font-bold">{item.line_total?.toFixed(2)}€</span>
                     </div>
                   ))}
                 </div>
-              </div>
+              )}
               
-              {/* Total */}
-              <div className="border-t pt-3 flex justify-between items-center">
-                <span className="font-bold text-lg">Total</span>
-                <span className="font-bold text-2xl text-orange-500">{selectedOrder.total?.toFixed(2)}€</span>
+              <div className="mt-4 pt-4 border-t">
+                <Link
+                  href="/admin/ingredients"
+                  className="block w-full text-center px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium hover:bg-slate-200"
+                >
+                  ⚙️ Gérer les liaisons dans l'admin
+                </Link>
               </div>
-            </div>
-            
-            {/* Actions */}
-            <div className="p-4 border-t flex gap-3">
-              <button
-                onClick={() => setSelectedOrder(null)}
-                className="flex-1 px-4 py-3 rounded-xl border border-gray-200 font-semibold"
-              >
-                Fermer
-              </button>
-              {selectedOrder.status === 'pending' && (
-                <button
-                  onClick={() => updateOrderStatus(selectedOrder.id, 'preparing')}
-                  className="flex-1 px-4 py-3 rounded-xl bg-blue-500 text-white font-semibold"
-                >
-                  🍳 Préparer
-                </button>
-              )}
-              {selectedOrder.status === 'preparing' && (
-                <button
-                  onClick={() => updateOrderStatus(selectedOrder.id, 'ready')}
-                  className="flex-1 px-4 py-3 rounded-xl bg-green-500 text-white font-semibold"
-                >
-                  ✅ Prêt
-                </button>
-              )}
-              {selectedOrder.status === 'ready' && (
-                <button
-                  onClick={() => updateOrderStatus(selectedOrder.id, 'completed')}
-                  className="flex-1 px-4 py-3 rounded-xl bg-gray-500 text-white font-semibold"
-                >
-                  🏁 Terminer
-                </button>
-              )}
             </div>
           </div>
         </div>
