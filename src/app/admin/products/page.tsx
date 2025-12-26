@@ -22,6 +22,34 @@ type ProductOptionGroup = {
   option_group: OptionGroup
 }
 
+type Allergen = {
+  id: string
+  code: string
+  name_fr: string
+  emoji: string
+}
+
+type IngredientAllergen = {
+  allergen_id: string
+  is_trace: boolean
+  allergen: Allergen
+}
+
+type Ingredient = {
+  id: string
+  name: string
+  category: string | null
+  is_available: boolean
+  ingredient_allergens?: IngredientAllergen[]
+}
+
+type ProductIngredient = {
+  id: string
+  ingredient_id: string
+  is_essential: boolean
+  ingredient: Ingredient
+}
+
 type Product = {
   id: string
   name: string
@@ -35,18 +63,20 @@ type Product = {
   is_active: boolean
   image_url: string | null
   product_option_groups?: ProductOptionGroup[]
+  product_ingredients?: ProductIngredient[]
 }
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [optionGroups, setOptionGroups] = useState<OptionGroup[]>([])
+  const [allIngredients, setAllIngredients] = useState<Ingredient[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string>('')
-  const [searchQuery, setSearchQuery] = useState<string>('')  // 🔍 NOUVEAU
-  const [activeTab, setActiveTab] = useState<'info' | 'propositions'>('info')
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [activeTab, setActiveTab] = useState<'info' | 'propositions' | 'ingredients'>('info')
   
   // Form state
   const [form, setForm] = useState({
@@ -70,6 +100,10 @@ export default function ProductsPage() {
   // Propositions assignées au produit
   const [assignedPropositions, setAssignedPropositions] = useState<{id: string, option_group_id: string, display_order: number}[]>([])
   
+  // Ingrédients assignés au produit
+  const [assignedIngredients, setAssignedIngredients] = useState<{ingredient_id: string, is_essential: boolean}[]>([])
+  const [ingredientSearch, setIngredientSearch] = useState('')
+  
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -83,7 +117,7 @@ export default function ProductsPage() {
   async function loadData() {
     setLoading(true)
     
-    // Charger les produits avec leurs propositions
+    // Charger les produits avec leurs propositions et ingrédients
     const { data: productsData } = await supabase
       .from('products')
       .select(`
@@ -93,6 +127,19 @@ export default function ProductsPage() {
           option_group_id,
           display_order,
           option_group:option_groups (id, name, selection_type)
+        ),
+        product_ingredients (
+          id,
+          ingredient_id,
+          is_essential,
+          ingredient:ingredients (
+            id, name, category, is_available,
+            ingredient_allergens (
+              allergen_id,
+              is_trace,
+              allergen:allergens (id, code, name_fr, emoji)
+            )
+          )
         )
       `)
       .eq('establishment_id', establishmentId)
@@ -114,9 +161,26 @@ export default function ProductsPage() {
       .eq('is_active', true)
       .order('display_order')
     
+    // Charger tous les ingrédients actifs
+    const { data: ingredientsData } = await supabase
+      .from('ingredients')
+      .select(`
+        id, name, category, is_available,
+        ingredient_allergens (
+          allergen_id,
+          is_trace,
+          allergen:allergens (id, code, name_fr, emoji)
+        )
+      `)
+      .eq('establishment_id', establishmentId)
+      .eq('is_active', true)
+      .order('category')
+      .order('name')
+    
     setProducts(productsData || [])
     setCategories(categoriesData || [])
     setOptionGroups(optionGroupsData || [])
+    setAllIngredients(ingredientsData || [])
     setLoading(false)
   }
 
@@ -124,6 +188,7 @@ export default function ProductsPage() {
     setActiveTab('info')
     setImageFile(null)
     setImagePreview(null)
+    setIngredientSearch('')
     
     if (product) {
       setEditingProduct(product)
@@ -140,6 +205,7 @@ export default function ProductsPage() {
         image_url: product.image_url,
       })
       setImagePreview(product.image_url)
+      
       // Charger les propositions assignées
       const assigned = (product.product_option_groups || [])
         .sort((a, b) => a.display_order - b.display_order)
@@ -149,6 +215,13 @@ export default function ProductsPage() {
           display_order: pog.display_order,
         }))
       setAssignedPropositions(assigned)
+      
+      // Charger les ingrédients assignés
+      const assignedIngs = (product.product_ingredients || []).map(pi => ({
+        ingredient_id: pi.ingredient_id,
+        is_essential: pi.is_essential,
+      }))
+      setAssignedIngredients(assignedIngs)
     } else {
       setEditingProduct(null)
       setForm({
@@ -164,6 +237,7 @@ export default function ProductsPage() {
         image_url: null,
       })
       setAssignedPropositions([])
+      setAssignedIngredients([])
     }
     
     setFormError('')
@@ -174,7 +248,6 @@ export default function ProductsPage() {
     const file = e.target.files?.[0]
     if (file) {
       setImageFile(file)
-      // Créer une preview
       const reader = new FileReader()
       reader.onloadend = () => {
         setImagePreview(reader.result as string)
@@ -193,14 +266,12 @@ export default function ProductsPage() {
       const fileName = `${productId}.${fileExt}`
       const filePath = `${establishmentId}/${fileName}`
       
-      // Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('product-images')
         .upload(filePath, imageFile, { upsert: true })
       
       if (uploadError) throw uploadError
       
-      // Get public URL
       const { data: { publicUrl } } = supabase.storage
         .from('product-images')
         .getPublicUrl(filePath)
@@ -235,12 +306,10 @@ export default function ProductsPage() {
       let imageUrl = form.image_url
       
       if (editingProduct) {
-        // Upload image si nouvelle
         if (imageFile) {
           imageUrl = await uploadImage(editingProduct.id)
         }
         
-        // Update
         const { error } = await supabase
           .from('products')
           .update({
@@ -259,7 +328,6 @@ export default function ProductsPage() {
         
         if (error) throw error
       } else {
-        // Générer le slug
         const slug = form.name
           .toLowerCase()
           .normalize('NFD')
@@ -267,7 +335,6 @@ export default function ProductsPage() {
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-|-$/g, '')
         
-        // Insert d'abord sans image pour avoir l'ID
         const { data, error } = await supabase
           .from('products')
           .insert({
@@ -289,10 +356,8 @@ export default function ProductsPage() {
         if (error) throw error
         productId = data.id
         
-        // Upload image si présente
         if (imageFile && productId) {
           imageUrl = await uploadImage(productId)
-          // Mettre à jour le produit avec l'URL de l'image
           if (imageUrl) {
             await supabase
               .from('products')
@@ -304,13 +369,11 @@ export default function ProductsPage() {
       
       // Sauvegarder les propositions assignées
       if (productId) {
-        // Supprimer les anciennes
         await supabase
           .from('product_option_groups')
           .delete()
           .eq('product_id', productId)
         
-        // Insérer les nouvelles
         if (assignedPropositions.length > 0) {
           const { error: pogError } = await supabase
             .from('product_option_groups')
@@ -324,6 +387,26 @@ export default function ProductsPage() {
           
           if (pogError) throw pogError
         }
+        
+        // Sauvegarder les ingrédients assignés
+        await supabase
+          .from('product_ingredients')
+          .delete()
+          .eq('product_id', productId)
+        
+        if (assignedIngredients.length > 0) {
+          const { error: piError } = await supabase
+            .from('product_ingredients')
+            .insert(
+              assignedIngredients.map(i => ({
+                product_id: productId,
+                ingredient_id: i.ingredient_id,
+                is_essential: i.is_essential,
+              }))
+            )
+          
+          if (piError) throw piError
+        }
       }
       
       setShowModal(false)
@@ -335,6 +418,8 @@ export default function ProductsPage() {
       setSaving(false)
     }
   }
+
+  // ==================== PROPOSITIONS ====================
 
   function addProposition(optionGroupId: string) {
     if (assignedPropositions.some(p => p.option_group_id === optionGroupId)) return
@@ -363,6 +448,57 @@ export default function ProductsPage() {
     setAssignedPropositions(newList)
   }
 
+  // ==================== INGRÉDIENTS ====================
+
+  function addIngredient(ingredientId: string) {
+    if (assignedIngredients.some(i => i.ingredient_id === ingredientId)) return
+    
+    setAssignedIngredients([
+      ...assignedIngredients,
+      { ingredient_id: ingredientId, is_essential: true }
+    ])
+  }
+
+  function removeIngredient(ingredientId: string) {
+    setAssignedIngredients(assignedIngredients.filter(i => i.ingredient_id !== ingredientId))
+  }
+
+  function toggleEssential(ingredientId: string) {
+    setAssignedIngredients(assignedIngredients.map(i => 
+      i.ingredient_id === ingredientId 
+        ? { ...i, is_essential: !i.is_essential }
+        : i
+    ))
+  }
+
+  // Calculer les allergènes du produit (union des allergènes de tous les ingrédients)
+  function getProductAllergens(): { allergen: Allergen, is_trace: boolean }[] {
+    const allergenMap = new Map<string, { allergen: Allergen, is_trace: boolean }>()
+    
+    assignedIngredients.forEach(ai => {
+      const ingredient = allIngredients.find(i => i.id === ai.ingredient_id)
+      if (ingredient?.ingredient_allergens) {
+        ingredient.ingredient_allergens.forEach(ia => {
+          const existing = allergenMap.get(ia.allergen.code)
+          // Si l'allergène existe déjà et qu'il est "contient", on garde "contient"
+          // Sinon on met à jour avec la nouvelle valeur
+          if (!existing || (existing.is_trace && !ia.is_trace)) {
+            allergenMap.set(ia.allergen.code, {
+              allergen: ia.allergen,
+              is_trace: ia.is_trace
+            })
+          }
+        })
+      }
+    })
+    
+    return Array.from(allergenMap.values()).sort((a, b) => 
+      a.allergen.name_fr.localeCompare(b.allergen.name_fr)
+    )
+  }
+
+  // ==================== DELETE ====================
+
   async function deleteProduct(product: Product) {
     if (!confirm(`Supprimer "${product.name}" ?`)) return
     
@@ -374,7 +510,8 @@ export default function ProductsPage() {
     if (!error) loadData()
   }
 
-  // 🔍 FILTRAGE MIS À JOUR - Catégorie + Recherche
+  // ==================== FILTERS ====================
+
   const filteredProducts = products.filter(p => {
     const matchesCategory = selectedCategory ? p.category_id === selectedCategory : true
     const matchesSearch = searchQuery 
@@ -384,10 +521,27 @@ export default function ProductsPage() {
     return matchesCategory && matchesSearch
   })
 
-  // Propositions non encore assignées
   const availablePropositions = optionGroups.filter(
     og => !assignedPropositions.some(ap => ap.option_group_id === og.id)
   )
+
+  const availableIngredients = allIngredients.filter(ing => {
+    const notAssigned = !assignedIngredients.some(ai => ai.ingredient_id === ing.id)
+    const matchesSearch = ingredientSearch 
+      ? ing.name.toLowerCase().includes(ingredientSearch.toLowerCase())
+      : true
+    return notAssigned && matchesSearch
+  })
+
+  // Grouper les ingrédients disponibles par catégorie
+  const groupedAvailableIngredients = availableIngredients.reduce((acc, ing) => {
+    const cat = ing.category || 'Autres'
+    if (!acc[cat]) acc[cat] = []
+    acc[cat].push(ing)
+    return acc
+  }, {} as Record<string, Ingredient[]>)
+
+  const productAllergens = getProductAllergens()
 
   return (
     <div className="p-8">
@@ -399,143 +553,196 @@ export default function ProductsPage() {
         </div>
         <button
           onClick={() => openModal()}
-          className="bg-orange-500 text-white font-semibold px-6 py-3 rounded-xl hover:bg-orange-600 transition-colors flex items-center gap-2"
+          className="bg-orange-500 text-white font-semibold px-6 py-3 rounded-xl hover:bg-orange-600 transition-colors"
         >
           ➕ Nouveau produit
         </button>
       </div>
 
-      {/* 🔍 FILTRES - Recherche + Catégorie */}
-      <div className="flex items-center gap-4 mb-6">
-        {/* Champ de recherche */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-          <input
-            type="text"
-            placeholder="Rechercher un produit..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-          />
-          {searchQuery && (
+      {/* Filtres */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
+        <div className="flex flex-wrap gap-4 items-center">
+          {/* Recherche */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Rechercher un produit..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+
+          {/* Filtre catégorie */}
+          <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              onClick={() => setSelectedCategory('')}
+              className={`px-4 py-2 rounded-xl font-medium transition-colors ${
+                !selectedCategory
+                  ? 'bg-orange-500 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
             >
-              ✕
+              Tout
             </button>
-          )}
+            {categories.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-4 py-2 rounded-xl font-medium transition-colors ${
+                  selectedCategory === cat.id
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
         </div>
-        
-        {/* Filtre catégorie */}
-        <select
-          value={selectedCategory}
-          onChange={(e) => setSelectedCategory(e.target.value)}
-          className="px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-        >
-          <option value="">Toutes les catégories</option>
-          {categories.map(cat => (
-            <option key={cat.id} value={cat.id}>{cat.name}</option>
-          ))}
-        </select>
-        
-        <span className="text-gray-500">{filteredProducts.length} produits</span>
       </div>
 
       {/* Liste des produits */}
       {loading ? (
-        <div className="bg-white rounded-2xl p-12 text-center text-gray-400">Chargement...</div>
+        <div className="bg-white rounded-2xl p-12 text-center">
+          <span className="text-5xl block mb-4 animate-pulse">🍔</span>
+          <p className="text-gray-500">Chargement...</p>
+        </div>
       ) : filteredProducts.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 text-center">
           <span className="text-5xl block mb-4">🍔</span>
-          <p className="text-gray-500">
-            {searchQuery ? `Aucun produit trouvé pour "${searchQuery}"` : 'Aucun produit'}
-          </p>
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="mt-4 text-orange-500 hover:underline"
-            >
-              Effacer la recherche
-            </button>
-          )}
+          <p className="text-gray-500">Aucun produit trouvé</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredProducts.map(product => {
-            const category = categories.find(c => c.id === product.category_id)
-            const propositionCount = product.product_option_groups?.length || 0
-            
-            return (
-              <div
-                key={product.id}
-                className={`bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden ${
-                  !product.is_active ? 'opacity-50' : ''
-                }`}
-              >
-                {/* Image */}
-                <div className="aspect-video bg-gray-100 flex items-center justify-center text-5xl">
-                  {product.image_url ? (
-                    <img src={product.image_url} alt="" className="w-full h-full object-cover" />
-                  ) : '🍔'}
-                </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="text-left px-6 py-4 font-semibold text-gray-600">Produit</th>
+                <th className="text-left px-6 py-4 font-semibold text-gray-600">Catégorie</th>
+                <th className="text-right px-6 py-4 font-semibold text-gray-600">Prix</th>
+                <th className="text-center px-6 py-4 font-semibold text-gray-600">Allergènes</th>
+                <th className="text-center px-6 py-4 font-semibold text-gray-600">Status</th>
+                <th className="text-right px-6 py-4 font-semibold text-gray-600">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredProducts.map(product => {
+                const category = categories.find(c => c.id === product.category_id)
                 
-                {/* Info */}
-                <div className="p-4">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <h3 className="font-bold text-gray-900">{product.name}</h3>
-                      <p className="text-sm text-gray-500">{category?.name}</p>
-                    </div>
-                    <span className="text-xl font-bold text-orange-500">{product.price.toFixed(2)}€</span>
-                  </div>
-                  
-                  {/* Badges */}
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {!product.is_available && (
-                      <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded">Indisponible</span>
-                    )}
-                    {propositionCount > 0 && (
-                      <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded">
-                        {propositionCount} proposition{propositionCount > 1 ? 's' : ''}
+                // Calculer les allergènes du produit
+                const allergens = new Map<string, { emoji: string, name: string, is_trace: boolean }>()
+                product.product_ingredients?.forEach(pi => {
+                  pi.ingredient?.ingredient_allergens?.forEach(ia => {
+                    const existing = allergens.get(ia.allergen.code)
+                    if (!existing || (existing.is_trace && !ia.is_trace)) {
+                      allergens.set(ia.allergen.code, {
+                        emoji: ia.allergen.emoji,
+                        name: ia.allergen.name_fr,
+                        is_trace: ia.is_trace
+                      })
+                    }
+                  })
+                })
+                
+                return (
+                  <tr key={product.id} className={`hover:bg-gray-50 ${!product.is_active ? 'opacity-50' : ''}`}>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden">
+                          {product.image_url ? (
+                            <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-2xl">🍔</span>
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{product.name}</p>
+                          {product.product_ingredients && product.product_ingredients.length > 0 && (
+                            <p className="text-xs text-gray-400">
+                              {product.product_ingredients.length} ingrédient(s)
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm">
+                        {category?.name || '-'}
                       </span>
-                    )}
-                  </div>
-                  
-                  {/* Actions */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => openModal(product)}
-                      className="flex-1 bg-gray-100 text-gray-700 font-medium py-2 rounded-lg hover:bg-gray-200"
-                    >
-                      ✏️ Modifier
-                    </button>
-                    <button
-                      onClick={() => deleteProduct(product)}
-                      className="px-3 py-2 bg-gray-100 text-gray-500 rounded-lg hover:bg-red-100 hover:text-red-500"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
+                    </td>
+                    <td className="px-6 py-4 text-right font-semibold">
+                      {product.price.toFixed(2)}€
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      {allergens.size > 0 ? (
+                        <div className="flex gap-1 justify-center flex-wrap">
+                          {Array.from(allergens.values()).map(a => (
+                            <span 
+                              key={a.name} 
+                              title={a.is_trace ? `Traces: ${a.name}` : a.name}
+                              className={a.is_trace ? 'opacity-40' : ''}
+                            >
+                              {a.emoji}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        product.is_available
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}>
+                        {product.is_available ? 'Dispo' : 'Indispo'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => openModal(product)}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => deleteProduct(product)}
+                        className="p-2 hover:bg-red-100 rounded-lg transition-colors"
+                      >
+                        🗑️
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
             {/* Header */}
-            <div className="p-6 border-b border-gray-100">
-              <h2 className="text-2xl font-bold text-gray-900">
-                {editingProduct ? 'Modifier le produit' : 'Nouveau produit'}
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-2xl font-bold">
+                {editingProduct ? '✏️ Modifier' : '➕ Nouveau'} produit
               </h2>
-              
-              {/* Tabs */}
-              <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => setShowModal(false)}
+                className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Tabs */}
+            <div className="px-6 pt-4 border-b border-gray-100">
+              <div className="flex gap-2">
                 <button
                   onClick={() => setActiveTab('info')}
                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
@@ -544,7 +751,7 @@ export default function ProductsPage() {
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
-                  📝 Informations
+                  📝 Infos
                 </button>
                 <button
                   onClick={() => setActiveTab('propositions')}
@@ -555,6 +762,16 @@ export default function ProductsPage() {
                   }`}
                 >
                   📋 Propositions ({assignedPropositions.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('ingredients')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    activeTab === 'ingredients'
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  🥬 Ingrédients ({assignedIngredients.length})
                 </button>
               </div>
             </div>
@@ -567,13 +784,13 @@ export default function ProductsPage() {
                 </div>
               )}
               
-              {activeTab === 'info' ? (
+              {/* ==================== ONGLET INFO ==================== */}
+              {activeTab === 'info' && (
                 <form id="product-form" onSubmit={saveProduct} className="space-y-4">
                   {/* Image upload */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Photo du produit</label>
                     <div className="flex items-start gap-4">
-                      {/* Preview */}
                       <div className="w-32 h-32 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-300">
                         {imagePreview ? (
                           <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
@@ -582,7 +799,6 @@ export default function ProductsPage() {
                         )}
                       </div>
                       
-                      {/* Upload button */}
                       <div className="flex-1">
                         <input
                           type="file"
@@ -717,9 +933,11 @@ export default function ProductsPage() {
                     </label>
                   </div>
                 </form>
-              ) : (
+              )}
+              
+              {/* ==================== ONGLET PROPOSITIONS ==================== */}
+              {activeTab === 'propositions' && (
                 <div className="space-y-4">
-                  {/* Propositions assignées */}
                   <div>
                     <h3 className="font-medium text-gray-700 mb-3">
                       Propositions assignées ({assignedPropositions.length})
@@ -782,7 +1000,6 @@ export default function ProductsPage() {
                     )}
                   </div>
                   
-                  {/* Ajouter une proposition */}
                   {availablePropositions.length > 0 && (
                     <div>
                       <h3 className="font-medium text-gray-700 mb-3">Ajouter une proposition</h3>
@@ -815,6 +1032,166 @@ export default function ProductsPage() {
                   )}
                 </div>
               )}
+              
+              {/* ==================== ONGLET INGRÉDIENTS ==================== */}
+              {activeTab === 'ingredients' && (
+                <div className="space-y-6">
+                  {/* Allergènes calculés */}
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+                    <h3 className="font-medium text-orange-800 mb-2">🏷️ Allergènes du produit</h3>
+                    {productAllergens.length === 0 ? (
+                      <p className="text-orange-600 text-sm">Aucun allergène (ajoutez des ingrédients)</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {productAllergens.filter(a => !a.is_trace).map(a => (
+                          <span key={a.allergen.code} className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-sm font-medium">
+                            {a.allergen.emoji} {a.allergen.name_fr}
+                          </span>
+                        ))}
+                        {productAllergens.filter(a => a.is_trace).map(a => (
+                          <span key={a.allergen.code} className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-sm font-medium">
+                            {a.allergen.emoji} {a.allergen.name_fr} <span className="italic">(traces)</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Ingrédients assignés */}
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-3">
+                      Ingrédients assignés ({assignedIngredients.length})
+                    </h3>
+                    
+                    {assignedIngredients.length === 0 ? (
+                      <div className="bg-gray-50 rounded-xl p-6 text-center text-gray-400">
+                        <p>Aucun ingrédient assigné</p>
+                        <p className="text-sm mt-1">Ajoutez des ingrédients pour calculer les allergènes</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {assignedIngredients.map(ai => {
+                          const ingredient = allIngredients.find(i => i.id === ai.ingredient_id)
+                          if (!ingredient) return null
+                          
+                          return (
+                            <div
+                              key={ai.ingredient_id}
+                              className={`rounded-xl p-3 flex items-center gap-3 ${
+                                ingredient.is_available 
+                                  ? 'bg-green-50 border border-green-200' 
+                                  : 'bg-red-50 border border-red-200'
+                              }`}
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">{ingredient.name}</span>
+                                  {!ingredient.is_available && (
+                                    <span className="bg-red-200 text-red-700 text-xs px-2 py-0.5 rounded">Rupture!</span>
+                                  )}
+                                </div>
+                                <div className="flex gap-1 mt-1">
+                                  {ingredient.ingredient_allergens?.map(ia => (
+                                    <span 
+                                      key={ia.allergen.code} 
+                                      title={ia.is_trace ? `Traces: ${ia.allergen.name_fr}` : ia.allergen.name_fr}
+                                      className={ia.is_trace ? 'opacity-40' : ''}
+                                    >
+                                      {ia.allergen.emoji}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleEssential(ai.ingredient_id)}
+                                  className={`px-3 py-1 rounded-lg text-xs font-medium ${
+                                    ai.is_essential
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-gray-100 text-gray-500'
+                                  }`}
+                                  title={ai.is_essential ? 'Essentiel: si en rupture, le produit sera indisponible' : 'Optionnel: n\'affecte pas la disponibilité'}
+                                >
+                                  {ai.is_essential ? '⚠️ Essentiel' : '➖ Optionnel'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeIngredient(ai.ingredient_id)}
+                                  className="w-8 h-8 rounded-lg bg-red-100 text-red-500 hover:bg-red-200"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Ajouter un ingrédient */}
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-3">Ajouter un ingrédient</h3>
+                    
+                    <input
+                      type="text"
+                      placeholder="🔍 Rechercher un ingrédient..."
+                      value={ingredientSearch}
+                      onChange={e => setIngredientSearch(e.target.value)}
+                      className="w-full px-4 py-2 rounded-xl border border-gray-200 mb-3"
+                    />
+                    
+                    <div className="max-h-60 overflow-y-auto space-y-4">
+                      {Object.entries(groupedAvailableIngredients).map(([category, ings]) => (
+                        <div key={category}>
+                          <p className="text-xs font-bold text-gray-400 uppercase mb-2">{category}</p>
+                          <div className="space-y-1">
+                            {ings.map(ing => (
+                              <button
+                                key={ing.id}
+                                type="button"
+                                onClick={() => addIngredient(ing.id)}
+                                className={`w-full rounded-xl p-2 flex items-center gap-3 text-left transition-colors ${
+                                  ing.is_available 
+                                    ? 'bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50' 
+                                    : 'bg-gray-100 border border-gray-200 opacity-60'
+                                }`}
+                              >
+                                <span className="text-lg">➕</span>
+                                <div className="flex-1">
+                                  <span className="font-medium text-sm">{ing.name}</span>
+                                  {!ing.is_available && (
+                                    <span className="ml-2 text-xs text-red-500">(Rupture)</span>
+                                  )}
+                                </div>
+                                <div className="flex gap-0.5">
+                                  {ing.ingredient_allergens?.slice(0, 4).map(ia => (
+                                    <span key={ia.allergen.code} className={`text-sm ${ia.is_trace ? 'opacity-40' : ''}`}>
+                                      {ia.allergen.emoji}
+                                    </span>
+                                  ))}
+                                  {(ing.ingredient_allergens?.length || 0) > 4 && (
+                                    <span className="text-xs text-gray-400">+{(ing.ingredient_allergens?.length || 0) - 4}</span>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {Object.keys(groupedAvailableIngredients).length === 0 && (
+                        <div className="text-center py-6 text-gray-400">
+                          <p>Aucun ingrédient disponible</p>
+                          <p className="text-sm">{ingredientSearch ? 'Essayez une autre recherche' : 'Tous les ingrédients sont déjà assignés'}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
             {/* Footer */}
@@ -829,7 +1206,7 @@ export default function ProductsPage() {
               <button
                 type="submit"
                 form="product-form"
-                onClick={activeTab === 'propositions' ? saveProduct : undefined}
+                onClick={activeTab !== 'info' ? saveProduct : undefined}
                 disabled={saving || uploadingImage}
                 className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold hover:bg-orange-600 disabled:opacity-50"
               >
