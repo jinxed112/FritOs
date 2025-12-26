@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import Link from 'next/link'
 
 // ==================== TYPES ====================
 
@@ -641,6 +642,14 @@ export default function CounterPage() {
                 </span>
               )}
             </button>
+            
+            {/* Bouton Backoffice */}
+            <Link
+              href="/counter/backoffice"
+              className="px-5 py-3 rounded-xl font-semibold transition-all active:scale-95 bg-slate-700 text-gray-300 hover:bg-slate-600"
+            >
+              ⚙️ Backoffice
+            </Link>
           </div>
         </header>
 
