@@ -45,18 +45,7 @@ type Product = {
   is_available: boolean
   available_online: boolean
   product_option_groups?: { option_group_id: string; display_order: number }[]
-  product_ingredients?: {
-    ingredient: {
-      ingredient_allergens: {
-        is_trace: boolean
-        allergen: {
-          code: string
-          name_fr: string
-          emoji: string
-        }
-      }[]
-    }
-  }[]
+  product_ingredients?: any[]
 }
 
 type SelectedOption = {

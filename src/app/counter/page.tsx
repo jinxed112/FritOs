@@ -50,18 +50,7 @@ type Product = {
   category_id: string
   is_available: boolean
   product_option_groups: ProductOptionGroup[]
-  product_ingredients?: {
-    ingredient: {
-      ingredient_allergens: {
-        is_trace: boolean
-        allergen: {
-          code: string
-          name_fr: string
-          emoji: string
-        }
-      }[]
-    }
-  }[]
+  product_ingredients?: any[]
 }
 
 type Category = {
