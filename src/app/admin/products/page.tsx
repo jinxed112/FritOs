@@ -180,7 +180,7 @@ export default function ProductsPage() {
     setProducts(productsData || [])
     setCategories(categoriesData || [])
     setOptionGroups(optionGroupsData || [])
-    setAllIngredients(ingredientsData || [])
+    setAllIngredients((ingredientsData || []) as Ingredient[])
     setLoading(false)
   }
 
