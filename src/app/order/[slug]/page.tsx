@@ -45,6 +45,18 @@ type Product = {
   is_available: boolean
   available_online: boolean
   product_option_groups?: { option_group_id: string; display_order: number }[]
+  product_ingredients?: {
+    ingredient: {
+      ingredient_allergens: {
+        is_trace: boolean
+        allergen: {
+          code: string
+          name_fr: string
+          emoji: string
+        }
+      }[]
+    }
+  }[]
 }
 
 type SelectedOption = {
@@ -217,10 +229,20 @@ export default function OrderPage() {
       setSelectedCategory(cats[0].id)
     }
 
-    // Charger les produits disponibles en ligne
+    // Charger les produits disponibles en ligne avec allergènes
     const { data: prods } = await supabase
       .from('products')
-      .select('id, name, description, price, image_url, category_id, is_available, available_online')
+      .select(`
+        id, name, description, price, image_url, category_id, is_available, available_online,
+        product_ingredients (
+          ingredient:ingredients (
+            ingredient_allergens (
+              is_trace,
+              allergen:allergens (code, name_fr, emoji)
+            )
+          )
+        )
+      `)
       .eq('establishment_id', est.id)
       .eq('is_active', true)
       .eq('is_available', true)
@@ -735,6 +757,26 @@ export default function OrderPage() {
   }
 
   const filteredProducts = products.filter(p => p.category_id === selectedCategory)
+
+  // Helper pour extraire les allergènes d'un produit
+  function getProductAllergens(product: Product) {
+    const allergenMap = new Map<string, { emoji: string; name: string; is_trace: boolean }>()
+    
+    product.product_ingredients?.forEach(pi => {
+      pi.ingredient?.ingredient_allergens?.forEach(ia => {
+        const existing = allergenMap.get(ia.allergen.code)
+        if (!existing || (existing.is_trace && !ia.is_trace)) {
+          allergenMap.set(ia.allergen.code, {
+            emoji: ia.allergen.emoji,
+            name: ia.allergen.name_fr,
+            is_trace: ia.is_trace
+          })
+        }
+      })
+    })
+    
+    return Array.from(allergenMap.values())
+  }
   const selectedDaySlots = timeSlots.find(d => d.date === selectedDate)?.slots || []
   const currentGroup = currentPropositions[currentPropositionIndex]
 
@@ -878,7 +920,10 @@ export default function OrderPage() {
 
             {/* Products */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {filteredProducts.map(product => (
+              {filteredProducts.map(product => {
+                const allergens = getProductAllergens(product)
+                
+                return (
                 <div
                   key={product.id}
                   className="bg-white rounded-2xl overflow-hidden shadow-sm"
@@ -901,6 +946,20 @@ export default function OrderPage() {
                         {product.description}
                       </p>
                     )}
+                    {/* Allergènes */}
+                    {allergens.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {allergens.map(a => (
+                          <span 
+                            key={a.name}
+                            title={a.is_trace ? `Traces: ${a.name}` : a.name}
+                            className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}
+                          >
+                            {a.emoji}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between mt-3">
                       <span className="text-xl font-bold text-orange-500">
                         {product.price.toFixed(2)}€
@@ -914,7 +973,7 @@ export default function OrderPage() {
                     </div>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         )}

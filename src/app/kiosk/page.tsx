@@ -49,6 +49,18 @@ type Product = {
   category_id: string
   is_available: boolean
   product_option_groups: ProductOptionGroup[]
+  product_ingredients?: {
+    ingredient: {
+      ingredient_allergens: {
+        is_trace: boolean
+        allergen: {
+          code: string
+          name_fr: string
+          emoji: string
+        }
+      }[]
+    }
+  }[]
 }
 
 type Category = {
@@ -195,7 +207,7 @@ export default function KioskPage() {
     console.log('Categories error:', catError)
     console.log('Categories data:', categoriesData?.length)
 
-    // Charger produits avec leurs propositions
+    // Charger produits avec leurs propositions et allergènes
     const { data: productsData, error: prodError } = await supabase
       .from('products')
       .select(`
@@ -208,6 +220,14 @@ export default function KioskPage() {
             option_group_items!option_group_items_option_group_id_fkey (
               id, product_id, price_override, is_default, triggers_option_group_id,
               product:products (id, name, price, image_url)
+            )
+          )
+        ),
+        product_ingredients (
+          ingredient:ingredients (
+            ingredient_allergens (
+              is_trace,
+              allergen:allergens (code, name_fr, emoji)
             )
           )
         )
@@ -790,6 +810,27 @@ export default function KioskPage() {
   const filteredProducts = products.filter(p => p.category_id === selectedCategory)
   const currentGroup = currentPropositions[currentPropositionIndex]
 
+  // Helper pour extraire les allergènes d'un produit
+  function getProductAllergens(product: Product) {
+    const allergenMap = new Map<string, { emoji: string; name: string; is_trace: boolean }>()
+    
+    product.product_ingredients?.forEach(pi => {
+      pi.ingredient?.ingredient_allergens?.forEach(ia => {
+        const existing = allergenMap.get(ia.allergen.code)
+        // Si existe déjà en "contient", on garde "contient"
+        if (!existing || (existing.is_trace && !ia.is_trace)) {
+          allergenMap.set(ia.allergen.code, {
+            emoji: ia.allergen.emoji,
+            name: ia.allergen.name_fr,
+            is_trace: ia.is_trace
+          })
+        }
+      })
+    })
+    
+    return Array.from(allergenMap.values())
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 flex">
       {/* Main content */}
@@ -839,7 +880,10 @@ export default function KioskPage() {
             <div className="text-center text-gray-400 py-12">Chargement...</div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredProducts.map(product => (
+              {filteredProducts.map(product => {
+                const allergens = getProductAllergens(product)
+                
+                return (
                 <button
                   key={product.id}
                   onClick={() => openProductModal(product)}
@@ -855,10 +899,28 @@ export default function KioskPage() {
                     {product.description && (
                       <p className="text-sm text-gray-500 mb-2 line-clamp-2">{product.description}</p>
                     )}
-                    <p className="text-xl font-bold text-orange-500">{product.price.toFixed(2)} €</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xl font-bold text-orange-500">{product.price.toFixed(2)} €</p>
+                      {allergens.length > 0 && (
+                        <div className="flex gap-0.5">
+                          {allergens.slice(0, 5).map(a => (
+                            <span 
+                              key={a.name} 
+                              title={a.is_trace ? `Traces: ${a.name}` : a.name}
+                              className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}
+                            >
+                              {a.emoji}
+                            </span>
+                          ))}
+                          {allergens.length > 5 && (
+                            <span className="text-xs text-gray-400">+{allergens.length - 5}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </button>
-              ))}
+              )})}
             </div>
           )}
         </div>
@@ -975,6 +1037,24 @@ export default function KioskPage() {
                 <div>
                   <h2 className="text-2xl font-bold">{selectedProduct.name}</h2>
                   <p className="text-orange-100">{selectedProduct.price.toFixed(2)} €</p>
+                  {/* Allergènes */}
+                  {(() => {
+                    const allergens = getProductAllergens(selectedProduct)
+                    if (allergens.length === 0) return null
+                    return (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {allergens.map(a => (
+                          <span 
+                            key={a.name}
+                            className={`text-lg ${a.is_trace ? 'opacity-60' : ''}`}
+                            title={a.is_trace ? `Traces: ${a.name}` : a.name}
+                          >
+                            {a.emoji}
+                          </span>
+                        ))}
+                      </div>
+                    )
+                  })()}
                 </div>
                 <button
                   onClick={closeProductModal}

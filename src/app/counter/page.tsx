@@ -50,6 +50,18 @@ type Product = {
   category_id: string
   is_available: boolean
   product_option_groups: ProductOptionGroup[]
+  product_ingredients?: {
+    ingredient: {
+      ingredient_allergens: {
+        is_trace: boolean
+        allergen: {
+          code: string
+          name_fr: string
+          emoji: string
+        }
+      }[]
+    }
+  }[]
 }
 
 type Category = {
@@ -181,6 +193,14 @@ export default function CounterPage() {
             option_group_items!option_group_items_option_group_id_fkey (
               id, product_id, price_override, is_default, triggers_option_group_id,
               product:products (id, name, price, image_url)
+            )
+          )
+        ),
+        product_ingredients (
+          ingredient:ingredients (
+            ingredient_allergens (
+              is_trace,
+              allergen:allergens (code, name_fr, emoji)
             )
           )
         )
@@ -531,6 +551,26 @@ export default function CounterPage() {
   // ==================== HELPERS ====================
 
   const filteredProducts = products.filter(p => p.category_id === selectedCategory)
+
+  // Helper pour extraire les allergènes d'un produit
+  function getProductAllergens(product: Product) {
+    const allergenMap = new Map<string, { emoji: string; name: string; is_trace: boolean }>()
+    
+    product.product_ingredients?.forEach(pi => {
+      pi.ingredient?.ingredient_allergens?.forEach(ia => {
+        const existing = allergenMap.get(ia.allergen.code)
+        if (!existing || (existing.is_trace && !ia.is_trace)) {
+          allergenMap.set(ia.allergen.code, {
+            emoji: ia.allergen.emoji,
+            name: ia.allergen.name_fr,
+            is_trace: ia.is_trace
+          })
+        }
+      })
+    })
+    
+    return Array.from(allergenMap.values())
+  }
   const currentGroup = currentPropositions[currentPropositionIndex]
 
   function formatTime(dateStr: string | null): string {
@@ -681,7 +721,10 @@ export default function CounterPage() {
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-3">
-              {filteredProducts.map(product => (
+              {filteredProducts.map(product => {
+                const allergens = getProductAllergens(product)
+                
+                return (
                 <button
                   key={product.id}
                   onClick={() => openProductModal(product)}
@@ -698,10 +741,25 @@ export default function CounterPage() {
                     <h3 className="font-bold text-gray-900 text-sm leading-tight line-clamp-2 min-h-[2.5rem]">
                       {product.name}
                     </h3>
-                    <p className="text-xl font-bold text-orange-500 mt-1">{product.price.toFixed(2)} €</p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-xl font-bold text-orange-500">{product.price.toFixed(2)} €</p>
+                      {allergens.length > 0 && (
+                        <div className="flex gap-0.5">
+                          {allergens.slice(0, 4).map(a => (
+                            <span 
+                              key={a.name}
+                              title={a.is_trace ? `Traces: ${a.name}` : a.name}
+                              className={`text-xs ${a.is_trace ? 'opacity-50' : ''}`}
+                            >
+                              {a.emoji}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </button>
-              ))}
+              )})}
             </div>
           )}
         </div>
