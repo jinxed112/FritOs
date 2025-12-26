@@ -47,6 +47,8 @@ type ProductIngredient = {
   id: string
   ingredient_id: string
   is_essential: boolean
+  quantity: number
+  unit: string
   ingredient: Ingredient
 }
 
@@ -101,7 +103,7 @@ export default function ProductsPage() {
   const [assignedPropositions, setAssignedPropositions] = useState<{id: string, option_group_id: string, display_order: number}[]>([])
   
   // Ingrédients assignés au produit
-  const [assignedIngredients, setAssignedIngredients] = useState<{ingredient_id: string, is_essential: boolean}[]>([])
+  const [assignedIngredients, setAssignedIngredients] = useState<{ingredient_id: string, is_essential: boolean, quantity: number, unit: string}[]>([])
   const [ingredientSearch, setIngredientSearch] = useState('')
   
   const [saving, setSaving] = useState(false)
@@ -132,6 +134,8 @@ export default function ProductsPage() {
           id,
           ingredient_id,
           is_essential,
+          quantity,
+          unit,
           ingredient:ingredients (
             id, name, category, is_available,
             ingredient_allergens (
@@ -233,6 +237,8 @@ export default function ProductsPage() {
       const assignedIngs = (product.product_ingredients || []).map(pi => ({
         ingredient_id: pi.ingredient_id,
         is_essential: pi.is_essential,
+        quantity: pi.quantity || 1,
+        unit: pi.unit || 'pce',
       }))
       setAssignedIngredients(assignedIngs)
     } else {
@@ -415,6 +421,8 @@ export default function ProductsPage() {
                 product_id: productId,
                 ingredient_id: i.ingredient_id,
                 is_essential: i.is_essential,
+                quantity: i.quantity,
+                unit: i.unit,
               }))
             )
           
@@ -466,9 +474,17 @@ export default function ProductsPage() {
   function addIngredient(ingredientId: string) {
     if (assignedIngredients.some(i => i.ingredient_id === ingredientId)) return
     
+    // Trouver l'ingrédient pour récupérer son unité par défaut
+    const ingredient = allIngredients.find(i => i.id === ingredientId)
+    
     setAssignedIngredients([
       ...assignedIngredients,
-      { ingredient_id: ingredientId, is_essential: true }
+      { 
+        ingredient_id: ingredientId, 
+        is_essential: true,
+        quantity: 1,
+        unit: ingredient?.category === 'Viandes Fraîches' ? 'g' : 'pce'
+      }
     ])
   }
 
@@ -480,6 +496,22 @@ export default function ProductsPage() {
     setAssignedIngredients(assignedIngredients.map(i => 
       i.ingredient_id === ingredientId 
         ? { ...i, is_essential: !i.is_essential }
+        : i
+    ))
+  }
+
+  function updateQuantity(ingredientId: string, quantity: number) {
+    setAssignedIngredients(assignedIngredients.map(i => 
+      i.ingredient_id === ingredientId 
+        ? { ...i, quantity: Math.max(0.01, quantity) }
+        : i
+    ))
+  }
+
+  function updateUnit(ingredientId: string, unit: string) {
+    setAssignedIngredients(assignedIngredients.map(i => 
+      i.ingredient_id === ingredientId 
+        ? { ...i, unit }
         : i
     ))
   }
@@ -1090,33 +1122,70 @@ export default function ProductsPage() {
                           return (
                             <div
                               key={ai.ingredient_id}
-                              className={`rounded-xl p-3 flex items-center gap-3 ${
+                              className={`rounded-xl p-3 ${
                                 ingredient.is_available 
                                   ? 'bg-green-50 border border-green-200' 
                                   : 'bg-red-50 border border-red-200'
                               }`}
                             >
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium">{ingredient.name}</span>
-                                  {!ingredient.is_available && (
-                                    <span className="bg-red-200 text-red-700 text-xs px-2 py-0.5 rounded">Rupture!</span>
-                                  )}
+                              <div className="flex items-center gap-3 mb-2">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium">{ingredient.name}</span>
+                                    {!ingredient.is_available && (
+                                      <span className="bg-red-200 text-red-700 text-xs px-2 py-0.5 rounded">Rupture!</span>
+                                    )}
+                                  </div>
+                                  <div className="flex gap-1 mt-1">
+                                    {ingredient.ingredient_allergens?.map(ia => (
+                                      <span 
+                                        key={ia.allergen.code} 
+                                        title={ia.is_trace ? `Traces: ${ia.allergen.name_fr}` : ia.allergen.name_fr}
+                                        className={ia.is_trace ? 'opacity-40' : ''}
+                                      >
+                                        {ia.allergen.emoji}
+                                      </span>
+                                    ))}
+                                  </div>
                                 </div>
-                                <div className="flex gap-1 mt-1">
-                                  {ingredient.ingredient_allergens?.map(ia => (
-                                    <span 
-                                      key={ia.allergen.code} 
-                                      title={ia.is_trace ? `Traces: ${ia.allergen.name_fr}` : ia.allergen.name_fr}
-                                      className={ia.is_trace ? 'opacity-40' : ''}
-                                    >
-                                      {ia.allergen.emoji}
-                                    </span>
-                                  ))}
-                                </div>
+                                
+                                <button
+                                  type="button"
+                                  onClick={() => removeIngredient(ai.ingredient_id)}
+                                  className="w-8 h-8 rounded-lg bg-red-100 text-red-500 hover:bg-red-200"
+                                >
+                                  ✕
+                                </button>
                               </div>
                               
-                              <div className="flex items-center gap-2">
+                              {/* Quantité, Unité, Essentiel */}
+                              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-200">
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    value={ai.quantity}
+                                    onChange={(e) => updateQuantity(ai.ingredient_id, parseFloat(e.target.value) || 1)}
+                                    className="w-20 px-2 py-1 rounded-lg border border-gray-300 text-center text-sm"
+                                  />
+                                  <select
+                                    value={ai.unit}
+                                    onChange={(e) => updateUnit(ai.ingredient_id, e.target.value)}
+                                    className="px-2 py-1 rounded-lg border border-gray-300 text-sm"
+                                  >
+                                    <option value="pce">pce</option>
+                                    <option value="g">g</option>
+                                    <option value="kg">kg</option>
+                                    <option value="ml">ml</option>
+                                    <option value="L">L</option>
+                                    <option value="tranche">tranche(s)</option>
+                                    <option value="cuillère">cuillère(s)</option>
+                                  </select>
+                                </div>
+                                
+                                <div className="flex-1"></div>
+                                
                                 <button
                                   type="button"
                                   onClick={() => toggleEssential(ai.ingredient_id)}
@@ -1128,13 +1197,6 @@ export default function ProductsPage() {
                                   title={ai.is_essential ? 'Essentiel: si en rupture, le produit sera indisponible' : 'Optionnel: n\'affecte pas la disponibilité'}
                                 >
                                   {ai.is_essential ? '⚠️ Essentiel' : '➖ Optionnel'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => removeIngredient(ai.ingredient_id)}
-                                  className="w-8 h-8 rounded-lg bg-red-100 text-red-500 hover:bg-red-200"
-                                >
-                                  ✕
                                 </button>
                               </div>
                             </div>
