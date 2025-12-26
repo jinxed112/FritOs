@@ -78,7 +78,7 @@ export default function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState<string>('')
-  const [activeTab, setActiveTab] = useState<'info' | 'propositions' | 'ingredients'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'propositions' | 'ingredients' | 'allergens'>('info')
   
   // Form state
   const [form, setForm] = useState({
@@ -818,6 +818,16 @@ export default function ProductsPage() {
                 >
                   🥬 Ingrédients ({assignedIngredients.length})
                 </button>
+                <button
+                  onClick={() => setActiveTab('allergens')}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    activeTab === 'allergens'
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  ⚠️ Allergènes ({productAllergens.length})
+                </button>
               </div>
             </div>
             
@@ -1081,27 +1091,6 @@ export default function ProductsPage() {
               {/* ==================== ONGLET INGRÉDIENTS ==================== */}
               {activeTab === 'ingredients' && (
                 <div className="space-y-6">
-                  {/* Allergènes calculés */}
-                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
-                    <h3 className="font-medium text-orange-800 mb-2">🏷️ Allergènes du produit</h3>
-                    {productAllergens.length === 0 ? (
-                      <p className="text-orange-600 text-sm">Aucun allergène (ajoutez des ingrédients)</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {productAllergens.filter(a => !a.is_trace).map(a => (
-                          <span key={a.allergen.code} className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-sm font-medium">
-                            {a.allergen.emoji} {a.allergen.name_fr}
-                          </span>
-                        ))}
-                        {productAllergens.filter(a => a.is_trace).map(a => (
-                          <span key={a.allergen.code} className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-sm font-medium">
-                            {a.allergen.emoji} {a.allergen.name_fr} <span className="italic">(traces)</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  
                   {/* Ingrédients assignés */}
                   <div>
                     <h3 className="font-medium text-gray-700 mb-3">
@@ -1261,6 +1250,158 @@ export default function ProductsPage() {
                         <div className="text-center py-6 text-gray-400">
                           <p>Aucun ingrédient disponible</p>
                           <p className="text-sm">{ingredientSearch ? 'Essayez une autre recherche' : 'Tous les ingrédients sont déjà assignés'}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* ==================== ONGLET ALLERGÈNES ==================== */}
+              {activeTab === 'allergens' && (
+                <div className="space-y-6">
+                  {/* Résumé */}
+                  <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-2xl p-6">
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">⚠️ Allergènes du produit</h3>
+                    <p className="text-gray-600 text-sm mb-4">
+                      Ces allergènes sont calculés automatiquement à partir des ingrédients assignés au produit.
+                    </p>
+                    
+                    {productAllergens.length === 0 ? (
+                      <div className="bg-white rounded-xl p-6 text-center">
+                        <span className="text-4xl block mb-2">✅</span>
+                        <p className="text-green-600 font-medium">Aucun allergène déclaré</p>
+                        <p className="text-gray-400 text-sm mt-1">Ajoutez des ingrédients pour voir les allergènes</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Contient */}
+                        {productAllergens.filter(a => !a.is_trace).length > 0 && (
+                          <div className="bg-white rounded-xl p-4">
+                            <h4 className="font-semibold text-red-700 mb-3 flex items-center gap-2">
+                              <span className="w-3 h-3 bg-red-500 rounded-full"></span>
+                              Contient
+                            </h4>
+                            <div className="grid grid-cols-2 gap-2">
+                              {productAllergens.filter(a => !a.is_trace).map(a => (
+                                <div key={a.allergen.code} className="flex items-center gap-3 bg-red-50 rounded-xl p-3">
+                                  <span className="text-2xl">{a.allergen.emoji}</span>
+                                  <span className="font-medium text-red-800">{a.allergen.name_fr}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Traces */}
+                        {productAllergens.filter(a => a.is_trace).length > 0 && (
+                          <div className="bg-white rounded-xl p-4">
+                            <h4 className="font-semibold text-yellow-700 mb-3 flex items-center gap-2">
+                              <span className="w-3 h-3 bg-yellow-500 rounded-full"></span>
+                              Peut contenir des traces de
+                            </h4>
+                            <div className="grid grid-cols-2 gap-2">
+                              {productAllergens.filter(a => a.is_trace).map(a => (
+                                <div key={a.allergen.code} className="flex items-center gap-3 bg-yellow-50 rounded-xl p-3">
+                                  <span className="text-2xl">{a.allergen.emoji}</span>
+                                  <span className="font-medium text-yellow-800">{a.allergen.name_fr}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Détail par ingrédient */}
+                  {assignedIngredients.length > 0 && (
+                    <div>
+                      <h3 className="font-medium text-gray-700 mb-3">📋 Détail par ingrédient</h3>
+                      <div className="space-y-2">
+                        {assignedIngredients.map(ai => {
+                          const ingredient = allIngredients.find(i => i.id === ai.ingredient_id)
+                          if (!ingredient) return null
+                          
+                          const hasAllergens = ingredient.ingredient_allergens && ingredient.ingredient_allergens.length > 0
+                          
+                          return (
+                            <div key={ai.ingredient_id} className="bg-white border border-gray-200 rounded-xl p-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-medium">{ingredient.name}</span>
+                                <span className="text-xs text-gray-400">{ai.quantity} {ai.unit}</span>
+                              </div>
+                              
+                              {hasAllergens ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {ingredient.ingredient_allergens?.filter(ia => !ia.is_trace).map(ia => (
+                                    <span key={ia.allergen.code} className="bg-red-100 text-red-700 px-2 py-1 rounded-lg text-sm flex items-center gap-1">
+                                      {ia.allergen.emoji} {ia.allergen.name_fr}
+                                    </span>
+                                  ))}
+                                  {ingredient.ingredient_allergens?.filter(ia => ia.is_trace).map(ia => (
+                                    <span key={ia.allergen.code} className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded-lg text-sm flex items-center gap-1">
+                                      {ia.allergen.emoji} {ia.allergen.name_fr} <span className="italic">(traces)</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 text-sm">Aucun allergène</span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Aperçu affichage client */}
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-3">👁️ Aperçu affichage client (Borne/Web)</h3>
+                    <div className="bg-slate-800 rounded-2xl p-6 text-white">
+                      <div className="flex items-start gap-4">
+                        <div className="w-20 h-20 bg-slate-700 rounded-xl flex items-center justify-center">
+                          {imagePreview ? (
+                            <img src={imagePreview} alt="Preview" className="w-full h-full object-cover rounded-xl" />
+                          ) : (
+                            <span className="text-3xl">🍔</span>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-xl font-bold">{form.name || 'Nom du produit'}</h4>
+                          <p className="text-2xl font-bold text-orange-400 mt-1">{form.price.toFixed(2)}€</p>
+                          
+                          {productAllergens.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-1">
+                              {productAllergens.map(a => (
+                                <span 
+                                  key={a.allergen.code} 
+                                  className={`text-lg ${a.is_trace ? 'opacity-50' : ''}`}
+                                  title={a.is_trace ? `Traces: ${a.allergen.name_fr}` : a.allergen.name_fr}
+                                >
+                                  {a.allergen.emoji}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {productAllergens.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-slate-700">
+                          <p className="text-xs text-slate-400 mb-2">INFORMATIONS ALLERGÈNES</p>
+                          <div className="text-sm">
+                            {productAllergens.filter(a => !a.is_trace).length > 0 && (
+                              <p className="text-red-400">
+                                <strong>Contient :</strong> {productAllergens.filter(a => !a.is_trace).map(a => a.allergen.name_fr).join(', ')}
+                              </p>
+                            )}
+                            {productAllergens.filter(a => a.is_trace).length > 0 && (
+                              <p className="text-yellow-400 mt-1">
+                                <strong>Traces :</strong> {productAllergens.filter(a => a.is_trace).map(a => a.allergen.name_fr).join(', ')}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
