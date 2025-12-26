@@ -545,6 +545,12 @@ export default function KitchenPage() {
   async function loadOrders(estId: string) {
     try {
       const today = new Date(); today.setHours(0, 0, 0, 0)
+      const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
+      
+      // Charger les commandes:
+      // 1. Créées aujourd'hui OU
+      // 2. Programmées pour aujourd'hui (même si créées hier) OU
+      // 3. Non terminées (pending, preparing, ready)
       const { data, error } = await supabase
         .from('orders')
         .select(`
@@ -554,8 +560,8 @@ export default function KitchenPage() {
           order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )
         `)
         .eq('establishment_id', estId)
-        .gte('created_at', today.toISOString())
         .neq('status', 'cancelled')
+        .or(`created_at.gte.${today.toISOString()},and(scheduled_time.gte.${today.toISOString()},scheduled_time.lt.${tomorrow.toISOString()}),status.in.(pending,preparing,ready)`)
         .order('created_at', { ascending: true })
       
       if (!error && data) {
