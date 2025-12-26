@@ -803,8 +803,8 @@ export default function KioskPage() {
   function getProductAllergens(product: Product) {
     const allergenMap = new Map<string, { emoji: string; name: string; is_trace: boolean }>()
     
-    product.product_ingredients?.forEach(pi => {
-      pi.ingredient?.ingredient_allergens?.forEach(ia => {
+    product.product_ingredients?.forEach((pi: any) => {
+      pi.ingredient?.ingredient_allergens?.forEach((ia: any) => {
         const existing = allergenMap.get(ia.allergen.code)
         // Si existe déjà en "contient", on garde "contient"
         if (!existing || (existing.is_trace && !ia.is_trace)) {
