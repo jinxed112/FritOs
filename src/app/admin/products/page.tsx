@@ -169,7 +169,7 @@ export default function ProductsPage() {
         ingredient_allergens (
           allergen_id,
           is_trace,
-          allergen:allergens (id, code, name_fr, emoji)
+          allergen:allergens!inner (id, code, name_fr, emoji)
         )
       `)
       .eq('establishment_id', establishmentId)
@@ -177,10 +177,23 @@ export default function ProductsPage() {
       .order('category')
       .order('name')
     
+    // Transformer les données pour correspondre au type
+    const transformedIngredients: Ingredient[] = (ingredientsData || []).map((ing: any) => ({
+      id: ing.id,
+      name: ing.name,
+      category: ing.category,
+      is_available: ing.is_available,
+      ingredient_allergens: (ing.ingredient_allergens || []).map((ia: any) => ({
+        allergen_id: ia.allergen_id,
+        is_trace: ia.is_trace,
+        allergen: ia.allergen
+      }))
+    }))
+    
     setProducts(productsData || [])
     setCategories(categoriesData || [])
     setOptionGroups(optionGroupsData || [])
-    setAllIngredients((ingredientsData || []) as Ingredient[])
+    setAllIngredients(transformedIngredients)
     setLoading(false)
   }
 
