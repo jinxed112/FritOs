@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import Link from 'next/link'
 
 type Ingredient = {
   id: string
@@ -187,10 +188,16 @@ export default function SuppliersPage() {
           <h1 className="text-3xl font-bold text-gray-900">Fournisseurs</h1>
           <p className="text-gray-500">{suppliers.length} fournisseur(s)</p>
         </div>
-        <button onClick={() => openModal()}
-          className="bg-orange-500 text-white font-semibold px-6 py-3 rounded-xl hover:bg-orange-600">
-          ➕ Nouveau fournisseur
-        </button>
+        <div className="flex gap-3">
+          <Link href="/admin/suppliers/products"
+            className="bg-blue-500 text-white font-semibold px-6 py-3 rounded-xl hover:bg-blue-600 flex items-center gap-2">
+            📦 Catalogue produits
+          </Link>
+          <button onClick={() => openModal()}
+            className="bg-orange-500 text-white font-semibold px-6 py-3 rounded-xl hover:bg-orange-600">
+            ➕ Nouveau fournisseur
+          </button>
+        </div>
       </div>
 
       {/* Recherche */}
@@ -449,6 +456,12 @@ export default function SuppliersPage() {
                   )}
                 </div>
               </div>
+
+              {/* Lien vers catalogue */}
+              <Link href={`/admin/suppliers/products?supplier=${selectedSupplier.id}`}
+                className="block w-full text-center px-4 py-3 bg-blue-100 text-blue-700 rounded-xl font-medium hover:bg-blue-200">
+                📦 Voir le catalogue produits ({supplierIngredients.length} ingrédients liés)
+              </Link>
 
               {/* Ingrédients */}
               {supplierIngredients.length > 0 && (
