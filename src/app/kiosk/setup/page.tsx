@@ -14,20 +14,13 @@ type Device = {
 export default function KioskSetupPage() {
   const [devices, setDevices] = useState<Device[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedDevice, setSelectedDevice] = useState<string>('')
+  const [copiedCode, setCopiedCode] = useState<string | null>(null)
   
   const supabase = createClient()
   const router = useRouter()
   const establishmentId = 'a0000000-0000-0000-0000-000000000001'
 
   useEffect(() => {
-    // Vérifier si déjà configuré
-    const savedDevice = localStorage.getItem('kiosk_device_id')
-    if (savedDevice) {
-      router.push('/kiosk')
-      return
-    }
-    
     loadDevices()
   }, [])
 
@@ -47,11 +40,15 @@ export default function KioskSetupPage() {
     setLoading(false)
   }
 
-  function confirmSetup() {
-    if (!selectedDevice) return
-    
-    localStorage.setItem('kiosk_device_id', selectedDevice)
-    router.push('/kiosk')
+  function goToDevice(deviceCode: string) {
+    router.push(`/kiosk/${deviceCode}`)
+  }
+
+  async function copyUrl(deviceCode: string) {
+    const url = `${window.location.origin}/kiosk/${deviceCode}`
+    await navigator.clipboard.writeText(url)
+    setCopiedCode(deviceCode)
+    setTimeout(() => setCopiedCode(null), 2000)
   }
 
   if (loading) {
@@ -67,11 +64,11 @@ export default function KioskSetupPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center p-8">
-      <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl">
+      <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl">
         <div className="text-center mb-8">
           <span className="text-6xl block mb-4">🖥️</span>
-          <h1 className="text-2xl font-bold text-gray-900">Configuration Borne</h1>
-          <p className="text-gray-500">Sélectionnez l'identité de cette borne</p>
+          <h1 className="text-2xl font-bold text-gray-900">Bornes disponibles</h1>
+          <p className="text-gray-500">Sélectionnez une borne ou copiez son URL</p>
         </div>
         
         {devices.length === 0 ? (
@@ -83,57 +80,60 @@ export default function KioskSetupPage() {
             </p>
           </div>
         ) : (
-          <>
-            <div className="space-y-3 mb-6">
-              {devices.map(device => (
-                <button
-                  key={device.id}
-                  onClick={() => setSelectedDevice(device.id)}
-                  className={`w-full p-4 rounded-xl border-2 flex items-center gap-4 transition-all ${
-                    selectedDevice === device.id
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    selectedDevice === device.id
-                      ? 'border-orange-500 bg-orange-500'
-                      : 'border-gray-300'
-                  }`}>
-                    {selectedDevice === device.id && (
-                      <span className="text-white text-xs">✓</span>
+          <div className="space-y-3">
+            {devices.map(device => (
+              <div
+                key={device.id}
+                className="border-2 border-gray-200 rounded-xl p-4 hover:border-orange-300 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="font-bold text-lg">{device.name}</p>
+                    <p className="text-sm text-gray-500 font-mono">{device.device_code}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {device.viva_terminal_id ? (
+                      <span className="text-green-500 text-sm">💳 Viva ✓</span>
+                    ) : (
+                      <span className="text-yellow-500 text-sm">⚠️ Pas de terminal</span>
                     )}
                   </div>
-                  
-                  <div className="flex-1 text-left">
-                    <p className="font-bold">{device.name}</p>
-                    <p className="text-sm text-gray-500">
-                      {device.device_code}
-                      {device.viva_terminal_id && (
-                        <span className="ml-2 text-blue-500">💳 Viva configuré</span>
-                      )}
-                      {!device.viva_terminal_id && (
-                        <span className="ml-2 text-yellow-500">⚠️ Pas de terminal</span>
-                      )}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-            
-            <button
-              onClick={confirmSetup}
-              disabled={!selectedDevice}
-              className="w-full bg-orange-500 text-white font-bold py-4 rounded-xl text-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              ✓ Confirmer
-            </button>
-          </>
+                </div>
+                
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => goToDevice(device.device_code)}
+                    className="flex-1 bg-orange-500 text-white font-semibold py-2 rounded-lg hover:bg-orange-600 transition-colors"
+                  >
+                    Ouvrir →
+                  </button>
+                  <button
+                    onClick={() => copyUrl(device.device_code)}
+                    className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                      copiedCode === device.device_code
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {copiedCode === device.device_code ? '✓ Copié' : '📋 URL'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
         
+        <div className="mt-8 p-4 bg-blue-50 rounded-xl">
+          <h3 className="font-bold text-blue-800 mb-2">💡 Comment configurer une borne</h3>
+          <ol className="text-blue-700 text-sm space-y-1 list-decimal list-inside">
+            <li>Créez un raccourci bureau vers l'URL de la borne</li>
+            <li>Au premier lancement, entrez le PIN (visible dans Admin → Devices)</li>
+            <li>La borne restera connectée automatiquement</li>
+          </ol>
+        </div>
+        
         <p className="text-center text-xs text-gray-400 mt-6">
-          Cette configuration est stockée localement.<br />
-          Pour changer, effacez les données du navigateur.
+          URL format : /kiosk/CODE (ex: /kiosk/BORJU01)
         </p>
       </div>
     </div>

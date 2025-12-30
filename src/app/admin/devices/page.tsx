@@ -3,6 +3,15 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+type DeviceSession = {
+  id: string
+  created_at: string
+  last_used_at: string
+  user_agent: string | null
+  ip_address: string | null
+  is_valid: boolean
+}
+
 type Device = {
   id: string
   device_code: string
@@ -10,8 +19,10 @@ type Device = {
   device_type: 'kiosk' | 'kds' | 'counter'
   establishment_id: string
   is_active: boolean
-  last_seen_at: string | null
+  last_seen: string | null
   viva_terminal_id: string | null
+  access_pin: string | null
+  pin_created_at: string | null
   config: any
 }
 
@@ -20,6 +31,16 @@ export default function DevicesPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingDevice, setEditingDevice] = useState<Device | null>(null)
+  
+  // Sessions modal
+  const [showSessionsModal, setShowSessionsModal] = useState(false)
+  const [sessionsDevice, setSessionsDevice] = useState<Device | null>(null)
+  const [sessions, setSessions] = useState<DeviceSession[]>([])
+  const [loadingSessions, setLoadingSessions] = useState(false)
+  
+  // PIN visibility
+  const [visiblePins, setVisiblePins] = useState<Set<string>>(new Set())
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   
   const [form, setForm] = useState({
     device_code: '',
@@ -107,6 +128,9 @@ export default function DevicesPage() {
         
         if (error) throw error
       } else {
+        // Générer un PIN pour le nouveau device
+        const newPin = String(Math.floor(Math.random() * 1000000)).padStart(6, '0')
+        
         const { error } = await supabase
           .from('devices')
           .insert({
@@ -116,6 +140,8 @@ export default function DevicesPage() {
             device_type: form.device_type,
             is_active: form.is_active,
             viva_terminal_id: form.viva_terminal_id || null,
+            access_pin: newPin,
+            pin_created_at: new Date().toISOString(),
           })
         
         if (error) throw error
@@ -142,6 +168,85 @@ export default function DevicesPage() {
     if (!error) loadDevices()
   }
 
+  async function regeneratePin(device: Device) {
+    if (!confirm(`Régénérer le PIN de "${device.name}" ?\n\nCela déconnectera tous les appareils utilisant ce device.`)) return
+    
+    // Utiliser la fonction SQL
+    const { data, error } = await supabase.rpc('regenerate_device_pin', {
+      p_device_id: device.id
+    })
+    
+    if (error) {
+      console.error('Erreur:', error)
+      alert('Erreur lors de la régénération du PIN')
+    } else {
+      alert(`Nouveau PIN : ${data}`)
+      loadDevices()
+    }
+  }
+
+  function togglePinVisibility(deviceId: string) {
+    const newSet = new Set(visiblePins)
+    if (newSet.has(deviceId)) {
+      newSet.delete(deviceId)
+    } else {
+      newSet.add(deviceId)
+    }
+    setVisiblePins(newSet)
+  }
+
+  function getDeviceUrl(device: Device): string {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+    const path = device.device_type === 'kiosk' ? 'kiosk' : device.device_type === 'kds' ? 'kitchen' : 'counter'
+    return `${baseUrl}/${path}/${device.device_code}`
+  }
+
+  async function copyDeviceUrl(device: Device) {
+    const url = getDeviceUrl(device)
+    await navigator.clipboard.writeText(url)
+    setCopiedId(device.id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  async function openSessionsModal(device: Device) {
+    setSessionsDevice(device)
+    setShowSessionsModal(true)
+    setLoadingSessions(true)
+    
+    const { data, error } = await supabase
+      .from('device_sessions')
+      .select('*')
+      .eq('device_id', device.id)
+      .eq('is_valid', true)
+      .order('last_used_at', { ascending: false })
+    
+    if (!error) {
+      setSessions(data || [])
+    }
+    
+    setLoadingSessions(false)
+  }
+
+  async function revokeSession(sessionId: string) {
+    await supabase
+      .from('device_sessions')
+      .update({ is_valid: false })
+      .eq('id', sessionId)
+    
+    setSessions(sessions.filter(s => s.id !== sessionId))
+  }
+
+  async function revokeAllSessions(deviceId: string) {
+    if (!confirm('Révoquer toutes les sessions ? Tous les appareils seront déconnectés.')) return
+    
+    await supabase
+      .from('device_sessions')
+      .update({ is_valid: false })
+      .eq('device_id', deviceId)
+    
+    setSessions([])
+  }
+
   function getDeviceTypeLabel(type: string) {
     switch (type) {
       case 'kiosk': return '🖥️ Borne'
@@ -156,8 +261,8 @@ export default function DevicesPage() {
       return <span className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-500">Inactif</span>
     }
     
-    if (device.last_seen_at) {
-      const lastSeen = new Date(device.last_seen_at)
+    if (device.last_seen) {
+      const lastSeen = new Date(device.last_seen)
       const diff = Date.now() - lastSeen.getTime()
       const minutes = Math.floor(diff / 1000 / 60)
       
@@ -169,6 +274,16 @@ export default function DevicesPage() {
     }
     
     return <span className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-500">⚪ Hors ligne</span>
+  }
+
+  function formatDate(dateStr: string) {
+    return new Date(dateStr).toLocaleString('fr-BE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
   }
 
   return (
@@ -204,24 +319,72 @@ export default function DevicesPage() {
                 device.is_active ? 'border-gray-100' : 'border-gray-100 opacity-50'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-4">
                   <div className="text-4xl">
                     {device.device_type === 'kiosk' ? '🖥️' : device.device_type === 'kds' ? '👨‍🍳' : '📋'}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 mb-1">
                       <span className="font-bold text-lg">{device.name}</span>
                       <span className="bg-gray-100 px-2 py-0.5 rounded font-mono text-sm">{device.device_code}</span>
                       {getStatusBadge(device)}
                     </div>
-                    <div className="text-gray-500 text-sm mt-1">
+                    <div className="text-gray-500 text-sm">
                       {getDeviceTypeLabel(device.device_type)}
                       {device.viva_terminal_id && (
                         <span className="ml-3 text-blue-600">
                           💳 Terminal: {device.viva_terminal_id}
                         </span>
                       )}
+                    </div>
+                    
+                    {/* PIN et URL */}
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      {/* PIN */}
+                      <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                        <span className="text-gray-500 text-sm">PIN:</span>
+                        <span className="font-mono font-bold">
+                          {visiblePins.has(device.id) ? device.access_pin : '••••••'}
+                        </span>
+                        <button
+                          onClick={() => togglePinVisibility(device.id)}
+                          className="text-gray-400 hover:text-gray-600"
+                          title={visiblePins.has(device.id) ? 'Masquer' : 'Afficher'}
+                        >
+                          {visiblePins.has(device.id) ? '🙈' : '👁️'}
+                        </button>
+                        <button
+                          onClick={() => regeneratePin(device)}
+                          className="text-gray-400 hover:text-orange-500"
+                          title="Régénérer le PIN"
+                        >
+                          🔄
+                        </button>
+                      </div>
+                      
+                      {/* URL */}
+                      <button
+                        onClick={() => copyDeviceUrl(device)}
+                        className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+                          copiedId === device.id 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                        }`}
+                      >
+                        <span className="text-sm font-mono truncate max-w-[200px]">
+                          /{device.device_type === 'kiosk' ? 'kiosk' : device.device_type === 'kds' ? 'kitchen' : 'counter'}/{device.device_code}
+                        </span>
+                        {copiedId === device.id ? '✓' : '📋'}
+                      </button>
+                      
+                      {/* Sessions */}
+                      <button
+                        onClick={() => openSessionsModal(device)}
+                        className="flex items-center gap-1 text-gray-500 hover:text-gray-700 text-sm"
+                      >
+                        🔌 Sessions
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -247,15 +410,30 @@ export default function DevicesPage() {
       )}
 
       {/* Aide */}
-      <div className="mt-8 bg-blue-50 rounded-xl p-6">
-        <h3 className="font-bold text-blue-800 mb-2">💡 Configuration des terminaux de paiement</h3>
-        <p className="text-blue-700 text-sm">
-          Pour associer un terminal Viva Wallet à une borne, ajoutez l'<strong>Identifiant virtuel</strong> du terminal 
-          (visible dans l'app Viva.com Terminal sur le smartphone) dans le champ "Terminal Viva ID".
-        </p>
+      <div className="mt-8 space-y-4">
+        <div className="bg-blue-50 rounded-xl p-6">
+          <h3 className="font-bold text-blue-800 mb-2">🔐 Authentification des devices</h3>
+          <p className="text-blue-700 text-sm mb-2">
+            Chaque device a un <strong>code unique</strong> et un <strong>PIN à 6 chiffres</strong>.
+          </p>
+          <ul className="text-blue-700 text-sm list-disc list-inside space-y-1">
+            <li>L'URL du device contient le code (ex: /kiosk/BORJU01)</li>
+            <li>Au premier accès, l'employé entre le PIN une seule fois</li>
+            <li>Un cookie sécurisé garde la session active (1 an)</li>
+            <li>Régénérer le PIN déconnecte tous les appareils</li>
+          </ul>
+        </div>
+        
+        <div className="bg-orange-50 rounded-xl p-6">
+          <h3 className="font-bold text-orange-800 mb-2">💳 Configuration des terminaux de paiement</h3>
+          <p className="text-orange-700 text-sm">
+            Pour associer un terminal Viva Wallet à une borne, ajoutez l'<strong>Identifiant virtuel</strong> du terminal 
+            (visible dans l'app Viva.com Terminal sur le smartphone) dans le champ "Terminal Viva ID".
+          </p>
+        </div>
       </div>
 
-      {/* Modal */}
+      {/* Modal Edit/Create */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-xl">
@@ -349,6 +527,78 @@ export default function DevicesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Sessions */}
+      {showSessionsModal && sessionsDevice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-lg shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">
+                Sessions - {sessionsDevice.name}
+              </h2>
+              <button
+                onClick={() => setShowSessionsModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {loadingSessions ? (
+              <div className="text-center py-8 text-gray-400">Chargement...</div>
+            ) : sessions.length === 0 ? (
+              <div className="text-center py-8">
+                <span className="text-4xl block mb-2">🔌</span>
+                <p className="text-gray-500">Aucune session active</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3 max-h-96 overflow-y-auto mb-4">
+                  {sessions.map(session => (
+                    <div key={session.id} className="bg-gray-50 rounded-xl p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-sm text-gray-500">
+                            Dernière activité : {formatDate(session.last_used_at)}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            Créée le {formatDate(session.created_at)}
+                          </p>
+                          {session.ip_address && (
+                            <p className="text-xs text-gray-400">
+                              IP : {session.ip_address}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => revokeSession(session.id)}
+                          className="text-red-500 hover:text-red-700 text-sm font-medium"
+                        >
+                          Révoquer
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                <button
+                  onClick={() => revokeAllSessions(sessionsDevice.id)}
+                  className="w-full bg-red-100 text-red-700 font-semibold py-3 rounded-xl hover:bg-red-200"
+                >
+                  🚫 Révoquer toutes les sessions
+                </button>
+              </>
+            )}
+            
+            <button
+              onClick={() => setShowSessionsModal(false)}
+              className="w-full mt-4 px-6 py-3 rounded-xl border border-gray-200 font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Fermer
+            </button>
           </div>
         </div>
       )}
