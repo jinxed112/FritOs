@@ -1,11 +1,10 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { Database } from '@/types/database'
 
-export function createServerSupabaseClient() {
+export function createServerSupabaseClient(): any {
   const cookieStore = cookies()
 
-  return createServerClient<Database>(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -33,8 +32,8 @@ export function createServerSupabaseClient() {
 }
 
 // Admin client with service role (for server-side operations)
-export function createAdminClient() {
-  return createServerClient<Database>(
+export function createAdminClient(): any {
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
