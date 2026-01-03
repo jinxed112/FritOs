@@ -86,7 +86,7 @@ export default function CategoriesPage() {
       counts[p.category_id] = (counts[p.category_id] || 0) + 1
     })
     
-    const categoriesWithCount = (categoriesData || []).map(cat => ({
+    const categoriesWithCount = (categoriesData || []).map((cat: any) => ({
       ...cat,
       _count: counts[cat.id] || 0,
       category_option_groups: (cat.category_option_groups || []).sort((a: any, b: any) => a.display_order - b.display_order)
@@ -173,7 +173,7 @@ export default function CategoriesPage() {
             display_order: form.display_order,
             is_active: form.is_active,
             visible_on_kiosk: form.visible_on_kiosk,
-          })
+          } as any)
           .eq('id', editingCategory.id)
         
         if (error) throw error
@@ -188,12 +188,12 @@ export default function CategoriesPage() {
             display_order: form.display_order,
             is_active: form.is_active,
             visible_on_kiosk: form.visible_on_kiosk,
-          })
+          } as any)
           .select()
           .single()
         
         if (error) throw error
-        categoryId = data.id
+        categoryId = (data as any).id
       }
       
       // Sauvegarder les propositions assignées
@@ -213,7 +213,7 @@ export default function CategoriesPage() {
                 category_id: categoryId,
                 option_group_id: p.option_group_id,
                 display_order: index + 1,
-              }))
+              })) as any
             )
           
           if (cogError) throw cogError
@@ -260,7 +260,7 @@ export default function CategoriesPage() {
   async function toggleVisibleOnKiosk(category: Category) {
     const { error } = await supabase
       .from('categories')
-      .update({ visible_on_kiosk: !category.visible_on_kiosk })
+      .update({ visible_on_kiosk: !category.visible_on_kiosk } as any)
       .eq('id', category.id)
     
     if (!error) loadData()
