@@ -101,29 +101,35 @@ export default function ReportsPage() {
       }
 
       existing.orders_count++
-      existing.total_ttc += Number(order.total_amount) || 0
-      existing.total_tva += Number(order.tax_amount) || 0
-      existing.total_ht += (Number(order.total_amount) || 0) - (Number(order.tax_amount) || 0)
+      
+      // Utiliser les bons champs : total (TTC) et subtotal (HT)
+      const ttc = Number(order.total) || 0
+      const ht = Number(order.subtotal) || 0
+      const tva = ttc - ht
+      
+      existing.total_ttc += ttc
+      existing.total_ht += ht
+      existing.total_tva += tva
 
       // Type de commande
       if (order.order_type === 'eat_in') {
         existing.eat_in_count++
-        existing.eat_in_total += Number(order.total_amount) || 0
+        existing.eat_in_total += ttc
       } else if (order.order_type === 'delivery') {
         existing.delivery_count++
-        existing.delivery_total += Number(order.total_amount) || 0
+        existing.delivery_total += ttc
       } else {
         existing.takeaway_count++
-        existing.takeaway_total += Number(order.total_amount) || 0
+        existing.takeaway_total += ttc
       }
 
       // Mode de paiement
       if (order.payment_method === 'cash') {
         existing.cash_count++
-        existing.cash_total += Number(order.total_amount) || 0
+        existing.cash_total += ttc
       } else {
         existing.card_count++
-        existing.card_total += Number(order.total_amount) || 0
+        existing.card_total += ttc
       }
 
       dailyMap.set(date, existing)
@@ -215,7 +221,7 @@ export default function ReportsPage() {
         rows.push([
           dateStr,
           timeStr,
-          order.ticket_number || order.id.slice(0, 8),
+          order.order_number || order.id.slice(0, 8),
           orderType,
           item.product_name || 'Article',
           item.quantity || 1,
