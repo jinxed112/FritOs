@@ -156,7 +156,7 @@ export default function IngredientsPage() {
       linkCounts[l.ingredient_id] = (linkCounts[l.ingredient_id] || 0) + 1
     })
     
-    setIngredients((ingredientsData || []).map(ing => ({
+    setIngredients((ingredientsData || []).map((ing: any) => ({
       ...ing,
       linked_products_count: linkCounts[ing.id] || 0
     })))
@@ -184,11 +184,11 @@ export default function IngredientsPage() {
     
     // Compter produits par catégorie
     const counts: Record<string, number> = {}
-    productsData?.forEach(p => {
+    productsData?.forEach((p: any) => {
       if (p.category_id) counts[p.category_id] = (counts[p.category_id] || 0) + 1
     })
     
-    setProductCategories((categoriesData || []).map(c => ({
+    setProductCategories((categoriesData || []).map((c: any) => ({
       ...c,
       product_count: counts[c.id] || 0
     })))
@@ -304,7 +304,7 @@ export default function IngredientsPage() {
   async function toggleAvailability(ingredient: Ingredient) {
     const newStatus = !ingredient.is_available
     await supabase.from('ingredients').update({ is_available: newStatus }).eq('id', ingredient.id)
-    setIngredients(prev => prev.map(ing => 
+    setIngredients(prev => prev.map((ing: any) => 
       ing.id === ingredient.id ? { ...ing, is_available: newStatus } : ing
     ))
   }
@@ -312,7 +312,7 @@ export default function IngredientsPage() {
   async function toggleActive(ingredient: Ingredient) {
     const newStatus = !ingredient.is_active
     await supabase.from('ingredients').update({ is_active: newStatus }).eq('id', ingredient.id)
-    setIngredients(prev => prev.map(ing => 
+    setIngredients(prev => prev.map((ing: any) => 
       ing.id === ingredient.id ? { ...ing, is_active: newStatus } : ing
     ))
   }
@@ -649,7 +649,7 @@ export default function IngredientsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {filteredIngredients.map(ing => {
+                  {filteredIngredients.map((ing: any) => {
                     const isLowStock = ing.stock_min && ing.stock_current !== null && ing.stock_current <= ing.stock_min
                     
                     return (
@@ -740,7 +740,7 @@ export default function IngredientsPage() {
                 className="w-full px-4 py-3 rounded-xl border border-gray-200"
               >
                 <option value="">-- Choisir un ingrédient --</option>
-                {ingredients.filter(i => i.is_active).map(ing => (
+                {ingredients.filter(i => i.is_active).map((ing: any) => (
                   <option key={ing.id} value={ing.id}>
                     {ing.name} ({ing.category || 'Sans catégorie'}) - {ing.linked_products_count || 0} lié(s)
                   </option>
@@ -870,7 +870,7 @@ export default function IngredientsPage() {
             <h2 className="text-xl font-bold mb-6">📊 Résumé des liaisons</h2>
             
             <div className="space-y-3 max-h-[500px] overflow-y-auto">
-              {ingredients.filter(i => i.is_active && (i.linked_products_count || 0) > 0).map(ing => (
+              {ingredients.filter(i => i.is_active && (i.linked_products_count || 0) > 0).map((ing: any) => (
                 <div 
                   key={ing.id}
                   className="p-4 rounded-xl border border-gray-200 hover:border-orange-300 cursor-pointer"
