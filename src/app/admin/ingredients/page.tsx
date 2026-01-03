@@ -152,7 +152,7 @@ export default function IngredientsPage() {
     
     // Compter les liens par ingrédient
     const linkCounts: Record<string, number> = {}
-    linksData?.forEach(l => {
+   linksData?.forEach((l: any) => {
       linkCounts[l.ingredient_id] = (linkCounts[l.ingredient_id] || 0) + 1
     })
     
