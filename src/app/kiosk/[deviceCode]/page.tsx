@@ -965,13 +965,28 @@ export default function KioskDevicePage() {
       </header>
 
       {/* Categories Navigation */}
-      <nav className="bg-white border-b-2 border-[#F7B52C]/30 px-2 sm:px-4 py-2 sm:py-3">
-        <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-1 scrollbar-hide">
+      <nav className="bg-white border-b-2 border-[#F7B52C]/30 relative">
+        {/* Indicateur scroll gauche */}
+        <button 
+          onClick={() => {
+            const container = document.getElementById('categories-scroll')
+            if (container) container.scrollBy({ left: -200, behavior: 'smooth' })
+          }}
+          className="absolute left-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-r from-white via-white to-transparent flex items-center text-[#3D2314]/40 hover:text-[#E63329] transition-colors"
+        >
+          <span className="text-xl">◀</span>
+        </button>
+        
+        {/* Container scrollable */}
+        <div 
+          id="categories-scroll"
+          className="flex gap-1.5 sm:gap-2 overflow-x-auto py-2 sm:py-3 px-10 scrollbar-hide scroll-smooth"
+        >
           {categories.map(cat => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-3 rounded-full font-bold whitespace-nowrap transition-all text-sm sm:text-base ${
+              className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-3 rounded-full font-bold whitespace-nowrap transition-all text-sm sm:text-base flex-shrink-0 ${
                 selectedCategory === cat.id
                   ? 'bg-[#E63329] text-white shadow-lg scale-105'
                   : 'bg-[#FFF9E6] text-[#3D2314] hover:bg-[#F7B52C]/20'
@@ -982,6 +997,17 @@ export default function KioskDevicePage() {
             </button>
           ))}
         </div>
+        
+        {/* Indicateur scroll droite */}
+        <button 
+          onClick={() => {
+            const container = document.getElementById('categories-scroll')
+            if (container) container.scrollBy({ left: 200, behavior: 'smooth' })
+          }}
+          className="absolute right-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-l from-white via-white to-transparent flex items-center text-[#3D2314]/40 hover:text-[#E63329] transition-colors"
+        >
+          <span className="text-xl">▶</span>
+        </button>
       </nav>
 
       {/* Products Grid */}
@@ -1475,6 +1501,9 @@ export default function KioskDevicePage() {
         .scrollbar-hide {
           -ms-overflow-style: none;
           scrollbar-width: none;
+        }
+        .scroll-smooth {
+          scroll-behavior: smooth;
         }
         .product-grid {
           display: grid;
