@@ -697,12 +697,12 @@ export default function KioskDevicePage() {
   // Écran d'erreur (pas de deviceCode)
   if (authStatus === 'error') {
     return (
-      <div className="min-h-screen bg-[#E63329] flex items-center justify-center p-8">
+      <div className="min-h-screen bg-[#E63329] flex items-center justify-center p-4 sm:p-8">
         <div className="text-center text-white">
-          <span className="text-8xl block mb-8">❌</span>
-          <h1 className="text-4xl font-bold mb-4">Erreur</h1>
-          <p className="text-xl mb-8">Code device invalide ou manquant</p>
-          <p className="text-lg opacity-80">URL attendue : /kiosk/BORJU01</p>
+          <span className="text-6xl sm:text-8xl block mb-6 sm:mb-8">❌</span>
+          <h1 className="text-2xl sm:text-4xl font-bold mb-4">Erreur</h1>
+          <p className="text-base sm:text-xl mb-6 sm:mb-8">Code device invalide ou manquant</p>
+          <p className="text-sm sm:text-lg opacity-80">URL attendue : /kiosk/BORJU01</p>
         </div>
       </div>
     )
@@ -711,18 +711,18 @@ export default function KioskDevicePage() {
   // Écran de saisie du PIN
   if (authStatus === 'needPin') {
     return (
-      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-8">
-        <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl border-4 border-[#F7B52C]">
-          <div className="text-center mb-8">
-            <div className="w-24 h-24 mx-auto mb-4">
+      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-4 sm:p-8">
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-2xl border-4 border-[#F7B52C]">
+          <div className="text-center mb-6 sm:mb-8">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-4">
               <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
             </div>
-            <h1 className="text-2xl font-bold text-[#3D2314]">Authentification</h1>
-            <p className="text-[#3D2314]/60">Borne {deviceCode}</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#3D2314]">Authentification</h1>
+            <p className="text-[#3D2314]/60 text-sm sm:text-base">Borne {deviceCode}</p>
           </div>
           
           {pinError && (
-            <div className="bg-red-50 border-2 border-[#E63329] text-[#E63329] px-4 py-3 rounded-xl mb-4 text-center font-semibold">
+            <div className="bg-red-50 border-2 border-[#E63329] text-[#E63329] px-4 py-2 sm:py-3 rounded-xl mb-4 text-center font-semibold text-sm sm:text-base">
               {pinError}
             </div>
           )}
@@ -736,7 +736,7 @@ export default function KioskDevicePage() {
               value={pinInput}
               onChange={e => setPinInput(e.target.value.replace(/\D/g, ''))}
               onKeyDown={e => e.key === 'Enter' && submitPin()}
-              className="w-full px-6 py-4 text-center text-3xl font-mono tracking-[0.5em] rounded-xl border-3 border-[#F7B52C] focus:border-[#E63329] focus:outline-none bg-[#FFF9E6]"
+              className="w-full px-4 sm:px-6 py-3 sm:py-4 text-center text-2xl sm:text-3xl font-mono tracking-[0.3em] sm:tracking-[0.5em] rounded-xl border-3 border-[#F7B52C] focus:border-[#E63329] focus:outline-none bg-[#FFF9E6]"
               placeholder="••••••"
               autoFocus
             />
@@ -745,12 +745,12 @@ export default function KioskDevicePage() {
           <button
             onClick={submitPin}
             disabled={pinInput.length < 4}
-            className="w-full bg-[#E63329] text-white font-bold py-4 rounded-xl text-lg hover:bg-[#c42a22] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full bg-[#E63329] text-white font-bold py-3 sm:py-4 rounded-xl text-base sm:text-lg hover:bg-[#c42a22] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             ✓ Valider
           </button>
           
-          <p className="text-center text-xs text-[#3D2314]/50 mt-6">
+          <p className="text-center text-xs text-[#3D2314]/50 mt-4 sm:mt-6">
             Le PIN est disponible dans Admin → Devices
           </p>
         </div>
@@ -761,17 +761,17 @@ export default function KioskDevicePage() {
   // Écran de paiement en cours
   if (paymentStatus === 'pending') {
     return (
-      <div className="min-h-screen bg-[#1E88E5] flex items-center justify-center p-8">
+      <div className="min-h-screen bg-[#1E88E5] flex items-center justify-center p-4 sm:p-8">
         <div className="text-center text-white">
-          <div className="mb-8">
-            <span className="text-8xl block animate-bounce">💳</span>
+          <div className="mb-6 sm:mb-8">
+            <span className="text-6xl sm:text-8xl block animate-bounce">💳</span>
           </div>
-          <h1 className="text-4xl font-bold mb-4">Paiement en cours...</h1>
-          <p className="text-2xl mb-8">Présentez votre carte sur le terminal</p>
+          <h1 className="text-2xl sm:text-4xl font-bold mb-4">Paiement en cours...</h1>
+          <p className="text-lg sm:text-2xl mb-6 sm:mb-8">Présentez votre carte sur le terminal</p>
           
-          <div className="bg-white/20 rounded-3xl p-8 inline-block mb-8">
-            <p className="text-xl mb-2">Montant à payer</p>
-            <p className="text-6xl font-bold">{getCartTotal().toFixed(2)} €</p>
+          <div className="bg-white/20 rounded-2xl sm:rounded-3xl p-6 sm:p-8 inline-block mb-6 sm:mb-8">
+            <p className="text-base sm:text-xl mb-2">Montant à payer</p>
+            <p className="text-4xl sm:text-6xl font-bold">{getCartTotal().toFixed(2)} €</p>
           </div>
           
           <div className="flex justify-center gap-2">
@@ -785,7 +785,7 @@ export default function KioskDevicePage() {
               setPaymentStatus('idle')
               setIsSubmitting(false)
             }}
-            className="mt-8 bg-white/20 text-white font-bold px-8 py-3 rounded-xl hover:bg-white/30 transition-colors"
+            className="mt-6 sm:mt-8 bg-white/20 text-white font-bold px-6 sm:px-8 py-2 sm:py-3 rounded-xl hover:bg-white/30 transition-colors"
           >
             Annuler
           </button>
@@ -797,19 +797,19 @@ export default function KioskDevicePage() {
   // Écran de paiement échoué
   if (paymentStatus === 'failed') {
     return (
-      <div className="min-h-screen bg-[#E63329] flex items-center justify-center p-8">
+      <div className="min-h-screen bg-[#E63329] flex items-center justify-center p-4 sm:p-8">
         <div className="text-center text-white">
-          <span className="text-8xl block mb-8">❌</span>
-          <h1 className="text-4xl font-bold mb-4">Paiement refusé</h1>
-          <p className="text-xl mb-8">Veuillez réessayer ou utiliser une autre carte</p>
+          <span className="text-6xl sm:text-8xl block mb-6 sm:mb-8">❌</span>
+          <h1 className="text-2xl sm:text-4xl font-bold mb-4">Paiement refusé</h1>
+          <p className="text-base sm:text-xl mb-6 sm:mb-8">Veuillez réessayer ou utiliser une autre carte</p>
           
-          <div className="flex gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
             <button
               onClick={() => {
                 setPaymentStatus('idle')
                 setIsSubmitting(false)
               }}
-              className="bg-white text-[#E63329] font-bold text-xl px-8 py-4 rounded-2xl hover:bg-gray-100 transition-colors"
+              className="bg-white text-[#E63329] font-bold text-base sm:text-xl px-6 sm:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl hover:bg-gray-100 transition-colors"
             >
               Réessayer
             </button>
@@ -820,7 +820,7 @@ export default function KioskDevicePage() {
                 setOrderType(null)
                 setIsSubmitting(false)
               }}
-              className="bg-white/20 text-white font-bold text-xl px-8 py-4 rounded-2xl hover:bg-white/30 transition-colors"
+              className="bg-white/20 text-white font-bold text-base sm:text-xl px-6 sm:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl hover:bg-white/30 transition-colors"
             >
               Annuler
             </button>
@@ -833,38 +833,38 @@ export default function KioskDevicePage() {
   // Écran de sélection du type de commande (ACCUEIL)
   if (!orderType && !orderNumber) {
     return (
-      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-8">
-        <div className="text-center max-w-3xl">
+      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-4 sm:p-8">
+        <div className="text-center max-w-3xl w-full">
           {/* Logo */}
-          <div className="w-48 h-48 mx-auto mb-6">
+          <div className="w-32 h-32 sm:w-48 sm:h-48 mx-auto mb-4 sm:mb-6">
             <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
           </div>
           
-          <h1 className="text-5xl font-black text-[#3D2314] mb-2">MDjambo</h1>
-          <p className="text-2xl text-[#3D2314]/70 mb-12">Touchez pour commander</p>
+          <h1 className="text-3xl sm:text-5xl font-black text-[#3D2314] mb-2">MDjambo</h1>
+          <p className="text-lg sm:text-2xl text-[#3D2314]/70 mb-8 sm:mb-12">Touchez pour commander</p>
           
-          <div className="grid grid-cols-2 gap-8">
+          <div className="grid grid-cols-2 gap-4 sm:gap-8">
             <button
               onClick={() => setOrderType('eat_in')}
-              className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
+              className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
             >
-              <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">🍽️</span>
-              <span className="text-3xl font-bold text-[#3D2314] block mb-2">Sur place</span>
-              <span className="text-[#E63329] font-semibold text-lg">TVA 12%</span>
+              <span className="text-5xl sm:text-8xl block mb-2 sm:mb-4 group-hover:scale-110 transition-transform">🍽️</span>
+              <span className="text-xl sm:text-3xl font-bold text-[#3D2314] block mb-1 sm:mb-2">Sur place</span>
+              <span className="text-[#E63329] font-semibold text-sm sm:text-lg">TVA 12%</span>
             </button>
             
             <button
               onClick={() => setOrderType('takeaway')}
-              className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
+              className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
             >
-              <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">🥡</span>
-              <span className="text-3xl font-bold text-[#3D2314] block mb-2">À emporter</span>
-              <span className="text-[#4CAF50] font-semibold text-lg">TVA 6%</span>
+              <span className="text-5xl sm:text-8xl block mb-2 sm:mb-4 group-hover:scale-110 transition-transform">🥡</span>
+              <span className="text-xl sm:text-3xl font-bold text-[#3D2314] block mb-1 sm:mb-2">À emporter</span>
+              <span className="text-[#4CAF50] font-semibold text-sm sm:text-lg">TVA 6%</span>
             </button>
           </div>
           
           {/* Nom du device discret */}
-          <p className="text-[#3D2314]/30 text-sm mt-12">{device?.name}</p>
+          <p className="text-[#3D2314]/30 text-xs sm:text-sm mt-8 sm:mt-12">{device?.name}</p>
         </div>
       </div>
     )
@@ -873,27 +873,27 @@ export default function KioskDevicePage() {
   // Écran de confirmation
   if (orderNumber) {
     return (
-      <div className="min-h-screen bg-[#4CAF50] flex items-center justify-center p-8">
+      <div className="min-h-screen bg-[#4CAF50] flex items-center justify-center p-4 sm:p-8">
         <div className="text-center text-white">
-          <span className="text-8xl block mb-8">✅</span>
-          <h1 className="text-4xl font-bold mb-4">Merci !</h1>
-          <p className="text-2xl mb-8">Votre commande est enregistrée</p>
+          <span className="text-6xl sm:text-8xl block mb-6 sm:mb-8">✅</span>
+          <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4">Merci !</h1>
+          <p className="text-lg sm:text-2xl mb-6 sm:mb-8">Votre commande est enregistrée</p>
           
-          <div className="bg-white text-[#3D2314] rounded-3xl p-8 inline-block mb-8 shadow-2xl">
-            <p className="text-xl mb-2">Numéro de commande</p>
-            <p className="text-7xl font-black text-[#E63329]">{orderNumber}</p>
+          <div className="bg-white text-[#3D2314] rounded-2xl sm:rounded-3xl p-6 sm:p-8 inline-block mb-6 sm:mb-8 shadow-2xl">
+            <p className="text-base sm:text-xl mb-2">Numéro de commande</p>
+            <p className="text-5xl sm:text-7xl font-black text-[#E63329]">{orderNumber}</p>
           </div>
           
-          <p className="text-xl mb-8">Veuillez patienter, nous vous appellerons</p>
+          <p className="text-base sm:text-xl mb-6 sm:mb-8">Veuillez patienter, nous vous appellerons</p>
           
-          <div className="mb-8">
-            <div className="w-64 mx-auto bg-white/30 rounded-full h-3 mb-3">
+          <div className="mb-6 sm:mb-8">
+            <div className="w-48 sm:w-64 mx-auto bg-white/30 rounded-full h-2 sm:h-3 mb-2 sm:mb-3">
               <div 
-                className="bg-white h-3 rounded-full transition-all duration-1000"
+                className="bg-white h-2 sm:h-3 rounded-full transition-all duration-1000"
                 style={{ width: `${(countdown / 10) * 100}%` }}
               />
             </div>
-            <p className="text-lg opacity-80">
+            <p className="text-sm sm:text-lg opacity-80">
               Retour à l'accueil dans {countdown}s
             </p>
           </div>
@@ -904,7 +904,7 @@ export default function KioskDevicePage() {
               setOrderType(null)
               setIsSubmitting(false)
             }}
-            className="bg-white text-[#4CAF50] font-bold text-xl px-12 py-4 rounded-2xl hover:bg-gray-100 transition-colors"
+            className="bg-white text-[#4CAF50] font-bold text-base sm:text-xl px-8 sm:px-12 py-3 sm:py-4 rounded-xl sm:rounded-2xl hover:bg-gray-100 transition-colors"
           >
             Nouvelle commande
           </button>
@@ -920,64 +920,64 @@ export default function KioskDevicePage() {
   return (
     <div className="min-h-screen bg-[#FFF9E6] flex flex-col">
       {/* Header */}
-      <header className="bg-white shadow-md px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <header className="bg-white shadow-md px-3 sm:px-6 py-2 sm:py-4 flex items-center justify-between">
+        <div className="flex items-center gap-2 sm:gap-4">
           <button
             onClick={() => {
               setOrderType(null)
               setCart([])
             }}
-            className="text-[#3D2314]/50 hover:text-[#3D2314] font-semibold transition-colors"
+            className="text-[#3D2314]/50 hover:text-[#3D2314] font-semibold transition-colors text-sm sm:text-base"
           >
-            ← Retour
+            ← <span className="hidden sm:inline">Retour</span>
           </button>
-          <div className="w-12 h-12">
+          <div className="w-8 h-8 sm:w-12 sm:h-12">
             <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
           </div>
-          <span className="text-2xl font-black text-[#E63329]">MDjambo</span>
+          <span className="text-lg sm:text-2xl font-black text-[#E63329]">MDjambo</span>
         </div>
         
         {/* Toggle Sur place / À emporter */}
-        <div className="flex items-center gap-2 bg-[#FFF9E6] rounded-full p-1">
+        <div className="flex items-center gap-1 sm:gap-2 bg-[#FFF9E6] rounded-full p-1">
           <button
             onClick={() => setOrderType('eat_in')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+            className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2 rounded-full font-semibold transition-all text-sm sm:text-base ${
               orderType === 'eat_in' 
                 ? 'bg-[#E63329] text-white shadow-md' 
                 : 'text-[#3D2314]/60 hover:text-[#3D2314]'
             }`}
           >
-            <span className="text-xl">🍽️</span>
-            <span>Sur place</span>
+            <span className="text-base sm:text-xl">🍽️</span>
+            <span className="hidden sm:inline">Sur place</span>
           </button>
           <button
             onClick={() => setOrderType('takeaway')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+            className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2 rounded-full font-semibold transition-all text-sm sm:text-base ${
               orderType === 'takeaway' 
                 ? 'bg-[#E63329] text-white shadow-md' 
                 : 'text-[#3D2314]/60 hover:text-[#3D2314]'
             }`}
           >
-            <span className="text-xl">🥡</span>
-            <span>À emporter</span>
+            <span className="text-base sm:text-xl">🥡</span>
+            <span className="hidden sm:inline">À emporter</span>
           </button>
         </div>
       </header>
 
       {/* Categories Navigation */}
-      <nav className="bg-white border-b-2 border-[#F7B52C]/30 px-4 py-3">
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+      <nav className="bg-white border-b-2 border-[#F7B52C]/30 px-2 sm:px-4 py-2 sm:py-3">
+        <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {categories.map(cat => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`flex items-center gap-2 px-5 py-3 rounded-full font-bold whitespace-nowrap transition-all ${
+              className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-3 rounded-full font-bold whitespace-nowrap transition-all text-sm sm:text-base ${
                 selectedCategory === cat.id
                   ? 'bg-[#E63329] text-white shadow-lg scale-105'
                   : 'bg-[#FFF9E6] text-[#3D2314] hover:bg-[#F7B52C]/20'
               }`}
             >
-              <span className="text-xl">{getCategoryIcon(cat.name)}</span>
+              <span className="text-lg sm:text-xl">{getCategoryIcon(cat.name)}</span>
               <span>{cat.name}</span>
             </button>
           ))}
@@ -985,18 +985,18 @@ export default function KioskDevicePage() {
       </nav>
 
       {/* Products Grid */}
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className="flex-1 overflow-y-auto p-3 sm:p-6">
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4">
                 <img src="/Logo_Mdjambo.svg" alt="" className="w-full h-full animate-pulse" />
               </div>
               <p className="text-[#3D2314]/50">Chargement...</p>
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+          <div className="product-grid">
             {filteredProducts.map(product => {
               const allergens = getProductAllergens(product)
               
@@ -1004,7 +1004,7 @@ export default function KioskDevicePage() {
                 <button
                   key={product.id}
                   onClick={() => openProductModal(product)}
-                  className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left group"
+                  className="bg-white rounded-xl sm:rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left group"
                 >
                   {/* Image */}
                   <div className="aspect-square bg-[#FFF9E6] flex items-center justify-center overflow-hidden">
@@ -1015,25 +1015,25 @@ export default function KioskDevicePage() {
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" 
                       />
                     ) : (
-                      <span className="text-6xl">🍔</span>
+                      <span className="text-4xl sm:text-6xl">🍔</span>
                     )}
                   </div>
                   
                   {/* Info */}
-                  <div className="p-4">
-                    <h3 className="font-bold text-[#3D2314] text-lg mb-1 line-clamp-1">{product.name}</h3>
+                  <div className="p-2 sm:p-4">
+                    <h3 className="font-bold text-[#3D2314] text-sm sm:text-lg mb-0.5 sm:mb-1 line-clamp-1">{product.name}</h3>
                     <div className="flex items-center justify-between">
-                      <p className="text-2xl font-black text-[#E63329]">{product.price.toFixed(2)} €</p>
+                      <p className="text-lg sm:text-2xl font-black text-[#E63329]">{product.price.toFixed(2)} €</p>
                       {allergens.length > 0 && (
                         <div 
                           onClick={(e) => {
                             e.stopPropagation()
                             setAllergenModalProduct(product)
                           }}
-                          className="flex gap-0.5 bg-[#FFF9E6] rounded-lg px-2 py-1"
+                          className="flex gap-0.5 bg-[#FFF9E6] rounded-lg px-1.5 sm:px-2 py-0.5 sm:py-1"
                         >
                           {allergens.slice(0, 3).map(a => (
-                            <span key={a.name} className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}>
+                            <span key={a.name} className={`text-xs sm:text-sm ${a.is_trace ? 'opacity-50' : ''}`}>
                               {a.emoji}
                             </span>
                           ))}
@@ -1054,23 +1054,23 @@ export default function KioskDevicePage() {
       {/* Barre panier fixe en bas */}
       {cart.length > 0 && (
         <div 
-          className="bg-[#E63329] text-white px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-[#c42a22] transition-colors"
+          className="bg-[#E63329] text-white px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between cursor-pointer hover:bg-[#c42a22] transition-colors"
           onClick={() => setShowCart(true)}
         >
-          <div className="flex items-center gap-4">
-            <div className="bg-white/20 rounded-full px-4 py-2 flex items-center gap-2">
-              <span className="text-2xl">🛒</span>
-              <span className="font-bold text-xl">{getCartItemCount()}</span>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className="bg-white/20 rounded-full px-2.5 sm:px-4 py-1.5 sm:py-2 flex items-center gap-1.5 sm:gap-2">
+              <span className="text-lg sm:text-2xl">🛒</span>
+              <span className="font-bold text-base sm:text-xl">{getCartItemCount()}</span>
             </div>
-            <span className="font-semibold text-lg">
+            <span className="font-semibold text-sm sm:text-lg hidden sm:inline">
               {getCartItemCount()} article{getCartItemCount() > 1 ? 's' : ''}
             </span>
           </div>
           
-          <div className="flex items-center gap-6">
-            <span className="text-3xl font-black">{getCartTotal().toFixed(2)} €</span>
-            <div className="bg-white text-[#E63329] font-bold px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-gray-100 transition-colors">
-              <span>COMMANDER</span>
+          <div className="flex items-center gap-3 sm:gap-6">
+            <span className="text-xl sm:text-3xl font-black">{getCartTotal().toFixed(2)} €</span>
+            <div className="bg-white text-[#E63329] font-bold px-3 sm:px-6 py-2 sm:py-3 rounded-lg sm:rounded-xl flex items-center gap-1 sm:gap-2 hover:bg-gray-100 transition-colors text-sm sm:text-base">
+              <span className="hidden sm:inline">COMMANDER</span>
               <span>→</span>
             </div>
           </div>
@@ -1475,6 +1475,34 @@ export default function KioskDevicePage() {
         .scrollbar-hide {
           -ms-overflow-style: none;
           scrollbar-width: none;
+        }
+        .product-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+          gap: 10px;
+        }
+        @media (min-width: 480px) {
+          .product-grid {
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 14px;
+          }
+        }
+        @media (min-width: 640px) {
+          .product-grid {
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 18px;
+          }
+        }
+        @media (min-width: 1024px) {
+          .product-grid {
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+          }
+        }
+        @media (min-width: 1440px) {
+          .product-grid {
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+          }
         }
       `}</style>
     </div>
