@@ -155,6 +155,7 @@ export default function KioskDevicePage() {
   // Viva Payment
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'pending' | 'success' | 'failed'>('idle')
   const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null)
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
   
   // Allergen modal
   const [allergenModalProduct, setAllergenModalProduct] = useState<Product | null>(null)
@@ -580,9 +581,13 @@ export default function KioskDevicePage() {
   }
 
   async function finalizeOrder(orderId: string) {
+    // Paiement confirmé → passer la commande en 'pending' pour qu'elle apparaisse sur le KDS
     await supabase
       .from('orders')
-      .update({ payment_status: 'paid' })
+      .update({ 
+        status: 'pending',        // ← Maintenant visible sur le KDS
+        payment_status: 'paid' 
+      })
       .eq('id', orderId)
     
     const { data } = await supabase
@@ -591,10 +596,17 @@ export default function KioskDevicePage() {
       .eq('id', orderId)
       .single()
     
-    setOrderNumber(data?.order_number || orderId)
-    setCart([])
-    setPaymentStatus('idle')
-    setPaymentSessionId(null)
+    // Afficher l'écran "Paiement validé" pendant 3 secondes
+    setPaymentStatus('success')
+    
+    // Après 3 secondes, passer à l'écran de confirmation
+    setTimeout(() => {
+      setOrderNumber(data?.order_number || orderId)
+      setCart([])
+      setPaymentStatus('idle')
+      setPaymentSessionId(null)
+      setPendingOrderId(null)
+    }, 3000)
   }
 
   async function submitOrder() {
@@ -608,12 +620,13 @@ export default function KioskDevicePage() {
       const taxAmount = totalTTC * vatRate / (100 + vatRate)
       const subtotalHT = totalTTC - taxAmount
       
+      // Créer la commande avec status 'awaiting_payment' pour qu'elle n'apparaisse PAS sur le KDS
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert({
           establishment_id: device.establishmentId,
           order_type: orderType,
-          status: 'pending',
+          status: 'awaiting_payment', // ← Ne sera visible sur KDS qu'après paiement
           subtotal: subtotalHT,
           tax_amount: taxAmount,
           total_amount: totalTTC,
@@ -626,6 +639,9 @@ export default function KioskDevicePage() {
         .single()
       
       if (orderError) throw orderError
+      
+      // Stocker l'ID pour pouvoir annuler si paiement échoue
+      setPendingOrderId(order.id)
       
       const orderItems = cart.flatMap(item => ({
         order_id: order.id,
@@ -781,7 +797,12 @@ export default function KioskDevicePage() {
           </div>
           
           <button
-            onClick={() => {
+            onClick={async () => {
+              // Annuler la commande en attente si elle existe
+              if (pendingOrderId) {
+                await supabase.from('orders').update({ status: 'cancelled' }).eq('id', pendingOrderId)
+                setPendingOrderId(null)
+              }
               setPaymentStatus('idle')
               setIsSubmitting(false)
             }}
@@ -789,6 +810,27 @@ export default function KioskDevicePage() {
           >
             Annuler
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Écran de paiement validé ✅ (affiché 3 secondes avant la confirmation)
+  if (paymentStatus === 'success') {
+    return (
+      <div className="min-h-screen bg-[#4CAF50] flex items-center justify-center p-4 sm:p-8">
+        <div className="text-center text-white">
+          <div className="mb-6 sm:mb-8">
+            <span className="text-6xl sm:text-8xl block animate-bounce">✅</span>
+          </div>
+          <h1 className="text-2xl sm:text-4xl font-bold mb-4">Paiement validé !</h1>
+          <p className="text-lg sm:text-2xl mb-6 sm:mb-8">Votre commande est envoyée en cuisine</p>
+          
+          <div className="flex justify-center gap-2">
+            <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+            <div className="w-3 h-3 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+            <div className="w-3 h-3 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+          </div>
         </div>
       </div>
     )
@@ -805,16 +847,28 @@ export default function KioskDevicePage() {
           
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
             <button
-              onClick={() => {
-                setPaymentStatus('idle')
-                setIsSubmitting(false)
+              onClick={async () => {
+                // Réessayer avec la même commande
+                if (pendingOrderId) {
+                  setPaymentStatus('idle')
+                  setIsSubmitting(true)
+                  await initiateVivaPayment(pendingOrderId, getCartTotal())
+                } else {
+                  setPaymentStatus('idle')
+                  setIsSubmitting(false)
+                }
               }}
               className="bg-white text-[#E63329] font-bold text-base sm:text-xl px-6 sm:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl hover:bg-gray-100 transition-colors"
             >
               Réessayer
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
+                // Annuler la commande en attente
+                if (pendingOrderId) {
+                  await supabase.from('orders').update({ status: 'cancelled' }).eq('id', pendingOrderId)
+                  setPendingOrderId(null)
+                }
                 setPaymentStatus('idle')
                 setCart([])
                 setOrderType(null)
