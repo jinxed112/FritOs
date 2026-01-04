@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import Image from 'next/image'
 
 // Types
 type OptionGroupItem = {
@@ -89,36 +88,6 @@ type DeviceInfo = {
   establishmentId: string
 }
 
-// Icônes par catégorie
-const categoryIcons: Record<string, string> = {
-  'frite': '🍟',
-  'frites': '🍟',
-  'smashburger': '🍔',
-  'smashburgers': '🍔',
-  'burger': '🍔',
-  'hamburger': '🍔',
-  'mitraillette': '🌯',
-  'pain': '🥖',
-  'pains': '🥖',
-  'snack': '🍗',
-  'snacks': '🍗',
-  'pitta': '🥙',
-  'sauce': '🥫',
-  'sauces': '🥫',
-  'bière': '🍺',
-  'bières': '🍺',
-  'boisson': '🥤',
-  'boissons': '🥤',
-}
-
-function getCategoryIcon(categoryName: string): string {
-  const nameLower = categoryName.toLowerCase()
-  for (const [key, icon] of Object.entries(categoryIcons)) {
-    if (nameLower.includes(key)) return icon
-  }
-  return '🍽️'
-}
-
 export default function KioskDevicePage() {
   const params = useParams()
   const deviceCode = (params.deviceCode as string)?.toUpperCase()
@@ -145,7 +114,6 @@ export default function KioskDevicePage() {
   // Cart
   const [cart, setCart] = useState<CartItem[]>([])
   const [orderType, setOrderType] = useState<OrderType | null>(null)
-  const [showCart, setShowCart] = useState(false)
   
   // Confirmation
   const [orderNumber, setOrderNumber] = useState<string | null>(null)
@@ -190,8 +158,8 @@ export default function KioskDevicePage() {
   }
 
   async function submitPin() {
-    if (pinInput.length < 4) {
-      setPinError('Le PIN doit contenir au moins 4 chiffres')
+    if (pinInput.length !== 6) {
+      setPinError('Le PIN doit contenir 6 chiffres')
       return
     }
     
@@ -490,10 +458,6 @@ export default function KioskDevicePage() {
     }))
   }
 
-  function getCartItemCount(): number {
-    return cart.reduce((sum, item) => sum + item.quantity, 0)
-  }
-
   function getCartSubtotal(): number {
     return cart.reduce((sum, item) => sum + (item.price + item.options_total) * item.quantity, 0)
   }
@@ -679,16 +643,10 @@ export default function KioskDevicePage() {
   // Écran de vérification
   if (authStatus === 'checking') {
     return (
-      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-32 h-32 mx-auto mb-6">
-            <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
-          </div>
-          <div className="flex gap-2 justify-center">
-            <div className="w-3 h-3 bg-[#E63329] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            <div className="w-3 h-3 bg-[#E63329] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-            <div className="w-3 h-3 bg-[#E63329] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-          </div>
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-white text-center">
+          <span className="text-8xl block mb-4 animate-pulse">🖥️</span>
+          <p className="text-xl">Vérification...</p>
         </div>
       </div>
     )
@@ -697,7 +655,7 @@ export default function KioskDevicePage() {
   // Écran d'erreur (pas de deviceCode)
   if (authStatus === 'error') {
     return (
-      <div className="min-h-screen bg-[#E63329] flex items-center justify-center p-8">
+      <div className="min-h-screen bg-red-600 flex items-center justify-center p-8">
         <div className="text-center text-white">
           <span className="text-8xl block mb-8">❌</span>
           <h1 className="text-4xl font-bold mb-4">Erreur</h1>
@@ -711,32 +669,30 @@ export default function KioskDevicePage() {
   // Écran de saisie du PIN
   if (authStatus === 'needPin') {
     return (
-      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-8">
-        <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl border-4 border-[#F7B52C]">
+      <div className="min-h-screen bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center p-8">
+        <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl">
           <div className="text-center mb-8">
-            <div className="w-24 h-24 mx-auto mb-4">
-              <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
-            </div>
-            <h1 className="text-2xl font-bold text-[#3D2314]">Authentification</h1>
-            <p className="text-[#3D2314]/60">Borne {deviceCode}</p>
+            <span className="text-6xl block mb-4">🔐</span>
+            <h1 className="text-2xl font-bold text-gray-900">Authentification</h1>
+            <p className="text-gray-500">Borne {deviceCode}</p>
           </div>
           
           {pinError && (
-            <div className="bg-red-50 border-2 border-[#E63329] text-[#E63329] px-4 py-3 rounded-xl mb-4 text-center font-semibold">
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4 text-center">
               {pinError}
             </div>
           )}
           
           <div className="mb-6">
-            <label className="block text-sm font-bold text-[#3D2314] mb-2">Code PIN</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Code PIN</label>
             <input
               type="password"
               inputMode="numeric"
-              maxLength={8}
+              maxLength={6}
               value={pinInput}
               onChange={e => setPinInput(e.target.value.replace(/\D/g, ''))}
               onKeyDown={e => e.key === 'Enter' && submitPin()}
-              className="w-full px-6 py-4 text-center text-3xl font-mono tracking-[0.5em] rounded-xl border-3 border-[#F7B52C] focus:border-[#E63329] focus:outline-none bg-[#FFF9E6]"
+              className="w-full px-6 py-4 text-center text-3xl font-mono tracking-[0.5em] rounded-xl border-2 border-gray-200 focus:border-orange-500 focus:outline-none"
               placeholder="••••••"
               autoFocus
             />
@@ -744,13 +700,13 @@ export default function KioskDevicePage() {
           
           <button
             onClick={submitPin}
-            disabled={pinInput.length < 4}
-            className="w-full bg-[#E63329] text-white font-bold py-4 rounded-xl text-lg hover:bg-[#c42a22] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            disabled={pinInput.length !== 6}
+            className="w-full bg-orange-500 text-white font-bold py-4 rounded-xl text-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             ✓ Valider
           </button>
           
-          <p className="text-center text-xs text-[#3D2314]/50 mt-6">
+          <p className="text-center text-xs text-gray-400 mt-6">
             Le PIN est disponible dans Admin → Devices
           </p>
         </div>
@@ -761,7 +717,7 @@ export default function KioskDevicePage() {
   // Écran de paiement en cours
   if (paymentStatus === 'pending') {
     return (
-      <div className="min-h-screen bg-[#1E88E5] flex items-center justify-center p-8">
+      <div className="min-h-screen bg-blue-600 flex items-center justify-center p-8">
         <div className="text-center text-white">
           <div className="mb-8">
             <span className="text-8xl block animate-bounce">💳</span>
@@ -785,7 +741,7 @@ export default function KioskDevicePage() {
               setPaymentStatus('idle')
               setIsSubmitting(false)
             }}
-            className="mt-8 bg-white/20 text-white font-bold px-8 py-3 rounded-xl hover:bg-white/30 transition-colors"
+            className="mt-8 bg-white/20 text-white font-bold px-8 py-3 rounded-xl"
           >
             Annuler
           </button>
@@ -797,7 +753,7 @@ export default function KioskDevicePage() {
   // Écran de paiement échoué
   if (paymentStatus === 'failed') {
     return (
-      <div className="min-h-screen bg-[#E63329] flex items-center justify-center p-8">
+      <div className="min-h-screen bg-red-500 flex items-center justify-center p-8">
         <div className="text-center text-white">
           <span className="text-8xl block mb-8">❌</span>
           <h1 className="text-4xl font-bold mb-4">Paiement refusé</h1>
@@ -809,7 +765,7 @@ export default function KioskDevicePage() {
                 setPaymentStatus('idle')
                 setIsSubmitting(false)
               }}
-              className="bg-white text-[#E63329] font-bold text-xl px-8 py-4 rounded-2xl hover:bg-gray-100 transition-colors"
+              className="bg-white text-red-600 font-bold text-xl px-8 py-4 rounded-2xl"
             >
               Réessayer
             </button>
@@ -820,7 +776,7 @@ export default function KioskDevicePage() {
                 setOrderType(null)
                 setIsSubmitting(false)
               }}
-              className="bg-white/20 text-white font-bold text-xl px-8 py-4 rounded-2xl hover:bg-white/30 transition-colors"
+              className="bg-white/20 text-white font-bold text-xl px-8 py-4 rounded-2xl"
             >
               Annuler
             </button>
@@ -830,41 +786,37 @@ export default function KioskDevicePage() {
     )
   }
 
-  // Écran de sélection du type de commande (ACCUEIL)
+  // Écran de sélection du type de commande
   if (!orderType && !orderNumber) {
     return (
-      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-8">
-        <div className="text-center max-w-3xl">
-          {/* Logo */}
-          <div className="w-48 h-48 mx-auto mb-6">
-            <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
-          </div>
+      <div className="min-h-screen bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center p-8">
+        <div className="text-center">
+          <span className="text-8xl block mb-8">🍔</span>
+          <h1 className="text-5xl font-bold text-white mb-4">MDjambo</h1>
+          <p className="text-2xl text-orange-100 mb-12">Touchez pour commander</p>
           
-          <h1 className="text-5xl font-black text-[#3D2314] mb-2">MDjambo</h1>
-          <p className="text-2xl text-[#3D2314]/70 mb-12">Touchez pour commander</p>
-          
-          <div className="grid grid-cols-2 gap-8">
+          <div className="grid grid-cols-2 gap-8 max-w-2xl">
             <button
               onClick={() => setOrderType('eat_in')}
-              className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
+              className="bg-white rounded-3xl p-8 shadow-2xl hover:scale-105 transition-transform"
             >
-              <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">🍽️</span>
-              <span className="text-3xl font-bold text-[#3D2314] block mb-2">Sur place</span>
-              <span className="text-[#E63329] font-semibold text-lg">TVA 12%</span>
+              <span className="text-7xl block mb-4">🍽️</span>
+              <span className="text-2xl font-bold text-gray-800 block">Sur place</span>
+              <span className="text-orange-500 font-semibold">+6% (TVA 12%)</span>
             </button>
             
             <button
               onClick={() => setOrderType('takeaway')}
-              className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
+              className="bg-white rounded-3xl p-8 shadow-2xl hover:scale-105 transition-transform"
             >
-              <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">🥡</span>
-              <span className="text-3xl font-bold text-[#3D2314] block mb-2">À emporter</span>
-              <span className="text-[#4CAF50] font-semibold text-lg">TVA 6%</span>
+              <span className="text-7xl block mb-4">🥡</span>
+              <span className="text-2xl font-bold text-gray-800 block">À emporter</span>
+              <span className="text-green-600 font-semibold">Prix affiché (TVA 6%)</span>
             </button>
           </div>
           
           {/* Nom du device discret */}
-          <p className="text-[#3D2314]/30 text-sm mt-12">{device?.name}</p>
+          <p className="text-orange-200 text-sm mt-12">{device?.name}</p>
         </div>
       </div>
     )
@@ -873,15 +825,15 @@ export default function KioskDevicePage() {
   // Écran de confirmation
   if (orderNumber) {
     return (
-      <div className="min-h-screen bg-[#4CAF50] flex items-center justify-center p-8">
+      <div className="min-h-screen bg-green-500 flex items-center justify-center p-8">
         <div className="text-center text-white">
           <span className="text-8xl block mb-8">✅</span>
           <h1 className="text-4xl font-bold mb-4">Merci !</h1>
           <p className="text-2xl mb-8">Votre commande est enregistrée</p>
           
-          <div className="bg-white text-[#3D2314] rounded-3xl p-8 inline-block mb-8 shadow-2xl">
+          <div className="bg-white text-gray-900 rounded-3xl p-8 inline-block mb-8">
             <p className="text-xl mb-2">Numéro de commande</p>
-            <p className="text-7xl font-black text-[#E63329]">{orderNumber}</p>
+            <p className="text-7xl font-bold text-orange-500">{orderNumber}</p>
           </div>
           
           <p className="text-xl mb-8">Veuillez patienter, nous vous appellerons</p>
@@ -904,7 +856,7 @@ export default function KioskDevicePage() {
               setOrderType(null)
               setIsSubmitting(false)
             }}
-            className="bg-white text-[#4CAF50] font-bold text-xl px-12 py-4 rounded-2xl hover:bg-gray-100 transition-colors"
+            className="bg-white text-green-600 font-bold text-xl px-12 py-4 rounded-2xl"
           >
             Nouvelle commande
           </button>
@@ -913,352 +865,284 @@ export default function KioskDevicePage() {
     )
   }
 
-  // ==================== INTERFACE PRINCIPALE ====================
   const filteredProducts = products.filter(p => p.category_id === selectedCategory)
   const currentGroup = currentPropositions[currentPropositionIndex]
 
   return (
-    <div className="min-h-screen bg-[#FFF9E6] flex flex-col">
-      {/* Header */}
-      <header className="bg-white shadow-md px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => {
-              setOrderType(null)
-              setCart([])
-            }}
-            className="text-[#3D2314]/50 hover:text-[#3D2314] font-semibold transition-colors"
-          >
-            ← Retour
-          </button>
-          <div className="w-12 h-12">
-            <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
+    <div className="min-h-screen bg-gray-100 flex">
+      {/* Main content */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <header className="bg-white shadow-sm p-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => {
+                setOrderType(null)
+                setCart([])
+              }}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ← Retour
+            </button>
+            <h1 className="text-2xl font-bold text-orange-500">MDjambo</h1>
           </div>
-          <span className="text-2xl font-black text-[#E63329]">MDjambo</span>
+          <div className="flex items-center gap-2 text-gray-600">
+            <span className="text-2xl">{orderType === 'eat_in' ? '🍽️' : '🥡'}</span>
+            <span>{orderType === 'eat_in' ? 'Sur place' : 'À emporter'}</span>
+          </div>
+        </header>
+
+        {/* Categories */}
+        <div className="bg-white border-b p-4">
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {categories.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-6 py-3 rounded-full font-semibold whitespace-nowrap transition-colors ${
+                  selectedCategory === cat.id
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Products */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="text-center text-gray-400 py-12">Chargement...</div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {filteredProducts.map(product => {
+                const allergens = getProductAllergens(product)
+                
+                return (
+                <div
+                  key={product.id}
+                  className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow text-left relative"
+                >
+                  <button
+                    onClick={() => openProductModal(product)}
+                    className="w-full"
+                  >
+                    <div className="aspect-square bg-gray-100 flex items-center justify-center text-6xl">
+                      {product.image_url ? (
+                        <img src={product.image_url} alt="" className="w-full h-full object-cover" />
+                      ) : '🍔'}
+                    </div>
+                    <div className="p-4">
+                      <h3 className="font-bold text-gray-900 mb-1">{product.name}</h3>
+                      {product.description && (
+                        <p className="text-sm text-gray-500 mb-2 line-clamp-2">{product.description}</p>
+                      )}
+                      <p className="text-xl font-bold text-orange-500">{product.price.toFixed(2)} €</p>
+                    </div>
+                  </button>
+                  {allergens.length > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setAllergenModalProduct(product)
+                      }}
+                      className="absolute bottom-4 right-4 flex gap-0.5 bg-gray-100 hover:bg-orange-100 rounded-lg px-2 py-1 transition-colors"
+                    >
+                      {allergens.slice(0, 5).map(a => (
+                        <span 
+                          key={a.name} 
+                          className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}
+                        >
+                          {a.emoji}
+                        </span>
+                      ))}
+                      {allergens.length > 5 && (
+                        <span className="text-xs text-gray-400">+{allergens.length - 5}</span>
+                      )}
+                    </button>
+                  )}
+                </div>
+              )})}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Cart sidebar */}
+      <div className="w-96 bg-white shadow-xl flex flex-col">
+        <div className="p-6 border-b">
+          <h2 className="text-xl font-bold">Votre commande</h2>
         </div>
         
-        {/* Toggle Sur place / À emporter */}
-        <div className="flex items-center gap-2 bg-[#FFF9E6] rounded-full p-1">
-          <button
-            onClick={() => setOrderType('eat_in')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
-              orderType === 'eat_in' 
-                ? 'bg-[#E63329] text-white shadow-md' 
-                : 'text-[#3D2314]/60 hover:text-[#3D2314]'
-            }`}
-          >
-            <span className="text-xl">🍽️</span>
-            <span>Sur place</span>
-          </button>
-          <button
-            onClick={() => setOrderType('takeaway')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
-              orderType === 'takeaway' 
-                ? 'bg-[#E63329] text-white shadow-md' 
-                : 'text-[#3D2314]/60 hover:text-[#3D2314]'
-            }`}
-          >
-            <span className="text-xl">🥡</span>
-            <span>À emporter</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Categories Navigation */}
-      <nav className="bg-white border-b-2 border-[#F7B52C]/30 px-4 py-3">
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {categories.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`flex items-center gap-2 px-5 py-3 rounded-full font-bold whitespace-nowrap transition-all ${
-                selectedCategory === cat.id
-                  ? 'bg-[#E63329] text-white shadow-lg scale-105'
-                  : 'bg-[#FFF9E6] text-[#3D2314] hover:bg-[#F7B52C]/20'
-              }`}
-            >
-              <span className="text-xl">{getCategoryIcon(cat.name)}</span>
-              <span>{cat.name}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
-
-      {/* Products Grid */}
-      <main className="flex-1 overflow-y-auto p-6">
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4">
-                <img src="/Logo_Mdjambo.svg" alt="" className="w-full h-full animate-pulse" />
-              </div>
-              <p className="text-[#3D2314]/50">Chargement...</p>
+        <div className="flex-1 overflow-y-auto p-4">
+          {cart.length === 0 ? (
+            <div className="text-center text-gray-400 py-12">
+              <span className="text-5xl block mb-4">🛒</span>
+              <p>Votre panier est vide</p>
             </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
-            {filteredProducts.map(product => {
-              const allergens = getProductAllergens(product)
-              
-              return (
-                <button
-                  key={product.id}
-                  onClick={() => openProductModal(product)}
-                  className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left group"
-                >
-                  {/* Image */}
-                  <div className="aspect-square bg-[#FFF9E6] flex items-center justify-center overflow-hidden">
-                    {product.image_url ? (
-                      <img 
-                        src={product.image_url} 
-                        alt="" 
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" 
-                      />
-                    ) : (
-                      <span className="text-6xl">🍔</span>
-                    )}
-                  </div>
-                  
-                  {/* Info */}
-                  <div className="p-4">
-                    <h3 className="font-bold text-[#3D2314] text-lg mb-1 line-clamp-1">{product.name}</h3>
-                    <div className="flex items-center justify-between">
-                      <p className="text-2xl font-black text-[#E63329]">{product.price.toFixed(2)} €</p>
-                      {allergens.length > 0 && (
-                        <div 
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setAllergenModalProduct(product)
-                          }}
-                          className="flex gap-0.5 bg-[#FFF9E6] rounded-lg px-2 py-1"
-                        >
-                          {allergens.slice(0, 3).map(a => (
-                            <span key={a.name} className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}>
-                              {a.emoji}
-                            </span>
+          ) : (
+            <div className="space-y-4">
+              {cart.map(item => (
+                <div key={item.id} className="bg-gray-50 rounded-xl p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <h3 className="font-bold">{item.name}</h3>
+                      {item.options.length > 0 && (
+                        <div className="text-sm text-gray-500 mt-1">
+                          {item.options.map(o => (
+                            <div key={o.item_id}>
+                              + {o.item_name} {o.price > 0 && `(${o.price.toFixed(2)}€)`}
+                            </div>
                           ))}
-                          {allergens.length > 3 && (
-                            <span className="text-xs text-[#3D2314]/50">+{allergens.length - 3}</span>
-                          )}
                         </div>
                       )}
                     </div>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </main>
-
-      {/* Barre panier fixe en bas */}
-      {cart.length > 0 && (
-        <div 
-          className="bg-[#E63329] text-white px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-[#c42a22] transition-colors"
-          onClick={() => setShowCart(true)}
-        >
-          <div className="flex items-center gap-4">
-            <div className="bg-white/20 rounded-full px-4 py-2 flex items-center gap-2">
-              <span className="text-2xl">🛒</span>
-              <span className="font-bold text-xl">{getCartItemCount()}</span>
-            </div>
-            <span className="font-semibold text-lg">
-              {getCartItemCount()} article{getCartItemCount() > 1 ? 's' : ''}
-            </span>
-          </div>
-          
-          <div className="flex items-center gap-6">
-            <span className="text-3xl font-black">{getCartTotal().toFixed(2)} €</span>
-            <div className="bg-white text-[#E63329] font-bold px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-gray-100 transition-colors">
-              <span>COMMANDER</span>
-              <span>→</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Panel Panier (slide-up) */}
-      {showCart && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-50 flex items-end"
-          onClick={() => setShowCart(false)}
-        >
-          <div 
-            className="bg-white w-full max-h-[85vh] rounded-t-3xl overflow-hidden animate-slide-up"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header panier */}
-            <div className="bg-[#FFF9E6] px-6 py-5 flex items-center justify-between border-b-2 border-[#F7B52C]/30">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">🛒</span>
-                <h2 className="text-2xl font-bold text-[#3D2314]">Votre commande</h2>
-              </div>
-              <button 
-                onClick={() => setShowCart(false)}
-                className="w-10 h-10 rounded-full bg-[#3D2314]/10 flex items-center justify-center text-[#3D2314] hover:bg-[#3D2314]/20 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-            
-            {/* Liste articles */}
-            <div className="overflow-y-auto max-h-[45vh] p-6">
-              {cart.map(item => (
-                <div key={item.id} className="flex items-start gap-4 py-4 border-b border-[#F7B52C]/20 last:border-0">
-                  <div className="flex-1">
-                    <h3 className="font-bold text-[#3D2314] text-lg">{item.name}</h3>
-                    {item.options.length > 0 && (
-                      <div className="text-sm text-[#3D2314]/60 mt-1">
-                        {item.options.map(o => (
-                          <span key={o.item_id} className="block">
-                            + {o.item_name} {o.price > 0 && `(${o.price.toFixed(2)}€)`}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-[#E63329] font-bold text-lg mt-2">
-                      {((item.price + item.options_total) * item.quantity).toFixed(2)} €
-                    </p>
+                    <button
+                      onClick={() => removeFromCart(item.id)}
+                      className="text-gray-400 hover:text-red-500"
+                    >
+                      ✕
+                    </button>
                   </div>
                   
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center bg-[#FFF9E6] rounded-full">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => updateQuantity(item.id, -1)}
-                        className="w-10 h-10 flex items-center justify-center text-[#E63329] font-bold text-xl hover:bg-[#F7B52C]/30 rounded-full transition-colors"
+                        className="w-8 h-8 rounded-full bg-gray-200 font-bold"
                       >
-                        −
+                        -
                       </button>
-                      <span className="w-8 text-center font-bold text-[#3D2314]">{item.quantity}</span>
+                      <span className="font-bold w-8 text-center">{item.quantity}</span>
                       <button
                         onClick={() => updateQuantity(item.id, 1)}
-                        className="w-10 h-10 flex items-center justify-center text-[#E63329] font-bold text-xl hover:bg-[#F7B52C]/30 rounded-full transition-colors"
+                        className="w-8 h-8 rounded-full bg-gray-200 font-bold"
                       >
                         +
                       </button>
                     </div>
-                    <button
-                      onClick={() => removeFromCart(item.id)}
-                      className="w-10 h-10 flex items-center justify-center text-[#E63329] hover:bg-red-50 rounded-full transition-colors"
-                    >
-                      🗑️
-                    </button>
+                    <span className="font-bold text-orange-500">
+                      {((item.price + item.options_total) * item.quantity).toFixed(2)} €
+                    </span>
                   </div>
                 </div>
               ))}
             </div>
+          )}
+        </div>
+        
+        {/* Cart footer */}
+        {cart.length > 0 && (
+          <div className="p-6 border-t">
+            <div className="flex justify-between mb-2">
+              <span className="text-gray-600">Sous-total</span>
+              <span className="font-bold">{getCartSubtotal().toFixed(2)} €</span>
+            </div>
             
-            {/* Footer panier */}
-            <div className="border-t-2 border-[#F7B52C]/30 p-6 bg-[#FFF9E6]">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-[#3D2314]/70">Sous-total</span>
-                <span className="font-semibold text-[#3D2314]">{getCartSubtotal().toFixed(2)} €</span>
+            {orderType === 'eat_in' && (
+              <div className="flex justify-between mb-2 text-orange-600">
+                <span>Supplément sur place (+6%)</span>
+                <span>+{(getCartSubtotal() * 0.06).toFixed(2)} €</span>
               </div>
-              {orderType === 'eat_in' && (
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-[#3D2314]/70">TVA (12%)</span>
-                  <span className="font-semibold text-[#3D2314]">+{(getCartSubtotal() * 0.06).toFixed(2)} €</span>
+            )}
+            
+            <div className="flex justify-between mb-2 text-sm text-gray-500">
+              <span>dont TVA ({getVatRate()}%)</span>
+              <span>{(getCartTotal() * getVatRate() / (100 + getVatRate())).toFixed(2)} €</span>
+            </div>
+            
+            <div className="flex justify-between mb-6 text-xl border-t pt-4 mt-2">
+              <span className="font-bold">À payer</span>
+              <span className="font-bold text-orange-500">
+                {getCartTotal().toFixed(2)} €
+              </span>
+            </div>
+            
+            <button
+              onClick={submitOrder}
+              disabled={isSubmitting}
+              className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl text-xl hover:bg-orange-600 disabled:opacity-50"
+            >
+              {isSubmitting ? 'Envoi...' : '✓ Commander'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Modal Propositions */}
+      {selectedProduct && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Header produit */}
+            <div className="p-6 bg-gradient-to-r from-orange-500 to-orange-600 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold">{selectedProduct.name}</h2>
+                  <p className="text-orange-100">{selectedProduct.price.toFixed(2)} €</p>
+                  {(() => {
+                    const allergens = getProductAllergens(selectedProduct)
+                    if (allergens.length === 0) return null
+                    return (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {allergens.map(a => (
+                          <span 
+                            key={a.name}
+                            className={`text-lg ${a.is_trace ? 'opacity-60' : ''}`}
+                            title={a.is_trace ? `Traces: ${a.name}` : a.name}
+                          >
+                            {a.emoji}
+                          </span>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </div>
+                <button
+                  onClick={closeProductModal}
+                  className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-xl"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              {currentPropositions.length > 0 && (
+                <div className="flex gap-2 mt-4">
+                  {currentPropositions.map((_, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex-1 h-1 rounded-full ${
+                        idx <= currentPropositionIndex ? 'bg-white' : 'bg-white/30'
+                      }`}
+                    />
+                  ))}
                 </div>
               )}
-              <div className="flex items-center justify-between mb-6">
-                <span className="text-xl font-bold text-[#3D2314]">TOTAL</span>
-                <span className="text-3xl font-black text-[#E63329]">{getCartTotal().toFixed(2)} €</span>
-              </div>
-              
-              <button
-                onClick={() => {
-                  setShowCart(false)
-                  submitOrder()
-                }}
-                disabled={isSubmitting}
-                className="w-full bg-[#E63329] text-white font-bold py-5 rounded-2xl text-xl hover:bg-[#c42a22] disabled:opacity-50 transition-colors flex items-center justify-center gap-3"
-              >
-                <span>💳</span>
-                <span>PAYER {getCartTotal().toFixed(2)} €</span>
-              </button>
-              
-              <button
-                onClick={() => {
-                  if (confirm('Annuler votre commande ?')) {
-                    setCart([])
-                    setShowCart(false)
-                  }
-                }}
-                className="w-full mt-3 text-[#3D2314]/50 font-semibold py-3 hover:text-[#E63329] transition-colors"
-              >
-                Annuler la commande
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Produit avec propositions */}
-      {selectedProduct && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={closeProductModal}
-        >
-          <div 
-            className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header produit */}
-            <div className="relative">
-              <div className="aspect-video bg-[#FFF9E6] flex items-center justify-center">
-                {selectedProduct.image_url ? (
-                  <img src={selectedProduct.image_url} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-8xl">🍔</span>
-                )}
-              </div>
-              <button
-                onClick={closeProductModal}
-                className="absolute top-4 right-4 w-12 h-12 bg-white/90 backdrop-blur rounded-full flex items-center justify-center text-[#3D2314] shadow-lg hover:bg-white transition-colors"
-              >
-                ✕
-              </button>
             </div>
             
-            {/* Contenu */}
-            <div className="p-6 overflow-y-auto max-h-[40vh]">
-              {/* Produit sans propositions */}
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
               {currentPropositions.length === 0 ? (
-                <div>
-                  <h2 className="text-2xl font-bold text-[#3D2314] mb-2">{selectedProduct.name}</h2>
-                  {selectedProduct.description && (
-                    <p className="text-[#3D2314]/60 mb-4">{selectedProduct.description}</p>
-                  )}
-                  <p className="text-3xl font-black text-[#E63329] mb-6">{selectedProduct.price.toFixed(2)} €</p>
+                <div className="text-center py-8">
+                  <p className="text-gray-500 mb-4">Pas d'options pour ce produit</p>
                   <button
                     onClick={addToCart}
-                    className="w-full bg-[#E63329] text-white font-bold px-8 py-4 rounded-xl hover:bg-[#c42a22] transition-colors text-lg"
+                    className="bg-orange-500 text-white font-bold px-8 py-3 rounded-xl"
                   >
                     Ajouter au panier
                   </button>
                 </div>
               ) : currentGroup ? (
                 <div>
-                  {/* Progress bar */}
-                  <div className="flex gap-1 mb-4">
-                    {currentPropositions.map((_, idx) => (
-                      <div 
-                        key={idx} 
-                        className={`h-1 flex-1 rounded-full ${
-                          idx <= currentPropositionIndex ? 'bg-[#E63329]' : 'bg-[#F7B52C]/30'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  
-                  <h3 className="text-xl font-bold text-[#3D2314] mb-1">{currentGroup.name}</h3>
-                  <p className="text-[#3D2314]/60 mb-4">
+                  <h3 className="text-xl font-bold mb-2">{currentGroup.name}</h3>
+                  <p className="text-gray-500 mb-4">
                     {currentGroup.selection_type === 'single' ? 'Choisissez une option' : 'Choisissez vos options'}
                     {currentGroup.min_selections > 0 && (
-                      <span className="text-[#E63329] ml-2 font-semibold">(obligatoire)</span>
+                      <span className="text-red-500 ml-1">(obligatoire)</span>
                     )}
                     {currentGroup.max_selections && currentGroup.selection_type === 'multi' && (
-                      <span className="text-[#3D2314]/40 ml-2">(max {currentGroup.max_selections})</span>
+                      <span className="text-gray-400 ml-1">(max {currentGroup.max_selections})</span>
                     )}
                   </p>
                   
@@ -1271,29 +1155,29 @@ export default function KioskDevicePage() {
                         <button
                           key={item.id}
                           onClick={() => selectOption(currentGroup, item)}
-                          className={`w-full p-4 rounded-xl border-3 flex items-center gap-4 transition-all ${
+                          className={`w-full p-4 rounded-xl border-2 flex items-center gap-4 transition-all ${
                             isSelected
-                              ? 'border-[#E63329] bg-red-50'
-                              : 'border-[#F7B52C]/30 hover:border-[#F7B52C]'
+                              ? 'border-orange-500 bg-orange-50'
+                              : 'border-gray-200 hover:border-gray-300'
                           }`}
                         >
-                          <div className={`w-7 h-7 rounded-full border-3 flex items-center justify-center ${
-                            isSelected ? 'border-[#E63329] bg-[#E63329]' : 'border-[#3D2314]/30'
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                            isSelected ? 'border-orange-500 bg-orange-500' : 'border-gray-300'
                           }`}>
                             {isSelected && <span className="text-white text-sm">✓</span>}
                           </div>
                           
-                          <div className="w-14 h-14 bg-[#FFF9E6] rounded-xl flex items-center justify-center text-3xl overflow-hidden">
+                          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-2xl">
                             {item.product.image_url ? (
-                              <img src={item.product.image_url} alt="" className="w-full h-full object-cover" />
+                              <img src={item.product.image_url} alt="" className="w-full h-full object-cover rounded-lg" />
                             ) : '🍽️'}
                           </div>
                           
                           <div className="flex-1 text-left">
-                            <span className="font-bold text-[#3D2314]">{item.product.name}</span>
+                            <span className="font-bold">{item.product.name}</span>
                           </div>
                           
-                          <span className={`font-bold text-lg ${price === 0 ? 'text-[#4CAF50]' : 'text-[#E63329]'}`}>
+                          <span className={`font-bold ${price === 0 ? 'text-green-600' : 'text-orange-500'}`}>
                             {price === 0 ? 'Inclus' : `+${price.toFixed(2)} €`}
                           </span>
                         </button>
@@ -1306,17 +1190,17 @@ export default function KioskDevicePage() {
             
             {/* Footer */}
             {currentPropositions.length > 0 && (
-              <div className="p-6 border-t-2 border-[#F7B52C]/30 bg-[#FFF9E6] flex items-center justify-between">
+              <div className="p-6 border-t flex items-center justify-between">
                 <button
                   onClick={currentPropositionIndex === 0 ? closeProductModal : prevProposition}
-                  className="px-6 py-3 rounded-xl border-2 border-[#3D2314]/20 font-semibold text-[#3D2314] hover:bg-white transition-colors"
+                  className="px-6 py-3 rounded-xl border border-gray-200 font-semibold"
                 >
                   {currentPropositionIndex === 0 ? 'Annuler' : '← Retour'}
                 </button>
                 
                 <div className="text-center">
-                  <p className="text-sm text-[#3D2314]/50">Prix total</p>
-                  <p className="text-2xl font-black text-[#E63329]">
+                  <p className="text-sm text-gray-500">Prix total</p>
+                  <p className="text-xl font-bold text-orange-500">
                     {(selectedProduct.price + selectedOptions.reduce((sum, o) => sum + o.price, 0)).toFixed(2)} €
                   </p>
                 </div>
@@ -1324,17 +1208,17 @@ export default function KioskDevicePage() {
                 <button
                   onClick={nextProposition}
                   disabled={!canProceed()}
-                  className="px-6 py-3 rounded-xl bg-[#E63329] text-white font-semibold disabled:opacity-50 hover:bg-[#c42a22] transition-colors"
+                  className="px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50"
                 >
                   {(() => {
                     const isLastProposition = currentPropositionIndex === currentPropositions.length - 1
                     if (!isLastProposition) return 'Suivant →'
                     
-                    const currentG = currentPropositions[currentPropositionIndex]
-                    if (currentG) {
-                      const selectedInGroup = selectedOptions.filter(o => o.option_group_id === currentG.id)
+                    const currentGroup = currentPropositions[currentPropositionIndex]
+                    if (currentGroup) {
+                      const selectedInGroup = selectedOptions.filter(o => o.option_group_id === currentGroup.id)
                       const hasTriggeredItem = selectedInGroup.some(selected => {
-                        const item = currentG.option_group_items.find(i => i.id === selected.item_id)
+                        const item = currentGroup.option_group_items.find(i => i.id === selected.item_id)
                         return item?.triggers_option_group_id
                       })
                       if (hasTriggeredItem) return 'Suivant →'
@@ -1356,27 +1240,27 @@ export default function KioskDevicePage() {
           onClick={() => setAllergenModalProduct(null)}
         >
           <div 
-            className="bg-white rounded-3xl w-full max-w-lg max-h-[80vh] overflow-hidden shadow-2xl"
+            className="bg-white rounded-3xl w-full max-w-lg max-h-[80vh] overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
-            <div className="p-6 bg-[#F7B52C] text-white">
+            <div className="p-6 bg-gradient-to-r from-orange-500 to-orange-600 text-white">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-white/20 rounded-xl flex items-center justify-center overflow-hidden">
+                  <div className="w-16 h-16 bg-white/20 rounded-xl flex items-center justify-center">
                     {allergenModalProduct.image_url ? (
-                      <img src={allergenModalProduct.image_url} alt="" className="w-full h-full object-cover" />
+                      <img src={allergenModalProduct.image_url} alt="" className="w-full h-full object-cover rounded-xl" />
                     ) : (
                       <span className="text-3xl">🍔</span>
                     )}
                   </div>
                   <div>
                     <h2 className="font-bold text-2xl">{allergenModalProduct.name}</h2>
-                    <p className="text-white/80">Informations allergènes</p>
+                    <p className="text-orange-100">Informations allergènes</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setAllergenModalProduct(null)}
-                  className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl hover:bg-white/30 transition-colors"
+                  className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl"
                 >
                   ✕
                 </button>
@@ -1393,7 +1277,7 @@ export default function KioskDevicePage() {
                   return (
                     <div className="text-center py-8">
                       <span className="text-6xl block mb-4">✅</span>
-                      <p className="text-[#4CAF50] font-bold text-xl">Aucun allergène déclaré</p>
+                      <p className="text-green-600 font-bold text-xl">Aucun allergène déclaré</p>
                     </div>
                   )
                 }
@@ -1402,15 +1286,15 @@ export default function KioskDevicePage() {
                   <div className="space-y-6">
                     {contains.length > 0 && (
                       <div>
-                        <h3 className="font-bold text-[#E63329] text-lg mb-3 flex items-center gap-2">
-                          <span className="w-4 h-4 bg-[#E63329] rounded-full"></span>
+                        <h3 className="font-bold text-red-700 text-lg mb-3 flex items-center gap-2">
+                          <span className="w-4 h-4 bg-red-500 rounded-full"></span>
                           Contient
                         </h3>
                         <div className="grid grid-cols-2 gap-3">
                           {contains.map(a => (
                             <div key={a.name} className="flex items-center gap-3 bg-red-50 rounded-2xl p-4">
                               <span className="text-3xl">{a.emoji}</span>
-                              <span className="font-bold text-[#E63329]">{a.name}</span>
+                              <span className="font-bold text-red-800">{a.name}</span>
                             </div>
                           ))}
                         </div>
@@ -1419,23 +1303,23 @@ export default function KioskDevicePage() {
                     
                     {traces.length > 0 && (
                       <div>
-                        <h3 className="font-bold text-[#F7B52C] text-lg mb-3 flex items-center gap-2">
-                          <span className="w-4 h-4 bg-[#F7B52C] rounded-full"></span>
+                        <h3 className="font-bold text-yellow-700 text-lg mb-3 flex items-center gap-2">
+                          <span className="w-4 h-4 bg-yellow-500 rounded-full"></span>
                           Peut contenir des traces de
                         </h3>
                         <div className="grid grid-cols-2 gap-3">
                           {traces.map(a => (
                             <div key={a.name} className="flex items-center gap-3 bg-yellow-50 rounded-2xl p-4">
                               <span className="text-3xl">{a.emoji}</span>
-                              <span className="font-bold text-[#F7B52C]">{a.name}</span>
+                              <span className="font-bold text-yellow-800">{a.name}</span>
                             </div>
                           ))}
                         </div>
                       </div>
                     )}
                     
-                    <div className="bg-[#FFF9E6] rounded-2xl p-4 mt-4">
-                      <p className="text-sm text-[#3D2314]/70">
+                    <div className="bg-gray-100 rounded-2xl p-4 mt-4">
+                      <p className="text-sm text-gray-600">
                         ⚠️ Ces informations sont fournies à titre indicatif. En cas d'allergie sévère, veuillez consulter notre personnel.
                       </p>
                     </div>
@@ -1444,10 +1328,10 @@ export default function KioskDevicePage() {
               })()}
             </div>
             
-            <div className="p-6 border-t border-[#F7B52C]/30">
+            <div className="p-6 border-t">
               <button
                 onClick={() => setAllergenModalProduct(null)}
-                className="w-full bg-[#E63329] text-white font-bold py-4 rounded-2xl text-xl hover:bg-[#c42a22] transition-colors"
+                className="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl text-xl hover:bg-orange-600"
               >
                 Fermer
               </button>
@@ -1455,28 +1339,6 @@ export default function KioskDevicePage() {
           </div>
         </div>
       )}
-
-      {/* CSS pour l'animation slide-up */}
-      <style jsx>{`
-        @keyframes slide-up {
-          from {
-            transform: translateY(100%);
-          }
-          to {
-            transform: translateY(0);
-          }
-        }
-        .animate-slide-up {
-          animation: slide-up 0.3s ease-out;
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-      `}</style>
     </div>
   )
 }
