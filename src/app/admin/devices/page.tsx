@@ -42,12 +42,19 @@ export default function DevicesPage() {
   const [visiblePins, setVisiblePins] = useState<Set<string>>(new Set())
   const [copiedId, setCopiedId] = useState<string | null>(null)
   
+  // Modal pour changer le PIN
+  const [showPinModal, setShowPinModal] = useState(false)
+  const [pinDevice, setPinDevice] = useState<Device | null>(null)
+  const [newPin, setNewPin] = useState('')
+  const [savingPin, setSavingPin] = useState(false)
+  
   const [form, setForm] = useState({
     device_code: '',
     name: '',
     device_type: 'kiosk' as 'kiosk' | 'kds' | 'counter',
     is_active: true,
     viva_terminal_id: '',
+    access_pin: '112000', // PIN par défaut
   })
   
   const [saving, setSaving] = useState(false)
@@ -87,6 +94,7 @@ export default function DevicesPage() {
         device_type: device.device_type,
         is_active: device.is_active,
         viva_terminal_id: device.viva_terminal_id || '',
+        access_pin: device.access_pin || '112000',
       })
     } else {
       setEditingDevice(null)
@@ -96,10 +104,16 @@ export default function DevicesPage() {
         device_type: 'kiosk',
         is_active: true,
         viva_terminal_id: '',
+        access_pin: '112000', // PIN par défaut pour nouveau device
       })
     }
     setFormError('')
     setShowModal(true)
+  }
+
+  function validatePin(pin: string): boolean {
+    // PIN doit être numérique et entre 4 et 8 chiffres
+    return /^\d{4,8}$/.test(pin)
   }
 
   async function saveDevice(e: React.FormEvent) {
@@ -111,26 +125,46 @@ export default function DevicesPage() {
       return
     }
     
+    if (!validatePin(form.access_pin)) {
+      setFormError('Le PIN doit contenir entre 4 et 8 chiffres')
+      return
+    }
+    
     setSaving(true)
     
     try {
       if (editingDevice) {
+        // Vérifier si le PIN a changé
+        const pinChanged = editingDevice.access_pin !== form.access_pin
+        
+        const updateData: any = {
+          device_code: form.device_code,
+          name: form.name,
+          device_type: form.device_type,
+          is_active: form.is_active,
+          viva_terminal_id: form.viva_terminal_id || null,
+        }
+        
+        // Si le PIN a changé, mettre à jour et invalider les sessions
+        if (pinChanged) {
+          updateData.access_pin = form.access_pin
+          updateData.pin_created_at = new Date().toISOString()
+          
+          // Invalider toutes les sessions existantes
+          await supabase
+            .from('device_sessions')
+            .update({ is_valid: false })
+            .eq('device_id', editingDevice.id)
+        }
+        
         const { error } = await supabase
           .from('devices')
-          .update({
-            device_code: form.device_code,
-            name: form.name,
-            device_type: form.device_type,
-            is_active: form.is_active,
-            viva_terminal_id: form.viva_terminal_id || null,
-          })
+          .update(updateData)
           .eq('id', editingDevice.id)
         
         if (error) throw error
       } else {
-        // Générer un PIN pour le nouveau device
-        const newPin = String(Math.floor(Math.random() * 1000000)).padStart(6, '0')
-        
+        // Nouveau device avec le PIN choisi
         const { error } = await supabase
           .from('devices')
           .insert({
@@ -140,7 +174,7 @@ export default function DevicesPage() {
             device_type: form.device_type,
             is_active: form.is_active,
             viva_terminal_id: form.viva_terminal_id || null,
-            access_pin: newPin,
+            access_pin: form.access_pin,
             pin_created_at: new Date().toISOString(),
           })
         
@@ -168,20 +202,51 @@ export default function DevicesPage() {
     if (!error) loadDevices()
   }
 
-  async function regeneratePin(device: Device) {
-    if (!confirm(`Régénérer le PIN de "${device.name}" ?\n\nCela déconnectera tous les appareils utilisant ce device.`)) return
+  // Ouvrir modal pour changer le PIN
+  function openPinModal(device: Device) {
+    setPinDevice(device)
+    setNewPin(device.access_pin || '112000')
+    setShowPinModal(true)
+  }
+
+  // Sauvegarder le nouveau PIN
+  async function saveNewPin() {
+    if (!pinDevice) return
     
-    // Utiliser la fonction SQL
-    const { data, error } = await supabase.rpc('regenerate_device_pin', {
-      p_device_id: device.id
-    })
+    if (!validatePin(newPin)) {
+      alert('Le PIN doit contenir entre 4 et 8 chiffres')
+      return
+    }
     
-    if (error) {
-      console.error('Erreur:', error)
-      alert('Erreur lors de la régénération du PIN')
-    } else {
-      alert(`Nouveau PIN : ${data}`)
+    if (!confirm(`Changer le PIN de "${pinDevice.name}" ?\n\nCela déconnectera tous les appareils utilisant ce device.`)) return
+    
+    setSavingPin(true)
+    
+    try {
+      // Mettre à jour le PIN
+      const { error: updateError } = await supabase
+        .from('devices')
+        .update({
+          access_pin: newPin,
+          pin_created_at: new Date().toISOString()
+        })
+        .eq('id', pinDevice.id)
+      
+      if (updateError) throw updateError
+      
+      // Invalider toutes les sessions
+      await supabase
+        .from('device_sessions')
+        .update({ is_valid: false })
+        .eq('device_id', pinDevice.id)
+      
+      setShowPinModal(false)
       loadDevices()
+    } catch (error: any) {
+      console.error('Erreur:', error)
+      alert('Erreur lors du changement de PIN')
+    } finally {
+      setSavingPin(false)
     }
   }
 
@@ -355,9 +420,9 @@ export default function DevicesPage() {
                           {visiblePins.has(device.id) ? '🙈' : '👁️'}
                         </button>
                         <button
-                          onClick={() => regeneratePin(device)}
+                          onClick={() => openPinModal(device)}
                           className="text-gray-400 hover:text-orange-500"
-                          title="Régénérer le PIN"
+                          title="Modifier le PIN"
                         >
                           🔄
                         </button>
@@ -414,13 +479,14 @@ export default function DevicesPage() {
         <div className="bg-blue-50 rounded-xl p-6">
           <h3 className="font-bold text-blue-800 mb-2">🔐 Authentification des devices</h3>
           <p className="text-blue-700 text-sm mb-2">
-            Chaque device a un <strong>code unique</strong> et un <strong>PIN à 6 chiffres</strong>.
+            Chaque device a un <strong>code unique</strong> et un <strong>PIN personnalisable</strong>.
           </p>
           <ul className="text-blue-700 text-sm list-disc list-inside space-y-1">
             <li>L'URL du device contient le code (ex: /kiosk/BORJU01)</li>
             <li>Au premier accès, l'employé entre le PIN une seule fois</li>
             <li>Un cookie sécurisé garde la session active (1 an)</li>
-            <li>Régénérer le PIN déconnecte tous les appareils</li>
+            <li>Changer le PIN déconnecte tous les appareils</li>
+            <li>PIN par défaut : 112000</li>
           </ul>
         </div>
         
@@ -486,6 +552,32 @@ export default function DevicesPage() {
                 </select>
               </div>
 
+              {/* Nouveau champ PIN */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  🔐 Code PIN
+                </label>
+                <input
+                  type="text"
+                  value={form.access_pin}
+                  onChange={e => {
+                    // Autoriser uniquement les chiffres
+                    const value = e.target.value.replace(/\D/g, '').slice(0, 8)
+                    setForm({ ...form, access_pin: value })
+                  }}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono text-lg tracking-widest"
+                  placeholder="112000"
+                  maxLength={8}
+                  required
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  4 à 8 chiffres • Par défaut: 112000
+                  {editingDevice && editingDevice.access_pin !== form.access_pin && (
+                    <span className="text-orange-500 ml-2">⚠️ Changer le PIN déconnectera les appareils</span>
+                  )}
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   💳 Terminal Viva ID
@@ -527,6 +619,62 @@ export default function DevicesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Modifier PIN */}
+      {showPinModal && pinDevice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-xl">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              Modifier le PIN
+            </h2>
+            <p className="text-gray-500 mb-6">{pinDevice.name}</p>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Nouveau PIN
+              </label>
+              <input
+                type="text"
+                value={newPin}
+                onChange={e => {
+                  const value = e.target.value.replace(/\D/g, '').slice(0, 8)
+                  setNewPin(value)
+                }}
+                className="w-full px-4 py-4 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono text-2xl tracking-widest text-center"
+                placeholder="112000"
+                maxLength={8}
+                autoFocus
+              />
+              <p className="text-xs text-gray-400 mt-2 text-center">
+                4 à 8 chiffres
+              </p>
+            </div>
+            
+            <div className="bg-orange-50 rounded-xl p-4 mb-6">
+              <p className="text-orange-700 text-sm">
+                ⚠️ Changer le PIN déconnectera tous les appareils utilisant ce device.
+              </p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowPinModal(false)}
+                className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={saveNewPin}
+                disabled={savingPin || !validatePin(newPin)}
+                className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold hover:bg-orange-600 disabled:opacity-50"
+              >
+                {savingPin ? 'Sauvegarde...' : '🔐 Changer'}
+              </button>
+            </div>
           </div>
         </div>
       )}
