@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import Image from 'next/image'
 
 // Types
 type OptionGroupItem = {
@@ -109,6 +108,8 @@ const categoryIcons: Record<string, string> = {
   'bières': '🍺',
   'boisson': '🥤',
   'boissons': '🥤',
+  'supplément': '➕',
+  'suppléments': '➕',
 }
 
 function getCategoryIcon(categoryName: string): string {
@@ -117,6 +118,23 @@ function getCategoryIcon(categoryName: string): string {
     if (nameLower.includes(key)) return icon
   }
   return '🍽️'
+}
+
+// Fonction pour déterminer la classe de grille selon le nombre de produits
+function getGridConfig(productCount: number): { gridClass: string; cardSize: 'xl' | 'lg' | 'md' | 'sm' } {
+  if (productCount <= 1) {
+    return { gridClass: 'grid-cols-1 max-w-md mx-auto', cardSize: 'xl' }
+  } else if (productCount === 2) {
+    return { gridClass: 'grid-cols-2 max-w-2xl mx-auto', cardSize: 'lg' }
+  } else if (productCount <= 4) {
+    return { gridClass: 'grid-cols-2 max-w-3xl mx-auto', cardSize: 'md' }
+  } else if (productCount <= 6) {
+    return { gridClass: 'grid-cols-3', cardSize: 'md' }
+  } else if (productCount <= 9) {
+    return { gridClass: 'grid-cols-3', cardSize: 'sm' }
+  } else {
+    return { gridClass: 'grid-cols-3 lg:grid-cols-4', cardSize: 'sm' }
+  }
 }
 
 export default function KioskDevicePage() {
@@ -916,160 +934,181 @@ export default function KioskDevicePage() {
   // ==================== INTERFACE PRINCIPALE ====================
   const filteredProducts = products.filter(p => p.category_id === selectedCategory)
   const currentGroup = currentPropositions[currentPropositionIndex]
+  const { gridClass, cardSize } = getGridConfig(filteredProducts.length)
 
   return (
     <div className="min-h-screen bg-[#FFF9E6] flex flex-col">
-      {/* Header */}
-      <header className="bg-white shadow-md px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      {/* Header compact */}
+      <header className="bg-white shadow-md px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => {
               setOrderType(null)
               setCart([])
             }}
-            className="text-[#3D2314]/50 hover:text-[#3D2314] font-semibold transition-colors"
+            className="text-[#3D2314]/50 hover:text-[#3D2314] font-semibold transition-colors text-sm"
           >
             ← Retour
           </button>
-          <div className="w-12 h-12">
+          <div className="w-10 h-10">
             <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
           </div>
-          <span className="text-2xl font-black text-[#E63329]">MDjambo</span>
+          <span className="text-xl font-black text-[#E63329]">MDjambo</span>
         </div>
         
         {/* Toggle Sur place / À emporter */}
-        <div className="flex items-center gap-2 bg-[#FFF9E6] rounded-full p-1">
+        <div className="flex items-center gap-1 bg-[#FFF9E6] rounded-full p-1">
           <button
             onClick={() => setOrderType('eat_in')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-full font-semibold transition-all text-sm ${
               orderType === 'eat_in' 
                 ? 'bg-[#E63329] text-white shadow-md' 
                 : 'text-[#3D2314]/60 hover:text-[#3D2314]'
             }`}
           >
-            <span className="text-xl">🍽️</span>
+            <span>🍽️</span>
             <span>Sur place</span>
           </button>
           <button
             onClick={() => setOrderType('takeaway')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-full font-semibold transition-all text-sm ${
               orderType === 'takeaway' 
                 ? 'bg-[#E63329] text-white shadow-md' 
                 : 'text-[#3D2314]/60 hover:text-[#3D2314]'
             }`}
           >
-            <span className="text-xl">🥡</span>
+            <span>🥡</span>
             <span>À emporter</span>
           </button>
         </div>
       </header>
 
-      {/* Categories Navigation */}
-      <nav className="bg-white border-b-2 border-[#F7B52C]/30 px-4 py-3">
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {categories.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`flex items-center gap-2 px-5 py-3 rounded-full font-bold whitespace-nowrap transition-all ${
-                selectedCategory === cat.id
-                  ? 'bg-[#E63329] text-white shadow-lg scale-105'
-                  : 'bg-[#FFF9E6] text-[#3D2314] hover:bg-[#F7B52C]/20'
-              }`}
-            >
-              <span className="text-xl">{getCategoryIcon(cat.name)}</span>
-              <span>{cat.name}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
-
-      {/* Products Grid */}
-      <main className="flex-1 overflow-y-auto p-6">
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4">
-                <img src="/Logo_Mdjambo.svg" alt="" className="w-full h-full animate-pulse" />
-              </div>
-              <p className="text-[#3D2314]/50">Chargement...</p>
-            </div>
+      {/* Main content avec sidebar */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar catégories - Navigation verticale */}
+        <nav className="w-28 bg-white border-r-2 border-[#F7B52C]/30 overflow-y-auto flex-shrink-0">
+          <div className="py-2">
+            {categories.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`w-full py-4 px-2 flex flex-col items-center gap-1 transition-all border-l-4 ${
+                  selectedCategory === cat.id
+                    ? 'bg-[#FFF9E6] border-[#E63329] text-[#E63329]'
+                    : 'border-transparent text-[#3D2314]/70 hover:bg-[#FFF9E6]/50'
+                }`}
+              >
+                <span className="text-3xl">{getCategoryIcon(cat.name)}</span>
+                <span className={`text-xs font-bold text-center leading-tight ${
+                  selectedCategory === cat.id ? 'text-[#E63329]' : 'text-[#3D2314]'
+                }`}>
+                  {cat.name}
+                </span>
+              </button>
+            ))}
           </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
-            {filteredProducts.map(product => {
-              const allergens = getProductAllergens(product)
-              
-              return (
-                <button
-                  key={product.id}
-                  onClick={() => openProductModal(product)}
-                  className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left group"
-                >
-                  {/* Image */}
-                  <div className="aspect-square bg-[#FFF9E6] flex items-center justify-center overflow-hidden">
-                    {product.image_url ? (
-                      <img 
-                        src={product.image_url} 
-                        alt="" 
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" 
-                      />
-                    ) : (
-                      <span className="text-6xl">🍔</span>
-                    )}
-                  </div>
-                  
-                  {/* Info */}
-                  <div className="p-4">
-                    <h3 className="font-bold text-[#3D2314] text-lg mb-1 line-clamp-1">{product.name}</h3>
-                    <div className="flex items-center justify-between">
-                      <p className="text-2xl font-black text-[#E63329]">{product.price.toFixed(2)} €</p>
-                      {allergens.length > 0 && (
-                        <div 
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setAllergenModalProduct(product)
-                          }}
-                          className="flex gap-0.5 bg-[#FFF9E6] rounded-lg px-2 py-1"
-                        >
-                          {allergens.slice(0, 3).map(a => (
-                            <span key={a.name} className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}>
-                              {a.emoji}
-                            </span>
-                          ))}
-                          {allergens.length > 3 && (
-                            <span className="text-xs text-[#3D2314]/50">+{allergens.length - 3}</span>
-                          )}
-                        </div>
+        </nav>
+
+        {/* Products Grid */}
+        <main className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <div className="w-16 h-16 mx-auto mb-4">
+                  <img src="/Logo_Mdjambo.svg" alt="" className="w-full h-full animate-pulse" />
+                </div>
+                <p className="text-[#3D2314]/50">Chargement...</p>
+              </div>
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <span className="text-6xl block mb-4">🍽️</span>
+                <p className="text-[#3D2314]/50">Aucun produit dans cette catégorie</p>
+              </div>
+            </div>
+          ) : (
+            <div className={`grid gap-4 ${gridClass}`}>
+              {filteredProducts.map(product => {
+                const allergens = getProductAllergens(product)
+                
+                // Tailles selon cardSize
+                const imageHeight = cardSize === 'xl' ? 'h-64' : cardSize === 'lg' ? 'h-52' : cardSize === 'md' ? 'h-44' : 'h-36'
+                const titleSize = cardSize === 'xl' ? 'text-2xl' : cardSize === 'lg' ? 'text-xl' : 'text-lg'
+                const priceSize = cardSize === 'xl' ? 'text-3xl' : cardSize === 'lg' ? 'text-2xl' : 'text-xl'
+                const padding = cardSize === 'xl' ? 'p-6' : cardSize === 'lg' ? 'p-5' : 'p-4'
+                
+                return (
+                  <button
+                    key={product.id}
+                    onClick={() => openProductModal(product)}
+                    className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left group"
+                  >
+                    {/* Image */}
+                    <div className={`${imageHeight} bg-[#FFF9E6] flex items-center justify-center overflow-hidden`}>
+                      {product.image_url ? (
+                        <img 
+                          src={product.image_url} 
+                          alt="" 
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" 
+                        />
+                      ) : (
+                        <span className={cardSize === 'xl' || cardSize === 'lg' ? 'text-8xl' : 'text-6xl'}>🍔</span>
                       )}
                     </div>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </main>
+                    
+                    {/* Info */}
+                    <div className={padding}>
+                      <h3 className={`font-bold text-[#3D2314] ${titleSize} mb-1 line-clamp-2`}>{product.name}</h3>
+                      <div className="flex items-center justify-between">
+                        <p className={`${priceSize} font-black text-[#E63329]`}>{product.price.toFixed(2)} €</p>
+                        {allergens.length > 0 && (
+                          <div 
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setAllergenModalProduct(product)
+                            }}
+                            className="flex gap-0.5 bg-[#FFF9E6] rounded-lg px-2 py-1"
+                          >
+                            {allergens.slice(0, 3).map(a => (
+                              <span key={a.name} className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}>
+                                {a.emoji}
+                              </span>
+                            ))}
+                            {allergens.length > 3 && (
+                              <span className="text-xs text-[#3D2314]/50">+{allergens.length - 3}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </main>
+      </div>
 
       {/* Barre panier fixe en bas */}
       {cart.length > 0 && (
         <div 
-          className="bg-[#E63329] text-white px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-[#c42a22] transition-colors"
+          className="bg-[#E63329] text-white px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#c42a22] transition-colors"
           onClick={() => setShowCart(true)}
         >
-          <div className="flex items-center gap-4">
-            <div className="bg-white/20 rounded-full px-4 py-2 flex items-center gap-2">
-              <span className="text-2xl">🛒</span>
-              <span className="font-bold text-xl">{getCartItemCount()}</span>
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 rounded-full px-3 py-1.5 flex items-center gap-2">
+              <span className="text-xl">🛒</span>
+              <span className="font-bold text-lg">{getCartItemCount()}</span>
             </div>
-            <span className="font-semibold text-lg">
+            <span className="font-semibold">
               {getCartItemCount()} article{getCartItemCount() > 1 ? 's' : ''}
             </span>
           </div>
           
-          <div className="flex items-center gap-6">
-            <span className="text-3xl font-black">{getCartTotal().toFixed(2)} €</span>
-            <div className="bg-white text-[#E63329] font-bold px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-gray-100 transition-colors">
+          <div className="flex items-center gap-4">
+            <span className="text-2xl font-black">{getCartTotal().toFixed(2)} €</span>
+            <div className="bg-white text-[#E63329] font-bold px-5 py-2 rounded-xl flex items-center gap-2 hover:bg-gray-100 transition-colors">
               <span>COMMANDER</span>
               <span>→</span>
             </div>
@@ -1468,13 +1507,6 @@ export default function KioskDevicePage() {
         }
         .animate-slide-up {
           animation: slide-up 0.3s ease-out;
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
         }
       `}</style>
     </div>
