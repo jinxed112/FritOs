@@ -983,34 +983,64 @@ export default function KioskDevicePage() {
         </div>
       </header>
 
-      {/* Main content avec sidebar */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar catégories - Navigation verticale */}
-        <nav className="w-28 bg-white border-r-2 border-[#F7B52C]/30 overflow-y-auto flex-shrink-0">
-          <div className="py-2">
-            {categories.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`w-full py-4 px-2 flex flex-col items-center gap-1 transition-all border-l-4 ${
-                  selectedCategory === cat.id
-                    ? 'bg-[#FFF9E6] border-[#E63329] text-[#E63329]'
-                    : 'border-transparent text-[#3D2314]/70 hover:bg-[#FFF9E6]/50'
-                }`}
-              >
-                <span className="text-3xl">{getCategoryIcon(cat.name)}</span>
-                <span className={`text-xs font-bold text-center leading-tight ${
-                  selectedCategory === cat.id ? 'text-[#E63329]' : 'text-[#3D2314]'
-                }`}>
-                  {cat.name}
-                </span>
-              </button>
-            ))}
+      {/* Categories Navigation - Bandeau horizontal */}
+      <nav className="bg-white border-b-2 border-[#F7B52C]/30 relative">
+        <div className="flex items-center">
+          {/* Indicateur scroll gauche */}
+          <button 
+            id="scroll-left-btn"
+            onClick={() => {
+              const container = document.getElementById('categories-scroll')
+              if (container) container.scrollBy({ left: -200, behavior: 'smooth' })
+            }}
+            className="absolute left-0 z-10 h-full px-2 bg-gradient-to-r from-white via-white to-transparent flex items-center text-[#3D2314]/50 hover:text-[#E63329] transition-colors"
+          >
+            <span className="text-2xl">◀</span>
+          </button>
+          
+          {/* Container scrollable */}
+          <div 
+            id="categories-scroll"
+            className="flex-1 overflow-x-auto scrollbar-hide px-10 py-3"
+          >
+            <div className="flex gap-2 justify-start">
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all flex-shrink-0 min-w-[80px] ${
+                    selectedCategory === cat.id
+                      ? 'bg-[#E63329] text-white shadow-lg'
+                      : 'bg-[#FFF9E6] text-[#3D2314] hover:bg-[#F7B52C]/20'
+                  }`}
+                >
+                  <span className="text-2xl">{getCategoryIcon(cat.name)}</span>
+                  <span className={`text-xs font-bold whitespace-nowrap ${
+                    selectedCategory === cat.id ? 'text-white' : 'text-[#3D2314]'
+                  }`}>
+                    {cat.name}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
-        </nav>
+          
+          {/* Indicateur scroll droite */}
+          <button 
+            id="scroll-right-btn"
+            onClick={() => {
+              const container = document.getElementById('categories-scroll')
+              if (container) container.scrollBy({ left: 200, behavior: 'smooth' })
+            }}
+            className="absolute right-0 z-10 h-full px-2 bg-gradient-to-l from-white via-white to-transparent flex items-center text-[#3D2314]/50 hover:text-[#E63329] transition-colors"
+          >
+            <span className="text-2xl">▶</span>
+          </button>
+        </div>
+      </nav>
 
-        {/* Products Grid */}
-        <main className="flex-1 overflow-y-auto p-4">
+      {/* Products Grid */}
+      <main className="flex-1 overflow-y-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
@@ -1088,7 +1118,6 @@ export default function KioskDevicePage() {
             </div>
           )}
         </main>
-      </div>
 
       {/* Barre panier fixe en bas */}
       {cart.length > 0 && (
@@ -1495,7 +1524,7 @@ export default function KioskDevicePage() {
         </div>
       )}
 
-      {/* CSS pour l'animation slide-up */}
+      {/* CSS pour l'animation slide-up et scrollbar */}
       <style jsx>{`
         @keyframes slide-up {
           from {
@@ -1507,6 +1536,13 @@ export default function KioskDevicePage() {
         }
         .animate-slide-up {
           animation: slide-up 0.3s ease-out;
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
         }
       `}</style>
     </div>
