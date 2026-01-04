@@ -120,23 +120,6 @@ function getCategoryIcon(categoryName: string): string {
   return '🍽️'
 }
 
-// Fonction pour déterminer la classe de grille selon le nombre de produits
-function getGridConfig(productCount: number): { gridClass: string; cardSize: 'xl' | 'lg' | 'md' | 'sm' } {
-  if (productCount <= 1) {
-    return { gridClass: 'grid-cols-1 max-w-md mx-auto', cardSize: 'xl' }
-  } else if (productCount === 2) {
-    return { gridClass: 'grid-cols-2 max-w-2xl mx-auto', cardSize: 'lg' }
-  } else if (productCount <= 4) {
-    return { gridClass: 'grid-cols-2 max-w-3xl mx-auto', cardSize: 'md' }
-  } else if (productCount <= 6) {
-    return { gridClass: 'grid-cols-3', cardSize: 'md' }
-  } else if (productCount <= 9) {
-    return { gridClass: 'grid-cols-3', cardSize: 'sm' }
-  } else {
-    return { gridClass: 'grid-cols-3 lg:grid-cols-4', cardSize: 'sm' }
-  }
-}
-
 export default function KioskDevicePage() {
   const params = useParams()
   const deviceCode = (params.deviceCode as string)?.toUpperCase()
@@ -934,7 +917,6 @@ export default function KioskDevicePage() {
   // ==================== INTERFACE PRINCIPALE ====================
   const filteredProducts = products.filter(p => p.category_id === selectedCategory)
   const currentGroup = currentPropositions[currentPropositionIndex]
-  const { gridClass, cardSize } = getGridConfig(filteredProducts.length)
 
   return (
     <div className="min-h-screen bg-[#FFF9E6] flex flex-col">
@@ -1058,15 +1040,9 @@ export default function KioskDevicePage() {
               </div>
             </div>
           ) : (
-            <div className={`grid gap-4 ${gridClass}`}>
+            <div className="product-grid">
               {filteredProducts.map(product => {
                 const allergens = getProductAllergens(product)
-                
-                // Tailles selon cardSize
-                const imageHeight = cardSize === 'xl' ? 'h-64' : cardSize === 'lg' ? 'h-52' : cardSize === 'md' ? 'h-44' : 'h-36'
-                const titleSize = cardSize === 'xl' ? 'text-2xl' : cardSize === 'lg' ? 'text-xl' : 'text-lg'
-                const priceSize = cardSize === 'xl' ? 'text-3xl' : cardSize === 'lg' ? 'text-2xl' : 'text-xl'
-                const padding = cardSize === 'xl' ? 'p-6' : cardSize === 'lg' ? 'p-5' : 'p-4'
                 
                 return (
                   <button
@@ -1074,8 +1050,8 @@ export default function KioskDevicePage() {
                     onClick={() => openProductModal(product)}
                     className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left group"
                   >
-                    {/* Image */}
-                    <div className={`${imageHeight} bg-[#FFF9E6] flex items-center justify-center overflow-hidden`}>
+                    {/* Image carrée */}
+                    <div className="aspect-square bg-[#FFF9E6] flex items-center justify-center overflow-hidden">
                       {product.image_url ? (
                         <img 
                           src={product.image_url} 
@@ -1083,30 +1059,30 @@ export default function KioskDevicePage() {
                           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" 
                         />
                       ) : (
-                        <span className={cardSize === 'xl' || cardSize === 'lg' ? 'text-8xl' : 'text-6xl'}>🍔</span>
+                        <span className="text-5xl">🍔</span>
                       )}
                     </div>
                     
-                    {/* Info */}
-                    <div className={padding}>
-                      <h3 className={`font-bold text-[#3D2314] ${titleSize} mb-1 line-clamp-2`}>{product.name}</h3>
+                    {/* Info compact */}
+                    <div className="p-3">
+                      <h3 className="font-bold text-[#3D2314] text-sm leading-tight mb-1 line-clamp-2">{product.name}</h3>
                       <div className="flex items-center justify-between">
-                        <p className={`${priceSize} font-black text-[#E63329]`}>{product.price.toFixed(2)} €</p>
+                        <p className="text-lg font-black text-[#E63329]">{product.price.toFixed(2)} €</p>
                         {allergens.length > 0 && (
                           <div 
                             onClick={(e) => {
                               e.stopPropagation()
                               setAllergenModalProduct(product)
                             }}
-                            className="flex gap-0.5 bg-[#FFF9E6] rounded-lg px-2 py-1"
+                            className="flex gap-0.5"
                           >
-                            {allergens.slice(0, 3).map(a => (
-                              <span key={a.name} className={`text-sm ${a.is_trace ? 'opacity-50' : ''}`}>
+                            {allergens.slice(0, 2).map(a => (
+                              <span key={a.name} className={`text-xs ${a.is_trace ? 'opacity-50' : ''}`}>
                                 {a.emoji}
                               </span>
                             ))}
-                            {allergens.length > 3 && (
-                              <span className="text-xs text-[#3D2314]/50">+{allergens.length - 3}</span>
+                            {allergens.length > 2 && (
+                              <span className="text-xs text-[#3D2314]/50">+{allergens.length - 2}</span>
                             )}
                           </div>
                         )}
@@ -1543,6 +1519,22 @@ export default function KioskDevicePage() {
         .scrollbar-hide {
           -ms-overflow-style: none;
           scrollbar-width: none;
+        }
+        .product-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+          gap: 12px;
+        }
+        @media (min-width: 640px) {
+          .product-grid {
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 16px;
+          }
+        }
+        @media (min-width: 1024px) {
+          .product-grid {
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          }
         }
       `}</style>
     </div>
