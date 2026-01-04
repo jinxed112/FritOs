@@ -35,6 +35,7 @@ export default function CategoriesPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [activeTab, setActiveTab] = useState<'info' | 'propositions'>('info')
+  const [movingId, setMovingId] = useState<string | null>(null)
   
   const [form, setForm] = useState({
     name: '',
@@ -104,6 +105,44 @@ export default function CategoriesPage() {
     
     setOptionGroups(optionGroupsData || [])
     setLoading(false)
+  }
+
+  // Déplacer une catégorie vers le haut ou le bas
+  async function moveCategory(categoryId: string, direction: 'up' | 'down') {
+    const currentIndex = categories.findIndex(c => c.id === categoryId)
+    if (currentIndex === -1) return
+    
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (targetIndex < 0 || targetIndex >= categories.length) return
+    
+    setMovingId(categoryId)
+    
+    const currentCategory = categories[currentIndex]
+    const targetCategory = categories[targetIndex]
+    
+    // Échanger les display_order
+    const currentOrder = currentCategory.display_order
+    const targetOrder = targetCategory.display_order
+    
+    try {
+      // Mettre à jour les deux catégories
+      await supabase
+        .from('categories')
+        .update({ display_order: targetOrder } as any)
+        .eq('id', currentCategory.id)
+      
+      await supabase
+        .from('categories')
+        .update({ display_order: currentOrder } as any)
+        .eq('id', targetCategory.id)
+      
+      // Recharger les données
+      await loadData()
+    } catch (error) {
+      console.error('Erreur lors du déplacement:', error)
+    } finally {
+      setMovingId(null)
+    }
   }
 
   function openModal(category?: Category) {
@@ -326,15 +365,47 @@ export default function CategoriesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {categories.map(category => {
+              {categories.map((category, index) => {
                 const propositionCount = category.category_option_groups?.length || 0
+                const isFirst = index === 0
+                const isLast = index === categories.length - 1
+                const isMoving = movingId === category.id
                 
                 return (
-                  <tr key={category.id} className={!category.is_active ? 'opacity-50' : ''}>
+                  <tr key={category.id} className={`${!category.is_active ? 'opacity-50' : ''} ${isMoving ? 'bg-orange-50' : ''}`}>
                     <td className="px-6 py-4">
-                      <span className="bg-gray-100 px-3 py-1 rounded-lg font-mono text-sm">
-                        {category.display_order}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {/* Flèches de réorganisation */}
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            onClick={() => moveCategory(category.id, 'up')}
+                            disabled={isFirst || isMoving}
+                            className={`w-6 h-6 flex items-center justify-center rounded text-sm transition-colors ${
+                              isFirst || isMoving
+                                ? 'text-gray-200 cursor-not-allowed'
+                                : 'text-gray-400 hover:text-orange-500 hover:bg-orange-50'
+                            }`}
+                            title="Monter"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            onClick={() => moveCategory(category.id, 'down')}
+                            disabled={isLast || isMoving}
+                            className={`w-6 h-6 flex items-center justify-center rounded text-sm transition-colors ${
+                              isLast || isMoving
+                                ? 'text-gray-200 cursor-not-allowed'
+                                : 'text-gray-400 hover:text-orange-500 hover:bg-orange-50'
+                            }`}
+                            title="Descendre"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                        <span className={`bg-gray-100 px-3 py-1 rounded-lg font-mono text-sm ${isMoving ? 'animate-pulse' : ''}`}>
+                          {category.display_order}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="font-medium text-gray-900">{category.name}</span>
@@ -464,16 +535,6 @@ export default function CategoriesPage() {
                       onChange={e => setForm({ ...form, description: e.target.value })}
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
                       placeholder="Description optionnelle..."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Ordre d'affichage</label>
-                    <input
-                      type="number"
-                      value={form.display_order}
-                      onChange={e => setForm({ ...form, display_order: parseInt(e.target.value) || 0 })}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
 
