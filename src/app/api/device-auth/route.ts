@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 
 // Générer un token de session sécurisé
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Code et PIN requis' }, { status: 400 })
     }
     
-    const supabase = createServerSupabaseClient()
+    const supabase = createAdminClient()
     
     // Vérifier le device et le PIN
     const { data: device, error } = await supabase
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ authenticated: false })
     }
     
-    const supabase = createServerSupabaseClient()
+    const supabase = createAdminClient()
     
     // Vérifier la session
     const { data: session, error } = await supabase
@@ -168,7 +168,7 @@ export async function DELETE(request: NextRequest) {
     const sessionToken = cookieStore.get('device_session')?.value
     
     if (sessionToken) {
-      const supabase = createServerSupabaseClient()
+      const supabase = createAdminClient()
       await supabase
         .from('device_sessions')
         .update({ is_valid: false })
