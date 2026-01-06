@@ -219,18 +219,19 @@ export default function KioskDevicePage() {
     }
   }
 
-  // Timer de retour à l'accueil après confirmation
+  // Timer de retour à l'accueil après confirmation (30 sec pour laisser le temps de scanner le QR)
   useEffect(() => {
     if (orderNumber) {
-      setCountdown(10)
+      setCountdown(30)
       const timer = setInterval(() => {
         setCountdown(prev => {
           if (prev <= 1) {
             clearInterval(timer)
             setOrderNumber(null)
             setOrderType(null)
+            setPendingOrderId(null)
             setIsSubmitting(false)
-            return 10
+            return 30
           }
           return prev - 1
         })
@@ -938,30 +939,59 @@ export default function KioskDevicePage() {
     )
   }
 
-  // Écran de confirmation
+  // Écran de confirmation avec QR code ticket
   if (orderNumber) {
+    const ticketUrl = typeof window !== 'undefined' 
+      ? `${window.location.origin}/ticket/${pendingOrderId}`
+      : `/ticket/${pendingOrderId}`
+    
     return (
       <div className="min-h-screen bg-[#4CAF50] flex items-center justify-center p-4 sm:p-8">
-        <div className="text-center text-white">
-          <span className="text-6xl sm:text-8xl block mb-6 sm:mb-8">✅</span>
-          <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4">Merci !</h1>
-          <p className="text-lg sm:text-2xl mb-6 sm:mb-8">Votre commande est enregistrée</p>
+        <div className="text-center text-white max-w-lg">
+          <span className="text-5xl sm:text-7xl block mb-4 sm:mb-6">✅</span>
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">Merci !</h1>
+          <p className="text-base sm:text-xl mb-6">Votre commande est enregistrée</p>
           
-          <div className="bg-white text-[#3D2314] rounded-2xl sm:rounded-3xl p-6 sm:p-8 inline-block mb-6 sm:mb-8 shadow-2xl">
-            <p className="text-base sm:text-xl mb-2">Numéro de commande</p>
+          {/* Numéro de commande */}
+          <div className="bg-white text-[#3D2314] rounded-2xl sm:rounded-3xl p-4 sm:p-6 mb-6 shadow-2xl">
+            <p className="text-sm sm:text-lg mb-1">Numéro de commande</p>
             <p className="text-5xl sm:text-7xl font-black text-[#E63329]">{orderNumber}</p>
           </div>
           
-          <p className="text-base sm:text-xl mb-6 sm:mb-8">Veuillez patienter, nous vous appellerons</p>
+          {/* QR Code pour le ticket */}
+          {pendingOrderId && (
+            <div className="bg-white rounded-2xl p-4 sm:p-6 mb-6 shadow-xl">
+              <p className="text-[#3D2314] text-sm sm:text-base font-semibold mb-3">
+                📱 Scannez pour votre ticket
+              </p>
+              <div className="flex justify-center mb-3">
+                <div className="bg-white p-2 rounded-xl">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(ticketUrl)}`}
+                    alt="QR Code ticket"
+                    className="w-32 h-32 sm:w-40 sm:h-40"
+                  />
+                </div>
+              </div>
+              <p className="text-[#3D2314]/60 text-xs sm:text-sm">
+                Gardez votre ticket sur votre téléphone
+              </p>
+            </div>
+          )}
           
-          <div className="mb-6 sm:mb-8">
-            <div className="w-48 sm:w-64 mx-auto bg-white/30 rounded-full h-2 sm:h-3 mb-2 sm:mb-3">
+          <p className="text-sm sm:text-base mb-4 opacity-90">
+            Veuillez patienter, nous vous appellerons
+          </p>
+          
+          {/* Progress bar */}
+          <div className="mb-6">
+            <div className="w-48 sm:w-64 mx-auto bg-white/30 rounded-full h-2 mb-2">
               <div 
-                className="bg-white h-2 sm:h-3 rounded-full transition-all duration-1000"
-                style={{ width: `${(countdown / 10) * 100}%` }}
+                className="bg-white h-2 rounded-full transition-all duration-1000"
+                style={{ width: `${(countdown / 30) * 100}%` }}
               />
             </div>
-            <p className="text-sm sm:text-lg opacity-80">
+            <p className="text-sm opacity-80">
               Retour à l'accueil dans {countdown}s
             </p>
           </div>
@@ -970,9 +1000,10 @@ export default function KioskDevicePage() {
             onClick={() => {
               setOrderNumber(null)
               setOrderType(null)
+              setPendingOrderId(null)
               setIsSubmitting(false)
             }}
-            className="bg-white text-[#4CAF50] font-bold text-base sm:text-xl px-8 sm:px-12 py-3 sm:py-4 rounded-xl sm:rounded-2xl hover:bg-gray-100 transition-colors"
+            className="bg-white text-[#4CAF50] font-bold text-sm sm:text-lg px-6 sm:px-10 py-2 sm:py-3 rounded-xl hover:bg-gray-100 transition-colors"
           >
             Nouvelle commande
           </button>
