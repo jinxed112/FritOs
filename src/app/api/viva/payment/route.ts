@@ -201,7 +201,7 @@ export async function GET(request: NextRequest) {
     if (statusResponse.ok) {
       // Check if we have a completed transaction
       if (
-        statusData.status === 'Completed' ||
+        statusData.success === true || statusData.status === 'Completed' ||
         statusData.status === 'Success' ||
         statusData.transactionId ||
         statusData.message?.toLowerCase().includes('approved') ||
