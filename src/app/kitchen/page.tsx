@@ -773,7 +773,7 @@ export default function KitchenPage() {
   function handleDragLeave() { setDragOverColumn(null) }
   function handleDrop(e: DragEvent, newStatus: string) { e.preventDefault(); if (draggedOrder) updateStatus(draggedOrder, newStatus); setDraggedOrder(null); setDragOverColumn(null) }
 
-  // Touch handlers pour tablettes
+  // Touch handlers pour tablettes (iPad/Android)
   function handleTouchStart(e: TouchEvent<HTMLDivElement>, orderId: string) {
     const touch = e.touches[0]
     setTouchStartPos({ x: touch.clientX, y: touch.clientY })
@@ -787,8 +787,11 @@ export default function KitchenPage() {
     const deltaX = Math.abs(touch.clientX - touchStartPos.x)
     const deltaY = Math.abs(touch.clientY - touchStartPos.y)
     
-    // Si mouvement > 20px, c'est un drag
-    if (deltaX > 20 || deltaY > 20) {
+    // Si mouvement > 15px, c'est un drag
+    if (deltaX > 15 || deltaY > 15) {
+      // Empêcher le scroll SEULEMENT quand on drag
+      e.preventDefault()
+      
       if (!isDragging) {
         setIsDragging(true)
         if (navigator.vibrate) navigator.vibrate(50)
@@ -801,19 +804,31 @@ export default function KitchenPage() {
         dragGhostRef.current.style.top = `${touch.clientY - 30}px`
       }
       
-      // Détecter la colonne survolée
-      const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY)
-      const column = elementBelow?.closest('[data-column]')
-      if (column) {
-        setDragOverColumn(column.getAttribute('data-column'))
-      } else {
-        setDragOverColumn(null)
-      }
+      // Détecter la colonne survolée - méthode robuste pour iPad
+      const columns = document.querySelectorAll('[data-column]')
+      let foundColumn: string | null = null
+      
+      columns.forEach((col) => {
+        const rect = col.getBoundingClientRect()
+        if (
+          touch.clientX >= rect.left &&
+          touch.clientX <= rect.right &&
+          touch.clientY >= rect.top &&
+          touch.clientY <= rect.bottom
+        ) {
+          foundColumn = col.getAttribute('data-column')
+        }
+      })
+      
+      setDragOverColumn(foundColumn)
     }
   }
 
   function handleTouchEnd() {
+    console.log('TouchEnd - isDragging:', isDragging, 'touchDragOrder:', touchDragOrder, 'dragOverColumn:', dragOverColumn)
+    
     if (isDragging && touchDragOrder && dragOverColumn) {
+      console.log('Updating status to:', dragOverColumn)
       updateStatus(touchDragOrder, dragOverColumn)
       if (navigator.vibrate) navigator.vibrate([30, 30, 30])
     }
@@ -1012,7 +1027,7 @@ export default function KitchenPage() {
             {column.nextStatus && (
               <button 
                 onClick={(e) => { e.stopPropagation(); updateStatus(order.id, column.nextStatus!) }} 
-                className={`${colorClasses.btn} text-white w-12 h-12 rounded-xl flex items-center justify-center transition-colors text-2xl shadow-lg active:scale-95`}
+                className={`${colorClasses.btn} text-white w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-colors text-xl sm:text-2xl shadow-lg active:scale-95`}
               >
                 →
               </button>
@@ -1322,27 +1337,40 @@ export default function KitchenPage() {
   )
 
   const visibleColumns = COLUMNS.filter(col => columnConfig[col.key as keyof ColumnConfig])
-  const gridCols = visibleColumns.length === 1 ? 'grid-cols-1' : visibleColumns.length === 2 ? 'grid-cols-2' : visibleColumns.length === 3 ? 'grid-cols-3' : 'grid-cols-4'
+  // Responsive: 1 col sur mobile, 2 sur tablette portrait, toutes sur tablette paysage/desktop
+  const gridCols = visibleColumns.length === 1 
+    ? 'grid-cols-1' 
+    : visibleColumns.length === 2 
+    ? 'grid-cols-1 sm:grid-cols-2' 
+    : visibleColumns.length === 3 
+    ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' 
+    : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
   
   const pendingDeliveriesCount = orders.filter(o => o.order_type === 'delivery' && ['pending', 'preparing', 'ready'].includes(o.status)).length
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-4">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold">👨‍🍳 Cuisine - MDjambo</h1>
-          <p className="text-gray-400">
-            {device ? `${device.name} (${device.device_code})` : 'Mode démo'}
+    <div className="min-h-screen bg-slate-900 text-white p-2 sm:p-4">
+      {/* Header responsive */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 sm:mb-4 gap-2">
+        <div className="flex items-center justify-between sm:block">
+          <h1 className="text-lg sm:text-2xl font-bold">👨‍🍳 Cuisine</h1>
+          <div className="flex items-center gap-2 sm:hidden">
+            <button onClick={() => setDisplayMode(displayMode === 'compact' ? 'detailed' : 'compact')} className="bg-slate-700 p-2 rounded-lg">
+              {displayMode === 'compact' ? '📖' : '📋'}
+            </button>
+            <button onClick={() => setShowConfig(true)} className="bg-slate-700 p-2 rounded-lg">⚙️</button>
+          </div>
+          <p className="text-gray-400 text-xs sm:text-base hidden sm:block">
+            {device ? `${device.name}` : 'Mode démo'}
             <span className="ml-2 text-green-400">● En ligne</span>
-            <span className="ml-3 px-2 py-0.5 bg-slate-700 rounded text-sm">{displayMode === 'compact' ? '📋 Compact' : '📖 Détaillé'}</span>
-            <span className="ml-3 px-2 py-0.5 bg-cyan-500/20 text-cyan-300 rounded text-sm">⏱️ Prépa moy: {avgPrepTime}min</span>
+            <span className="ml-2 px-2 py-0.5 bg-cyan-500/20 text-cyan-300 rounded text-xs">⏱️ {avgPrepTime}min</span>
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
           {/* Bouton livraisons */}
           <button 
             onClick={() => setShowDeliveryPanel(true)} 
-            className={`relative px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+            className={`relative px-3 py-2 rounded-lg transition-colors flex items-center gap-1 sm:gap-2 text-sm ${
               suggestedRounds.length > 0 ? 'bg-green-500 hover:bg-green-600 animate-pulse' : 'bg-slate-700 hover:bg-slate-600'
             }`}
           >
@@ -1353,23 +1381,26 @@ export default function KitchenPage() {
                 {suggestedRounds.length}
               </span>
             )}
-            <span className={`text-sm ${availableDrivers > 0 ? 'text-green-300' : 'text-red-300'}`}>
+            <span className={`text-xs ${availableDrivers > 0 ? 'text-green-300' : 'text-red-300'}`}>
               ({availableDrivers} 🛵)
             </span>
           </button>
           
-          <button onClick={() => setDisplayMode(displayMode === 'compact' ? 'detailed' : 'compact')} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg transition-colors" title="Changer le mode d'affichage">
-            {displayMode === 'compact' ? '📖' : '📋'}
-          </button>
-          <button onClick={() => setShowConfig(true)} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg transition-colors">⚙️</button>
+          <div className="hidden sm:flex items-center gap-2">
+            <button onClick={() => setDisplayMode(displayMode === 'compact' ? 'detailed' : 'compact')} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg transition-colors" title="Changer le mode d'affichage">
+              {displayMode === 'compact' ? '📖' : '📋'}
+            </button>
+            <button onClick={() => setShowConfig(true)} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg transition-colors">⚙️</button>
+          </div>
           <div className="text-right">
-            <p className="text-4xl font-mono">{currentTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}</p>
-            <p className="text-gray-400">{currentTime.toLocaleDateString('fr-BE', { weekday: 'long', day: '2-digit', month: '2-digit' })}</p>
+            <p className="text-2xl sm:text-4xl font-mono">{currentTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}</p>
+            <p className="text-gray-400 text-xs sm:text-base hidden sm:block">{currentTime.toLocaleDateString('fr-BE', { weekday: 'long', day: '2-digit', month: '2-digit' })}</p>
           </div>
         </div>
       </div>
 
-      <div className="mb-4 p-3 bg-slate-800 rounded-xl flex flex-wrap gap-4 text-sm">
+      {/* Légende - cachée sur mobile */}
+      <div className="mb-2 sm:mb-4 p-2 sm:p-3 bg-slate-800 rounded-xl flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm hidden sm:flex">
         <span className="text-gray-400">Priorité :</span>
         <span className="bg-red-500 text-white px-2 py-0.5 rounded font-bold">🔥 MAINTENANT</span>
         <span className="bg-red-500/50 text-white px-2 py-0.5 rounded">⚠️ RETARD</span>
@@ -1384,19 +1415,20 @@ export default function KitchenPage() {
       {loading ? (
         <div className="flex items-center justify-center h-96"><p className="text-2xl text-gray-400">Chargement des commandes...</p></div>
       ) : (
-        <div className={`grid ${gridCols} gap-4`} style={{ height: 'calc(100vh - 200px)' }}>
+        <div className={`grid ${gridCols} gap-2 sm:gap-4`} style={{ height: 'calc(100vh - 120px)' }}>
           {visibleColumns.map(column => {
             const columnOrders = column.key === 'completed' ? allOrders.filter(o => o.status === column.key).slice(-10) : allOrders.filter(o => o.status === column.key)
             const groupedOrders = getOrdersGroupedByRound(columnOrders)
             const colorClasses = { orange: { text: 'text-orange-400', bg: 'bg-orange-400', bgLight: 'bg-orange-400/20' }, blue: { text: 'text-blue-400', bg: 'bg-blue-400', bgLight: 'bg-blue-400/20' }, green: { text: 'text-green-400', bg: 'bg-green-400', bgLight: 'bg-green-400/20' }, gray: { text: 'text-gray-400', bg: 'bg-gray-400', bgLight: 'bg-gray-400/20' } }[column.color]
 
             return (
-              <div key={column.key} data-column={column.key} className={`bg-slate-800 rounded-xl p-4 overflow-y-auto transition-all ${dragOverColumn === column.key ? 'ring-2 ring-white/50 bg-slate-700' : ''}`}
+              <div key={column.key} data-column={column.key} className={`bg-slate-800 rounded-xl p-2 sm:p-4 overflow-y-auto transition-all ${dragOverColumn === column.key ? 'ring-2 ring-white/50 bg-slate-700' : ''}`}
                 onDragOver={(e) => handleDragOver(e, column.key)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, column.key)}>
-                <h2 className={`text-lg font-bold ${colorClasses.text} mb-4 flex items-center gap-2 sticky top-0 bg-slate-800 py-2 z-10`}>
-                  <span className={`w-3 h-3 ${colorClasses.bg} rounded-full ${column.key === 'pending' ? 'animate-pulse' : ''}`}></span>
-                  {column.label}
-                  <span className={`ml-auto ${colorClasses.bgLight} px-2 py-0.5 rounded text-sm`}>{columnOrders.length}</span>
+                <h2 className={`text-base sm:text-lg font-bold ${colorClasses.text} mb-2 sm:mb-4 flex items-center gap-2 sticky top-0 bg-slate-800 py-1 sm:py-2 z-10`}>
+                  <span className={`w-2 sm:w-3 h-2 sm:h-3 ${colorClasses.bg} rounded-full ${column.key === 'pending' ? 'animate-pulse' : ''}`}></span>
+                  <span className="hidden sm:inline">{column.label}</span>
+                  <span className="sm:hidden">{column.label.substring(0, 4)}</span>
+                  <span className={`ml-auto ${colorClasses.bgLight} px-2 py-0.5 rounded text-xs sm:text-sm`}>{columnOrders.length}</span>
                 </h2>
                 <div className="space-y-3">
                   {groupedOrders.length === 0 ? <p className="text-gray-500 text-center py-8">Aucune commande</p> : groupedOrders.map((group, idx) => <div key={idx}>{renderOrderGroup(group, column)}</div>)}
