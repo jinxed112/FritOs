@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { QRCodeSVG } from 'qrcode.react'
 
 type OrderItem = {
   id: string
@@ -97,21 +96,161 @@ export default function TicketPage() {
     
     setDownloading(true)
     try {
-      const response = await fetch(`/api/ticket/${orderId}/pdf`)
-      if (!response.ok) throw new Error('Erreur génération PDF')
+      // Import dynamique de jspdf pour éviter les erreurs SSR
+      const { jsPDF } = await import('jspdf')
       
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `ticket-${order.order_number}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
+      // Format ticket : 80mm x 200mm
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [80, 200]
+      })
+
+      const pageWidth = 80
+      let y = 10
+
+      // Header
+      doc.setFontSize(16)
+      doc.setFont('helvetica', 'bold')
+      doc.text(order.establishment?.name || 'MDjambo', pageWidth / 2, y, { align: 'center' })
+      y += 6
+
+      if (order.establishment?.address) {
+        doc.setFontSize(8)
+        doc.setFont('helvetica', 'normal')
+        doc.text(order.establishment.address, pageWidth / 2, y, { align: 'center' })
+        y += 4
+      }
+
+      if (order.establishment?.phone) {
+        doc.setFontSize(8)
+        doc.text(`Tel: ${order.establishment.phone}`, pageWidth / 2, y, { align: 'center' })
+        y += 4
+      }
+
+      y += 4
+
+      // Numéro de commande
+      doc.setFontSize(10)
+      doc.text('VOTRE COMMANDE', pageWidth / 2, y, { align: 'center' })
+      y += 6
+
+      doc.setFontSize(28)
+      doc.setFont('helvetica', 'bold')
+      doc.text(order.order_number, pageWidth / 2, y, { align: 'center' })
+      y += 10
+
+      // Type de commande
+      const orderTypeLabels: Record<string, string> = {
+        eat_in: 'Sur place',
+        takeaway: 'A emporter',
+        delivery: 'Livraison',
+        pickup: 'Click & Collect'
+      }
+      
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.text(orderTypeLabels[order.order_type] || order.order_type, pageWidth / 2, y, { align: 'center' })
+      y += 5
+
+      // Date
+      const date = new Date(order.created_at)
+      const dateStr = date.toLocaleDateString('fr-BE', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+      doc.setFontSize(8)
+      doc.text(dateStr, pageWidth / 2, y, { align: 'center' })
+      y += 6
+
+      // Ligne de séparation
+      doc.setLineWidth(0.1)
+      doc.setLineDashPattern([1, 1], 0)
+      doc.line(5, y, pageWidth - 5, y)
+      y += 6
+
+      // Articles
+      let subtotal = 0
+      doc.setLineDashPattern([], 0)
+
+      for (const item of order.order_items) {
+        const options = parseOptions(item.options_selected)
+        const optionsTotal = options.reduce((s, o) => s + o.price, 0)
+        const itemTotal = (item.unit_price + optionsTotal) * item.quantity
+        subtotal += itemTotal
+
+        // Ligne article
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'bold')
+        const itemText = `${item.quantity}x ${item.product_name}`
+        const priceText = `${itemTotal.toFixed(2)}€`
+        
+        doc.text(itemText, 5, y)
+        doc.text(priceText, pageWidth - 5, y, { align: 'right' })
+        y += 4
+
+        // Options
+        if (options.length > 0) {
+          doc.setFontSize(7)
+          doc.setFont('helvetica', 'normal')
+          for (const opt of options) {
+            let optText = `  + ${opt.item_name}`
+            if (opt.price > 0) {
+              optText += ` (+${opt.price.toFixed(2)}€)`
+            }
+            doc.text(optText, 5, y)
+            y += 3
+          }
+        }
+
+        y += 2
+      }
+
+      // Ligne de séparation
+      y += 2
+      doc.setLineDashPattern([1, 1], 0)
+      doc.line(5, y, pageWidth - 5, y)
+      y += 6
+
+      // Total
+      doc.setLineDashPattern([], 0)
+      doc.setFontSize(12)
+      doc.setFont('helvetica', 'bold')
+      doc.text('TOTAL', 5, y)
+      doc.text(`${(order.total || subtotal).toFixed(2)}€`, pageWidth - 5, y, { align: 'right' })
+      y += 8
+
+      // TVA
+      if (order.establishment?.vat_number) {
+        doc.setFontSize(7)
+        doc.setFont('helvetica', 'normal')
+        doc.text(`TVA: ${order.establishment.vat_number}`, pageWidth / 2, y, { align: 'center' })
+        y += 6
+      }
+
+      // Footer
+      doc.setLineDashPattern([1, 1], 0)
+      doc.line(5, y, pageWidth - 5, y)
+      y += 4
+      doc.setLineDashPattern([], 0)
+
+      doc.setFontSize(8)
+      doc.text('Merci pour votre commande !', pageWidth / 2, y, { align: 'center' })
+      y += 4
+      doc.text('A bientot chez MDjambo', pageWidth / 2, y, { align: 'center' })
+      y += 6
+
+      doc.setFontSize(6)
+      doc.text(`Ticket #${order.order_number} - ${dateStr}`, pageWidth / 2, y, { align: 'center' })
+
+      // Télécharger
+      doc.save(`ticket-${order.order_number}.pdf`)
     } catch (err) {
-      console.error('PDF download error:', err)
-      alert('Erreur lors du téléchargement du PDF')
+      console.error('PDF generation error:', err)
+      alert('Erreur lors de la génération du PDF')
     } finally {
       setDownloading(false)
     }
