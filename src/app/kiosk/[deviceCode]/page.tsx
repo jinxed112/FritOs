@@ -620,7 +620,7 @@ export default function KioskDevicePage() {
       setCart([])
       setPaymentStatus('idle')
       setPaymentSessionId(null)
-      setPendingOrderId(null)
+      // NE PAS reset pendingOrderId ici - on en a besoin pour le QR code du ticket
     }, 3000)
   }
 
