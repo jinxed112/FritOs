@@ -797,13 +797,6 @@ export default function KitchenPage() {
         if (navigator.vibrate) navigator.vibrate(50)
       }
       
-      // Mettre à jour le ghost
-      if (dragGhostRef.current) {
-        dragGhostRef.current.style.display = 'block'
-        dragGhostRef.current.style.left = `${touch.clientX - 60}px`
-        dragGhostRef.current.style.top = `${touch.clientY - 30}px`
-      }
-      
       // Détecter la colonne survolée - méthode robuste pour iPad
       const columns = document.querySelectorAll('[data-column]')
       let foundColumn: string | null = null
@@ -821,6 +814,28 @@ export default function KitchenPage() {
       })
       
       setDragOverColumn(foundColumn)
+      
+      // Mettre à jour le ghost avec la position ET le texte
+      if (dragGhostRef.current) {
+        dragGhostRef.current.style.display = 'block'
+        dragGhostRef.current.style.left = `${touch.clientX - 80}px`
+        dragGhostRef.current.style.top = `${touch.clientY - 40}px`
+        
+        // Mettre à jour le texte du ghost
+        const targetName = foundColumn === 'pending' ? '→ À préparer' 
+          : foundColumn === 'preparing' ? '→ En cours' 
+          : foundColumn === 'ready' ? '→ Prêt' 
+          : foundColumn === 'completed' ? '→ Clôturé'
+          : '📦 Glisser...'
+        dragGhostRef.current.textContent = targetName
+        
+        // Changer la couleur selon si on est sur une cible valide
+        if (foundColumn) {
+          dragGhostRef.current.className = 'fixed pointer-events-none z-50 bg-green-500 text-white px-4 py-3 rounded-xl shadow-2xl font-bold text-lg border-2 border-white'
+        } else {
+          dragGhostRef.current.className = 'fixed pointer-events-none z-50 bg-orange-500 text-white px-4 py-3 rounded-xl shadow-2xl font-bold text-lg border-2 border-white'
+        }
+      }
     }
   }
 
@@ -1337,14 +1352,17 @@ export default function KitchenPage() {
   )
 
   const visibleColumns = COLUMNS.filter(col => columnConfig[col.key as keyof ColumnConfig])
-  // Responsive: 1 col sur mobile, 2 sur tablette portrait, toutes sur tablette paysage/desktop
+  // Responsive: 
+  // - Portrait mobile: 1 col
+  // - Portrait tablette (md): 2 cols  
+  // - Paysage tablette / Desktop (lg): toutes les colonnes
   const gridCols = visibleColumns.length === 1 
     ? 'grid-cols-1' 
     : visibleColumns.length === 2 
-    ? 'grid-cols-1 sm:grid-cols-2' 
+    ? 'grid-cols-2' 
     : visibleColumns.length === 3 
-    ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' 
-    : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+    ? 'grid-cols-3' 
+    : 'grid-cols-2 md:grid-cols-4'
   
   const pendingDeliveriesCount = orders.filter(o => o.order_type === 'delivery' && ['pending', 'preparing', 'ready'].includes(o.status)).length
 
@@ -1488,10 +1506,10 @@ export default function KitchenPage() {
       {/* Ghost pour le drag tactile */}
       <div
         ref={dragGhostRef}
-        className="fixed pointer-events-none z-50 bg-orange-500 text-white px-4 py-2 rounded-lg shadow-2xl font-bold text-lg"
+        className="fixed pointer-events-none z-50 bg-orange-500 text-white px-4 py-3 rounded-xl shadow-2xl font-bold text-lg border-2 border-white"
         style={{ display: 'none' }}
       >
-        📦 Déplacer...
+        {dragOverColumn ? `→ ${dragOverColumn === 'pending' ? 'À préparer' : dragOverColumn === 'preparing' ? 'En cours' : dragOverColumn === 'ready' ? 'Prêt' : 'Clôturé'}` : '📦 Glisser...'}
       </div>
     </div>
   )
