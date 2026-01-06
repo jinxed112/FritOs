@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, DragEvent } from 'react'
+import { useState, useEffect, DragEvent, TouchEvent, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 // ==================== TYPES ====================
@@ -300,6 +300,12 @@ export default function KitchenPage() {
   const [displayMode, setDisplayMode] = useState<'compact' | 'detailed'>('detailed')
   const [draggedOrder, setDraggedOrder] = useState<string | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
+  
+  // Touch drag states
+  const [touchDragOrder, setTouchDragOrder] = useState<string | null>(null)
+  const [touchStartPos, setTouchStartPos] = useState<{ x: number, y: number } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragGhostRef = useRef<HTMLDivElement>(null)
   const [establishmentId, setEstablishmentId] = useState<string>('a0000000-0000-0000-0000-000000000001')
   const [collapsedSections, setCollapsedSections] = useState<Record<string, Set<string>>>({})
   const [checkedItems, setCheckedItems] = useState<Record<string, Set<string>>>({})
@@ -767,6 +773,61 @@ export default function KitchenPage() {
   function handleDragLeave() { setDragOverColumn(null) }
   function handleDrop(e: DragEvent, newStatus: string) { e.preventDefault(); if (draggedOrder) updateStatus(draggedOrder, newStatus); setDraggedOrder(null); setDragOverColumn(null) }
 
+  // Touch handlers pour tablettes
+  function handleTouchStart(e: TouchEvent<HTMLDivElement>, orderId: string) {
+    const touch = e.touches[0]
+    setTouchStartPos({ x: touch.clientX, y: touch.clientY })
+    setTouchDragOrder(orderId)
+  }
+
+  function handleTouchMove(e: TouchEvent<HTMLDivElement>) {
+    if (!touchDragOrder || !touchStartPos) return
+    
+    const touch = e.touches[0]
+    const deltaX = Math.abs(touch.clientX - touchStartPos.x)
+    const deltaY = Math.abs(touch.clientY - touchStartPos.y)
+    
+    // Si mouvement > 20px, c'est un drag
+    if (deltaX > 20 || deltaY > 20) {
+      if (!isDragging) {
+        setIsDragging(true)
+        if (navigator.vibrate) navigator.vibrate(50)
+      }
+      
+      // Mettre à jour le ghost
+      if (dragGhostRef.current) {
+        dragGhostRef.current.style.display = 'block'
+        dragGhostRef.current.style.left = `${touch.clientX - 60}px`
+        dragGhostRef.current.style.top = `${touch.clientY - 30}px`
+      }
+      
+      // Détecter la colonne survolée
+      const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY)
+      const column = elementBelow?.closest('[data-column]')
+      if (column) {
+        setDragOverColumn(column.getAttribute('data-column'))
+      } else {
+        setDragOverColumn(null)
+      }
+    }
+  }
+
+  function handleTouchEnd() {
+    if (isDragging && touchDragOrder && dragOverColumn) {
+      updateStatus(touchDragOrder, dragOverColumn)
+      if (navigator.vibrate) navigator.vibrate([30, 30, 30])
+    }
+    
+    // Reset
+    if (dragGhostRef.current) {
+      dragGhostRef.current.style.display = 'none'
+    }
+    setTouchDragOrder(null)
+    setTouchStartPos(null)
+    setIsDragging(false)
+    setDragOverColumn(null)
+  }
+
   function renderMergedItem(item: MergedItem, orderId: string) {
     const isHigh = item.totalQuantity >= 2
     const isVeryHigh = item.totalQuantity >= 4
@@ -902,8 +963,15 @@ export default function KitchenPage() {
     const showUpcomingStyle = launchInfo.isUpcoming
     
     return (
-      <div key={order.id} draggable onDragStart={(e) => handleDragStart(e, order.id)} onDragEnd={handleDragEnd}
-        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${isInRound ? 'border-purple-500' : colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${showUrgentStyle && column.key === 'pending' ? 'ring-2 ring-red-500' : ''} ${showUpcomingStyle && column.key === 'pending' ? 'ring-2 ring-orange-500' : ''}`}>
+      <div key={order.id} 
+        draggable 
+        onDragStart={(e) => handleDragStart(e, order.id)} 
+        onDragEnd={handleDragEnd}
+        onTouchStart={(e) => handleTouchStart(e, order.id)}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ touchAction: isDragging ? 'none' : 'auto' }}
+        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${isInRound ? 'border-purple-500' : colorClasses.border} cursor-grab active:cursor-grabbing ${draggedOrder === order.id || touchDragOrder === order.id ? 'opacity-50' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${showUrgentStyle && column.key === 'pending' ? 'ring-2 ring-red-500' : ''} ${showUpcomingStyle && column.key === 'pending' ? 'ring-2 ring-orange-500' : ''}`}>
         
         <div className={`p-3 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/40' : launchInfo.isNow ? 'bg-red-500/30' : launchInfo.isUpcoming ? 'bg-orange-500/20' : isInRound ? 'bg-purple-500/20' : 'bg-slate-600/50'}`}>
           <div className="flex items-center gap-2">
@@ -1320,7 +1388,7 @@ export default function KitchenPage() {
             const colorClasses = { orange: { text: 'text-orange-400', bg: 'bg-orange-400', bgLight: 'bg-orange-400/20' }, blue: { text: 'text-blue-400', bg: 'bg-blue-400', bgLight: 'bg-blue-400/20' }, green: { text: 'text-green-400', bg: 'bg-green-400', bgLight: 'bg-green-400/20' }, gray: { text: 'text-gray-400', bg: 'bg-gray-400', bgLight: 'bg-gray-400/20' } }[column.color]
 
             return (
-              <div key={column.key} className={`bg-slate-800 rounded-xl p-4 overflow-y-auto transition-all ${dragOverColumn === column.key ? 'ring-2 ring-white/50 bg-slate-700' : ''}`}
+              <div key={column.key} data-column={column.key} className={`bg-slate-800 rounded-xl p-4 overflow-y-auto transition-all ${dragOverColumn === column.key ? 'ring-2 ring-white/50 bg-slate-700' : ''}`}
                 onDragOver={(e) => handleDragOver(e, column.key)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, column.key)}>
                 <h2 className={`text-lg font-bold ${colorClasses.text} mb-4 flex items-center gap-2 sticky top-0 bg-slate-800 py-2 z-10`}>
                   <span className={`w-3 h-3 ${colorClasses.bg} rounded-full ${column.key === 'pending' ? 'animate-pulse' : ''}`}></span>
@@ -1381,6 +1449,15 @@ export default function KitchenPage() {
           </div>
         </div>
       )}
+
+      {/* Ghost pour le drag tactile */}
+      <div
+        ref={dragGhostRef}
+        className="fixed pointer-events-none z-50 bg-orange-500 text-white px-4 py-2 rounded-lg shadow-2xl font-bold text-lg"
+        style={{ display: 'none' }}
+      >
+        📦 Déplacer...
+      </div>
     </div>
   )
 }
