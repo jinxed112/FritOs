@@ -377,14 +377,28 @@ export default function KioskDevicePage() {
     }
     
     if (optionGroup.selection_type === 'single') {
-      setSelectedOptions([
-        ...selectedOptions.filter(o => o.option_group_id !== optionGroup.id),
-        newOption,
-      ])
+      const exists = selectedOptions.find(o => o.item_id === item.id)
+      if (exists) {
+        // Si déjà sélectionné et min_selections est 0, on peut désélectionner
+        if (optionGroup.min_selections === 0) {
+          setSelectedOptions(selectedOptions.filter(o => o.option_group_id !== optionGroup.id))
+        }
+        // Sinon on ne fait rien (on ne peut pas désélectionner si c'est obligatoire)
+      } else {
+        // Remplacer la sélection actuelle par la nouvelle
+        setSelectedOptions([
+          ...selectedOptions.filter(o => o.option_group_id !== optionGroup.id),
+          newOption,
+        ])
+      }
     } else {
       const exists = selectedOptions.find(o => o.item_id === item.id)
       if (exists) {
-        setSelectedOptions(selectedOptions.filter(o => o.item_id !== item.id))
+        // Désélectionner seulement si on reste au-dessus du minimum
+        const currentCount = selectedOptions.filter(o => o.option_group_id === optionGroup.id).length
+        if (currentCount > optionGroup.min_selections) {
+          setSelectedOptions(selectedOptions.filter(o => o.item_id !== item.id))
+        }
       } else {
         const currentCount = selectedOptions.filter(o => o.option_group_id === optionGroup.id).length
         if (optionGroup.max_selections && currentCount >= optionGroup.max_selections) {
