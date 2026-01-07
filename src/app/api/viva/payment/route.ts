@@ -1,4 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+
+// Supabase client with service role for server-side updates
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 export async function POST(request: NextRequest) {
   try {
@@ -145,6 +152,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const sessionId = searchParams.get('sessionId')
+    const orderId = searchParams.get('orderId')
 
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 })
@@ -201,12 +209,46 @@ export async function GET(request: NextRequest) {
     if (statusResponse.ok) {
       // Check if we have a completed transaction
       if (
-        statusData.success === true || statusData.status === 'Completed' ||
+        statusData.success === true || 
+        statusData.status === 'Completed' ||
         statusData.status === 'Success' ||
         statusData.transactionId ||
         statusData.message?.toLowerCase().includes('approved') ||
         statusData.message?.toLowerCase().includes('success')
       ) {
+        // ========== UPDATE ORDER IN DATABASE ==========
+        const orderIdToUpdate = orderId || statusData.merchantReference
+        
+        if (orderIdToUpdate) {
+          console.log('Updating order to pending:', orderIdToUpdate)
+          
+          const updateData: any = { 
+            status: 'pending',
+            viva_transaction_id: statusData.transactionId || null,
+            viva_order_code: statusData.orderCode || null,
+          }
+          
+          // Update total from Viva amount (convert cents to euros)
+          if (statusData.amount) {
+            updateData.total = statusData.amount / 100
+          }
+          
+          const { error: updateError } = await supabase
+            .from('orders')
+            .update(updateData)
+            .eq('id', orderIdToUpdate)
+            .eq('status', 'awaiting_payment') // Only update if still awaiting
+          
+          if (updateError) {
+            console.error('Failed to update order:', updateError)
+          } else {
+            console.log('Order successfully updated to pending:', orderIdToUpdate)
+          }
+        } else {
+          console.warn('No orderId available to update')
+        }
+        // ================================================
+        
         return NextResponse.json({ status: 'success', data: statusData })
       }
 
