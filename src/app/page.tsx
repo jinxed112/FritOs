@@ -19,29 +19,15 @@ export default function Home() {
             <p className="text-gray-500">Gestion produits, rapports, paramètres</p>
           </Link>
 
-          {/* Kiosk */}
-          <Link href="/kiosk" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
+          {/* Devices - NOUVEAU */}
+          <Link href="/device" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
             <div className="text-4xl mb-4">📱</div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Borne</h2>
-            <p className="text-gray-500">Interface client pour commandes</p>
-          </Link>
-
-          {/* Kitchen */}
-          <Link href="/kitchen" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
-            <div className="text-4xl mb-4">👨‍🍳</div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Cuisine (KDS)</h2>
-            <p className="text-gray-500">Affichage des commandes</p>
-          </Link>
-
-          {/* Counter */}
-          <Link href="/counter" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
-            <div className="text-4xl mb-4">💳</div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Caisse</h2>
-            <p className="text-gray-500">Prise de commande employé</p>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Devices</h2>
+            <p className="text-gray-500">Bornes, écrans cuisine, caisses</p>
           </Link>
 
           {/* Click & Collect */}
-          <Link href="/order/jurbise" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
+          <Link href="/order/boussu" className="bg-white rounded-2xl p-6 shadow-lg hover:scale-105 transition-transform">
             <div className="text-4xl mb-4">🛒</div>
             <h2 className="text-xl font-bold text-gray-900 mb-2">Click & Collect</h2>
             <p className="text-gray-500">Commandes en ligne</p>

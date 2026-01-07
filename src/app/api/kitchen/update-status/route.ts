@@ -1,48 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 
-// Client admin avec service_role key
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-)
+const DEVICE_COOKIE_NAME = 'selected_device'
 
 export async function POST(request: NextRequest) {
   try {
-    // 1. Vérifier le cookie de session device
+    // 1. Récupérer le device depuis le cookie
     const cookieStore = await cookies()
-    const sessionToken = cookieStore.get('device_session')?.value
+    const deviceCookie = cookieStore.get(DEVICE_COOKIE_NAME)?.value
 
-    if (!sessionToken) {
-      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
+    if (!deviceCookie) {
+      return NextResponse.json({ error: 'Aucun device sélectionné' }, { status: 401 })
     }
 
-    // 2. Vérifier que la session est valide et récupérer le device
-    const { data: session, error: sessionError } = await supabaseAdmin
-      .from('device_sessions')
-      .select(`
-        id,
-        device:devices (
-          id, device_code, establishment_id, is_active
-        )
-      `)
-      .eq('session_token', sessionToken)
-      .eq('is_valid', true)
-      .single()
-
-    if (sessionError || !session || !session.device) {
-      return NextResponse.json({ error: 'Session invalide' }, { status: 401 })
+    let device
+    try {
+      device = JSON.parse(deviceCookie)
+    } catch {
+      return NextResponse.json({ error: 'Cookie device invalide' }, { status: 401 })
     }
 
-    const device = session.device as any
-
-    if (!device.is_active) {
-      return NextResponse.json({ error: 'Device désactivé' }, { status: 401 })
+    if (!device?.id || !device?.establishmentId) {
+      return NextResponse.json({ error: 'Device invalide' }, { status: 401 })
     }
 
-    // 3. Récupérer les données de la requête
+    // 2. Récupérer les données de la requête
     const { orderId, newStatus, isOffered } = await request.json()
 
     if (!orderId || !newStatus) {
@@ -55,23 +38,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Statut invalide' }, { status: 400 })
     }
 
-    // 4. Mettre à jour la commande
+    const supabase = createAdminClient()
+
+    // 3. Mettre à jour la commande
     if (isOffered) {
       // Commande offerte (temp_orders)
       if (newStatus === 'completed') {
         // Vérifier que la commande appartient à cet établissement
-        const { data: tempOrder } = await supabaseAdmin
+        const { data: tempOrder } = await supabase
           .from('temp_orders')
           .select('id, establishment_id')
           .eq('id', orderId)
-          .eq('establishment_id', device.establishment_id)
+          .eq('establishment_id', device.establishmentId)
           .single()
 
         if (!tempOrder) {
           return NextResponse.json({ error: 'Commande non trouvée' }, { status: 404 })
         }
 
-        const { error } = await supabaseAdmin
+        const { error } = await supabase
           .from('temp_orders')
           .delete()
           .eq('id', orderId)
@@ -81,18 +66,18 @@ export async function POST(request: NextRequest) {
         }
       } else {
         // Vérifier que la commande appartient à cet établissement
-        const { data: tempOrder } = await supabaseAdmin
+        const { data: tempOrder } = await supabase
           .from('temp_orders')
           .select('id, establishment_id')
           .eq('id', orderId)
-          .eq('establishment_id', device.establishment_id)
+          .eq('establishment_id', device.establishmentId)
           .single()
 
         if (!tempOrder) {
           return NextResponse.json({ error: 'Commande non trouvée' }, { status: 404 })
         }
 
-        const { error } = await supabaseAdmin
+        const { error } = await supabase
           .from('temp_orders')
           .update({ status: newStatus })
           .eq('id', orderId)
@@ -103,11 +88,11 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // Commande normale - vérifier qu'elle appartient à cet établissement
-      const { data: order } = await supabaseAdmin
+      const { data: order } = await supabase
         .from('orders')
         .select('id, establishment_id')
         .eq('id', orderId)
-        .eq('establishment_id', device.establishment_id)
+        .eq('establishment_id', device.establishmentId)
         .single()
 
       if (!order) {
@@ -123,7 +108,7 @@ export async function POST(request: NextRequest) {
         updateData.preparation_started_at = new Date().toISOString()
       }
 
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from('orders')
         .update(updateData)
         .eq('id', orderId)
@@ -132,12 +117,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500 })
       }
     }
-
-    // 5. Mettre à jour last_used_at de la session
-    await supabaseAdmin
-      .from('device_sessions')
-      .update({ last_used_at: new Date().toISOString() })
-      .eq('id', session.id)
 
     return NextResponse.json({ success: true, newStatus })
 
