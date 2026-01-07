@@ -396,19 +396,31 @@ export default function KitchenPage() {
     try {
       const isOffered = offeredOrders.some(o => o.id === orderId)
       if (isOffered) {
-        if (newStatus === 'completed') await supabase.from('temp_orders').delete().eq('id', orderId)
-        else await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
+        if (newStatus === 'completed') {
+          const { error } = await supabase.from('temp_orders').delete().eq('id', orderId)
+          if (error) window.alert('ERREUR temp_orders delete: ' + error.message)
+          else window.alert('OK temp_orders supprimé')
+        } else {
+          const { error } = await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
+          if (error) window.alert('ERREUR temp_orders update: ' + error.message)
+          else window.alert('OK temp_orders -> ' + newStatus)
+        }
       } else {
         const updateData: any = { status: newStatus, updated_at: new Date().toISOString() }
         if (newStatus === 'preparing') updateData.preparation_started_at = new Date().toISOString()
-        await supabase.from('orders').update(updateData).eq('id', orderId)
+        const { error, data, count } = await supabase.from('orders').update(updateData).eq('id', orderId).select()
+        if (error) {
+          window.alert('ERREUR orders update: ' + error.message)
+        } else {
+          window.alert('OK orders -> ' + newStatus + ' (rows: ' + (data?.length || 0) + ')')
+        }
       }
 
       if (newStatus === 'completed' || newStatus === 'ready') {
         setCheckedItems(prev => { const newState = { ...prev }; delete newState[orderId]; return newState })
       }
-    } catch (error) {
-      console.error('Update status error:', error)
+    } catch (error: any) {
+      window.alert('EXCEPTION: ' + (error?.message || error))
     }
   }
 
