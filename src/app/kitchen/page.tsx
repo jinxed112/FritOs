@@ -773,90 +773,123 @@ export default function KitchenPage() {
   function handleDragLeave() { setDragOverColumn(null) }
   function handleDrop(e: DragEvent, newStatus: string) { e.preventDefault(); if (draggedOrder) updateStatus(draggedOrder, newStatus); setDraggedOrder(null); setDragOverColumn(null) }
 
-  // Touch handlers pour tablettes (iPad/Android)
+  // Refs pour stocker les valeurs actuelles (pour les event listeners natifs)
+  const touchDragOrderRef = useRef<string | null>(null)
+  const touchStartPosRef = useRef<{ x: number, y: number } | null>(null)
+  const isDraggingRef = useRef(false)
+  const dragOverColumnRef = useRef<string | null>(null)
+
+  // Sync refs avec state
+  useEffect(() => { touchDragOrderRef.current = touchDragOrder }, [touchDragOrder])
+  useEffect(() => { touchStartPosRef.current = touchStartPos }, [touchStartPos])
+  useEffect(() => { isDraggingRef.current = isDragging }, [isDragging])
+  useEffect(() => { dragOverColumnRef.current = dragOverColumn }, [dragOverColumn])
+
+  // Touch handlers pour tablettes (iPad/Android/Fully Kiosk)
   function handleTouchStart(e: TouchEvent<HTMLDivElement>, orderId: string) {
     const touch = e.touches[0]
     setTouchStartPos({ x: touch.clientX, y: touch.clientY })
     setTouchDragOrder(orderId)
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY }
+    touchDragOrderRef.current = orderId
   }
 
-  function handleTouchMove(e: TouchEvent<HTMLDivElement>) {
-    if (!touchDragOrder || !touchStartPos) return
-    
-    const touch = e.touches[0]
-    const deltaX = Math.abs(touch.clientX - touchStartPos.x)
-    const deltaY = Math.abs(touch.clientY - touchStartPos.y)
-    
-    // Si mouvement > 15px, c'est un drag
-    if (deltaX > 15 || deltaY > 15) {
-      // Empêcher le scroll SEULEMENT quand on drag
-      e.preventDefault()
+  // Global touch move handler avec passive: false pour Fully Kiosk
+  useEffect(() => {
+    function globalTouchMove(e: globalThis.TouchEvent) {
+      if (!touchDragOrderRef.current || !touchStartPosRef.current) return
       
-      if (!isDragging) {
-        setIsDragging(true)
-        if (navigator.vibrate) navigator.vibrate(50)
+      const touch = e.touches[0]
+      const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x)
+      const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y)
+      
+      // Si mouvement > 15px, c'est un drag
+      if (deltaX > 15 || deltaY > 15) {
+        // IMPORTANT: preventDefault avec passive: false pour bloquer le scroll
+        e.preventDefault()
+        e.stopPropagation()
+        
+        if (!isDraggingRef.current) {
+          setIsDragging(true)
+          isDraggingRef.current = true
+          if (navigator.vibrate) navigator.vibrate(50)
+        }
+        
+        // Détecter la colonne survolée
+        const columns = document.querySelectorAll('[data-column]')
+        let foundColumn: string | null = null
+        
+        columns.forEach((col) => {
+          const rect = col.getBoundingClientRect()
+          if (
+            touch.clientX >= rect.left &&
+            touch.clientX <= rect.right &&
+            touch.clientY >= rect.top &&
+            touch.clientY <= rect.bottom
+          ) {
+            foundColumn = col.getAttribute('data-column')
+          }
+        })
+        
+        setDragOverColumn(foundColumn)
+        dragOverColumnRef.current = foundColumn
+        
+        // Mettre à jour le ghost
+        if (dragGhostRef.current) {
+          dragGhostRef.current.style.display = 'block'
+          dragGhostRef.current.style.left = `${touch.clientX - 80}px`
+          dragGhostRef.current.style.top = `${touch.clientY - 40}px`
+          
+          const targetName = foundColumn === 'pending' ? '→ À préparer' 
+            : foundColumn === 'preparing' ? '→ En cours' 
+            : foundColumn === 'ready' ? '→ Prêt' 
+            : foundColumn === 'completed' ? '→ Clôturé'
+            : '📦 Glisser...'
+          dragGhostRef.current.textContent = targetName
+          
+          if (foundColumn) {
+            dragGhostRef.current.className = 'fixed pointer-events-none z-50 bg-green-500 text-white px-4 py-3 rounded-xl shadow-2xl font-bold text-lg border-2 border-white'
+          } else {
+            dragGhostRef.current.className = 'fixed pointer-events-none z-50 bg-orange-500 text-white px-4 py-3 rounded-xl shadow-2xl font-bold text-lg border-2 border-white'
+          }
+        }
+      }
+    }
+
+    function globalTouchEnd() {
+      console.log('TouchEnd - isDragging:', isDraggingRef.current, 'touchDragOrder:', touchDragOrderRef.current, 'dragOverColumn:', dragOverColumnRef.current)
+      
+      if (isDraggingRef.current && touchDragOrderRef.current && dragOverColumnRef.current) {
+        console.log('Updating status to:', dragOverColumnRef.current)
+        updateStatus(touchDragOrderRef.current, dragOverColumnRef.current)
+        if (navigator.vibrate) navigator.vibrate([30, 30, 30])
       }
       
-      // Détecter la colonne survolée - méthode robuste pour iPad
-      const columns = document.querySelectorAll('[data-column]')
-      let foundColumn: string | null = null
-      
-      columns.forEach((col) => {
-        const rect = col.getBoundingClientRect()
-        if (
-          touch.clientX >= rect.left &&
-          touch.clientX <= rect.right &&
-          touch.clientY >= rect.top &&
-          touch.clientY <= rect.bottom
-        ) {
-          foundColumn = col.getAttribute('data-column')
-        }
-      })
-      
-      setDragOverColumn(foundColumn)
-      
-      // Mettre à jour le ghost avec la position ET le texte
+      // Reset
       if (dragGhostRef.current) {
-        dragGhostRef.current.style.display = 'block'
-        dragGhostRef.current.style.left = `${touch.clientX - 80}px`
-        dragGhostRef.current.style.top = `${touch.clientY - 40}px`
-        
-        // Mettre à jour le texte du ghost
-        const targetName = foundColumn === 'pending' ? '→ À préparer' 
-          : foundColumn === 'preparing' ? '→ En cours' 
-          : foundColumn === 'ready' ? '→ Prêt' 
-          : foundColumn === 'completed' ? '→ Clôturé'
-          : '📦 Glisser...'
-        dragGhostRef.current.textContent = targetName
-        
-        // Changer la couleur selon si on est sur une cible valide
-        if (foundColumn) {
-          dragGhostRef.current.className = 'fixed pointer-events-none z-50 bg-green-500 text-white px-4 py-3 rounded-xl shadow-2xl font-bold text-lg border-2 border-white'
-        } else {
-          dragGhostRef.current.className = 'fixed pointer-events-none z-50 bg-orange-500 text-white px-4 py-3 rounded-xl shadow-2xl font-bold text-lg border-2 border-white'
-        }
+        dragGhostRef.current.style.display = 'none'
       }
+      setTouchDragOrder(null)
+      setTouchStartPos(null)
+      setIsDragging(false)
+      setDragOverColumn(null)
+      touchDragOrderRef.current = null
+      touchStartPosRef.current = null
+      isDraggingRef.current = false
+      dragOverColumnRef.current = null
     }
-  }
 
-  function handleTouchEnd() {
-    console.log('TouchEnd - isDragging:', isDragging, 'touchDragOrder:', touchDragOrder, 'dragOverColumn:', dragOverColumn)
-    
-    if (isDragging && touchDragOrder && dragOverColumn) {
-      console.log('Updating status to:', dragOverColumn)
-      updateStatus(touchDragOrder, dragOverColumn)
-      if (navigator.vibrate) navigator.vibrate([30, 30, 30])
+    // CRUCIAL: passive: false permet à preventDefault() de fonctionner sur Fully Kiosk
+    document.addEventListener('touchmove', globalTouchMove, { passive: false })
+    document.addEventListener('touchend', globalTouchEnd, { passive: false })
+    document.addEventListener('touchcancel', globalTouchEnd, { passive: false })
+
+    return () => {
+      document.removeEventListener('touchmove', globalTouchMove)
+      document.removeEventListener('touchend', globalTouchEnd)
+      document.removeEventListener('touchcancel', globalTouchEnd)
     }
-    
-    // Reset
-    if (dragGhostRef.current) {
-      dragGhostRef.current.style.display = 'none'
-    }
-    setTouchDragOrder(null)
-    setTouchStartPos(null)
-    setIsDragging(false)
-    setDragOverColumn(null)
-  }
+  }, []) // Empty deps - handlers use refs
 
   function renderMergedItem(item: MergedItem, orderId: string) {
     const isHigh = item.totalQuantity >= 2
@@ -998,8 +1031,6 @@ export default function KitchenPage() {
         onDragStart={(e) => handleDragStart(e, order.id)} 
         onDragEnd={handleDragEnd}
         onTouchStart={(e) => handleTouchStart(e, order.id)}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
         style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
         className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${isInRound ? 'border-purple-500' : colorClasses.border} ${draggedOrder === order.id || touchDragOrder === order.id ? 'opacity-50 scale-95' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${showUrgentStyle && column.key === 'pending' ? 'ring-2 ring-red-500' : ''} ${showUpcomingStyle && column.key === 'pending' ? 'ring-2 ring-orange-500' : ''}`}>
         
