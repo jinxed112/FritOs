@@ -153,7 +153,7 @@ export default function DeviceLoginPage() {
   }
 
   const filteredDevices = filter ? devices.filter(d => d.device_type === filter) : devices
-  const deviceTypes = [...new Set(devices.map(d => d.device_type))]
+  const deviceTypes = Array.from(new Set(devices.map(d => d.device_type)))
 
   // Loading
   if (checkingAuth) {
