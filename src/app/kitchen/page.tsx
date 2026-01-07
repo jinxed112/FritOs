@@ -53,6 +53,7 @@ type DeviceInfo = {
   name: string
   type: string
   establishmentId: string
+  config?: { columns?: string[]; displayMode?: 'compact' | 'detailed' }
 }
 
 type ColumnConfig = { pending: boolean; preparing: boolean; ready: boolean; completed: boolean }
