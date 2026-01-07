@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 // ==================== TYPES ====================
@@ -253,11 +254,10 @@ function getPreviousStatus(currentStatus: string): string | null {
 
 // ==================== MAIN COMPONENT ====================
 export default function KitchenPage() {
+  const router = useRouter()
+  
   // Auth state
-  const [authStatus, setAuthStatus] = useState<'checking' | 'needPin' | 'authenticated'>('checking')
-  const [pinInput, setPinInput] = useState('')
-  const [pinError, setPinError] = useState('')
-  const [deviceCode, setDeviceCode] = useState('')
+  const [authStatus, setAuthStatus] = useState<'checking' | 'unauthorized' | 'authenticated'>('checking')
   const [device, setDevice] = useState<DeviceInfo | null>(null)
   
   // Data state
@@ -284,59 +284,34 @@ export default function KitchenPage() {
   // ==================== AUTH ====================
   async function checkAuth() {
     try {
-      // Check if we have a device code in cookie/localStorage
-      const savedDeviceCode = localStorage.getItem('kds_device_code')
-      if (savedDeviceCode) {
-        setDeviceCode(savedDeviceCode)
-        const response = await fetch(`/api/device-auth?deviceCode=${savedDeviceCode}`)
-        const data = await response.json()
-        
-        if (data.authenticated && data.device) {
-          setDevice(data.device)
-          setAuthStatus('authenticated')
-          loadAllData(data.device.establishmentId)
-          return
-        }
+      // 1. Vérifier session Supabase
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setAuthStatus('unauthorized')
+        return
       }
-      setAuthStatus('needPin')
-    } catch (error) {
-      console.error('Auth check error:', error)
-      setAuthStatus('needPin')
-    }
-  }
 
-  async function submitPin() {
-    if (!deviceCode.trim()) {
-      setPinError('Entrez le code du device (ex: KDSJU01)')
-      return
-    }
-    if (pinInput.length < 4) {
-      setPinError('Le PIN doit contenir au moins 4 chiffres')
-      return
-    }
-    
-    setPinError('')
-    
-    try {
-      const response = await fetch('/api/device-auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceCode: deviceCode.toUpperCase(), pin: pinInput })
-      })
-      
+      // 2. Vérifier le cookie device via API
+      const response = await fetch('/api/device-auth')
       const data = await response.json()
       
-      if (data.success && data.device) {
-        // Save device code for next time
-        localStorage.setItem('kds_device_code', deviceCode.toUpperCase())
-        setDevice(data.device)
-        setAuthStatus('authenticated')
-        loadAllData(data.device.establishmentId)
-      } else {
-        setPinError(data.error || 'Code device ou PIN incorrect')
+      if (!data.device) {
+        setAuthStatus('unauthorized')
+        return
       }
+
+      // 3. Vérifier que c'est bien un KDS
+      if (data.device.type !== 'kds') {
+        setAuthStatus('unauthorized')
+        return
+      }
+
+      setDevice(data.device)
+      setAuthStatus('authenticated')
+      loadAllData(data.device.establishmentId)
     } catch (error) {
-      setPinError('Erreur de connexion')
+      console.error('Auth check error:', error)
+      setAuthStatus('unauthorized')
     }
   }
 
@@ -715,60 +690,22 @@ export default function KitchenPage() {
     )
   }
 
-  // Need PIN screen
-  if (authStatus === 'needPin') {
+  // Need to login via /device
+  if (authStatus === 'unauthorized') {
     return (
       <div className="h-screen bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-          <div className="text-center mb-6">
-            <span className="text-5xl block mb-2">👨‍🍳</span>
-            <h1 className="text-xl font-bold text-gray-900">Écran Cuisine (KDS)</h1>
-            <p className="text-gray-500 text-sm">Entrez le code device et le PIN</p>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Code Device</label>
-              <input
-                type="text"
-                value={deviceCode}
-                onChange={(e) => setDeviceCode(e.target.value.toUpperCase())}
-                placeholder="Ex: KDSJU01"
-                className="w-full text-center text-xl font-mono tracking-widest border-2 border-gray-200 rounded-xl p-3 focus:border-orange-500 focus:outline-none uppercase"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">PIN</label>
-              <input
-                type="password"
-                inputMode="numeric"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
-                onKeyDown={(e) => e.key === 'Enter' && submitPin()}
-                placeholder="••••"
-                className="w-full text-center text-2xl font-mono tracking-widest border-2 border-gray-200 rounded-xl p-3 focus:border-orange-500 focus:outline-none"
-                maxLength={6}
-              />
-            </div>
-            
-            {pinError && (
-              <p className="text-red-500 text-center text-sm">{pinError}</p>
-            )}
-            
-            <button
-              onClick={submitPin}
-              className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl hover:bg-orange-600 transition-colors"
-            >
-              Connexion
-            </button>
-          </div>
-          
-          <div className="mt-6 p-3 bg-gray-50 rounded-xl">
-            <p className="text-gray-500 text-xs text-center">
-              💡 Le code device et PIN sont disponibles dans Admin → Devices
-            </p>
-          </div>
+        <div className="text-center max-w-md">
+          <span className="text-6xl block mb-6">🔒</span>
+          <h1 className="text-2xl font-bold text-white mb-4">Accès non autorisé</h1>
+          <p className="text-gray-400 mb-8">
+            Veuillez vous connecter et sélectionner un écran cuisine depuis la page de configuration.
+          </p>
+          <button
+            onClick={() => router.push('/device')}
+            className="bg-orange-500 text-white font-bold px-8 py-4 rounded-xl hover:bg-orange-600 transition-colors"
+          >
+            Aller à la configuration
+          </button>
         </div>
       </div>
     )
@@ -783,11 +720,12 @@ export default function KitchenPage() {
       <div className="flex items-center justify-between px-2 py-1 bg-slate-800 border-b border-slate-700 flex-shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold">🍳 KDS</span>
-          <span className="text-[10px] text-gray-400">{device?.name || deviceCode}</span>
+          <span className="text-[10px] text-gray-400">{device?.name || 'Cuisine'}</span>
           <button onClick={() => setDisplayMode(displayMode === 'compact' ? 'detailed' : 'compact')} className="bg-slate-700 px-2 py-0.5 rounded text-xs">
             {displayMode === 'compact' ? '📖' : '📋'}
           </button>
           <button onClick={() => setShowConfig(true)} className="bg-slate-700 px-2 py-0.5 rounded text-xs">⚙️</button>
+          <button onClick={() => router.push('/device')} className="bg-slate-700 px-2 py-0.5 rounded text-xs">🔄</button>
         </div>
         <div className="text-xl font-mono font-bold">{currentTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
