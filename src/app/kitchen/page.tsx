@@ -644,16 +644,22 @@ export default function KitchenPage() {
         {/* Action buttons */}
         <div className="flex border-t border-slate-600">
           {prevStatus ? (
-            <input type="button" value="←" onClick={() => updateStatus(order.id, prevStatus)}
-              className="flex-1 bg-slate-600 active:bg-slate-500 text-white py-2 text-base font-bold cursor-pointer border-none" />
+            <div 
+              onClick={() => { window.alert('GAUCHE: ' + order.id + ' -> ' + prevStatus); updateStatus(order.id, prevStatus); }}
+              className="flex-1 bg-slate-600 active:bg-slate-500 text-white py-3 text-lg font-bold cursor-pointer flex items-center justify-center select-none"
+              style={{ WebkitTapHighlightColor: 'rgba(255,255,255,0.3)', touchAction: 'manipulation' }}
+            >←</div>
           ) : (
-            <div className="flex-1 bg-slate-800 py-2" />
+            <div className="flex-1 bg-slate-800 py-3" />
           )}
           {column.nextStatus ? (
-            <input type="button" value="→" onClick={() => updateStatus(order.id, column.nextStatus!)}
-              className={`flex-1 ${colors.bg} active:brightness-110 text-white py-2 text-base font-bold cursor-pointer border-none`} />
+            <div 
+              onClick={() => { window.alert('DROITE: ' + order.id + ' -> ' + column.nextStatus); updateStatus(order.id, column.nextStatus!); }}
+              className={`flex-1 ${colors.bg} active:brightness-110 text-white py-3 text-lg font-bold cursor-pointer flex items-center justify-center select-none`}
+              style={{ WebkitTapHighlightColor: 'rgba(255,255,255,0.3)', touchAction: 'manipulation' }}
+            >→</div>
           ) : (
-            <div className="flex-1 bg-slate-800 py-2" />
+            <div className="flex-1 bg-slate-800 py-3" />
           )}
         </div>
       </div>
