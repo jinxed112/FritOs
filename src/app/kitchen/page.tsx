@@ -1031,7 +1031,7 @@ export default function KitchenPage() {
         onDragStart={(e) => handleDragStart(e, order.id)} 
         onDragEnd={handleDragEnd}
         onTouchStart={(e) => handleTouchStart(e, order.id)}
-        style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
+        style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
         className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${isInRound ? 'border-purple-500' : colorClasses.border} ${draggedOrder === order.id || touchDragOrder === order.id ? 'opacity-50 scale-95' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${showUrgentStyle && column.key === 'pending' ? 'ring-2 ring-red-500' : ''} ${showUpcomingStyle && column.key === 'pending' ? 'ring-2 ring-orange-500' : ''}`}>
         
         <div className={`p-3 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/40' : launchInfo.isNow ? 'bg-red-500/30' : launchInfo.isUpcoming ? 'bg-orange-500/20' : isInRound ? 'bg-purple-500/20' : 'bg-slate-600/50'}`}>
@@ -1072,6 +1072,12 @@ export default function KitchenPage() {
             {/* Bouton flèche - TOUJOURS visible pour faciliter l'utilisation tactile */}
             {column.nextStatus && (
               <button 
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => { 
+                  e.stopPropagation(); 
+                  e.preventDefault();
+                  updateStatus(order.id, column.nextStatus!);
+                }}
                 onClick={(e) => { e.stopPropagation(); updateStatus(order.id, column.nextStatus!) }} 
                 className={`${colorClasses.btn} text-white w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-colors text-xl sm:text-2xl shadow-lg active:scale-95`}
               >
@@ -1206,6 +1212,12 @@ export default function KitchenPage() {
           {/* Boutons de contrôle du groupe */}
           <div className="flex items-center justify-between px-2 py-1">
             <button
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                ungroupRound(group.round!.id, group.orders);
+              }}
               onClick={() => ungroupRound(group.round!.id, group.orders)}
               className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 transition-colors"
             >
@@ -1214,6 +1226,12 @@ export default function KitchenPage() {
             
             {nextStatus && (
               <button
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => { 
+                  e.stopPropagation(); 
+                  e.preventDefault();
+                  advanceRoundOrders(group.round!.id, group.orders, nextStatus);
+                }}
                 onClick={() => advanceRoundOrders(group.round!.id, group.orders, nextStatus)}
                 className={`${buttonColor} text-white px-4 py-1.5 rounded-lg text-sm flex items-center gap-2 transition-colors`}
               >
