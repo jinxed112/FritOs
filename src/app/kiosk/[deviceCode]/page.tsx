@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import Image from 'next/image'
 
 // Types
 type OptionGroupItem = {
@@ -91,24 +90,11 @@ type DeviceInfo = {
 
 // Icônes par catégorie
 const categoryIcons: Record<string, string> = {
-  'frite': '🍟',
-  'frites': '🍟',
-  'smashburger': '🍔',
-  'smashburgers': '🍔',
-  'burger': '🍔',
-  'hamburger': '🍔',
-  'mitraillette': '🌯',
-  'pain': '🥖',
-  'pains': '🥖',
-  'snack': '🍗',
-  'snacks': '🍗',
-  'pitta': '🥙',
-  'sauce': '🥫',
-  'sauces': '🥫',
-  'bière': '🍺',
-  'bières': '🍺',
-  'boisson': '🥤',
-  'boissons': '🥤',
+  'frite': '🍟', 'frites': '🍟', 'smashburger': '🍔', 'smashburgers': '🍔',
+  'burger': '🍔', 'hamburger': '🍔', 'mitraillette': '🌯', 'pain': '🥖',
+  'pains': '🥖', 'snack': '🍗', 'snacks': '🍗', 'pitta': '🥙',
+  'sauce': '🥫', 'sauces': '🥫', 'bière': '🍺', 'bières': '🍺',
+  'boisson': '🥤', 'boissons': '🥤',
 }
 
 function getCategoryIcon(categoryName: string): string {
@@ -121,12 +107,11 @@ function getCategoryIcon(categoryName: string): string {
 
 export default function KioskDevicePage() {
   const params = useParams()
+  const router = useRouter()
   const deviceCode = (params.deviceCode as string)?.toUpperCase()
   
   // Auth state
-  const [authStatus, setAuthStatus] = useState<'checking' | 'needPin' | 'authenticated' | 'error'>('checking')
-  const [pinInput, setPinInput] = useState('')
-  const [pinError, setPinError] = useState('')
+  const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'unauthorized'>('checking')
   const [device, setDevice] = useState<DeviceInfo | null>(null)
   
   // Data state
@@ -168,58 +153,39 @@ export default function KioskDevicePage() {
   }, [deviceCode])
 
   async function checkAuth() {
-    if (!deviceCode) {
-      setAuthStatus('error')
-      return
-    }
-    
     try {
-      const response = await fetch(`/api/device-auth?deviceCode=${deviceCode}`)
+      // 1. Vérifier session Supabase
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setAuthStatus('unauthorized')
+        return
+      }
+
+      // 2. Vérifier le cookie device
+      const response = await fetch('/api/device-auth')
       const data = await response.json()
       
-      if (data.authenticated && data.device) {
-        setDevice(data.device)
-        setAuthStatus('authenticated')
-        loadData(data.device.establishmentId)
-      } else {
-        setAuthStatus('needPin')
+      if (!data.device) {
+        setAuthStatus('unauthorized')
+        return
       }
+
+      // 3. Vérifier que le device code correspond
+      if (data.device.code !== deviceCode) {
+        setAuthStatus('unauthorized')
+        return
+      }
+
+      setDevice(data.device)
+      setAuthStatus('authenticated')
+      loadData(data.device.establishmentId)
     } catch (error) {
       console.error('Auth check error:', error)
-      setAuthStatus('needPin')
+      setAuthStatus('unauthorized')
     }
   }
 
-  async function submitPin() {
-    if (pinInput.length < 4) {
-      setPinError('Le PIN doit contenir au moins 4 chiffres')
-      return
-    }
-    
-    setPinError('')
-    
-    try {
-      const response = await fetch('/api/device-auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceCode, pin: pinInput })
-      })
-      
-      const data = await response.json()
-      
-      if (data.success && data.device) {
-        setDevice(data.device)
-        setAuthStatus('authenticated')
-        loadData(data.device.establishmentId)
-      } else {
-        setPinError(data.error || 'PIN incorrect')
-      }
-    } catch (error) {
-      setPinError('Erreur de connexion')
-    }
-  }
-
-  // Timer de retour à l'accueil après confirmation (30 sec pour laisser le temps de scanner le QR)
+  // Timer de retour à l'accueil après confirmation
   useEffect(() => {
     if (orderNumber) {
       setCountdown(30)
@@ -236,20 +202,17 @@ export default function KioskDevicePage() {
           return prev - 1
         })
       }, 1000)
-      
       return () => clearInterval(timer)
     }
   }, [orderNumber])
 
   async function loadData(establishmentId: string) {
-    // Charger catégories visibles sur borne
     const { data: categoriesData } = await supabase
       .from('categories')
       .select(`
         id, name, image_url,
         category_option_groups (
-          option_group_id,
-          display_order,
+          option_group_id, display_order,
           option_group:option_groups (
             id, name, selection_type, min_selections, max_selections,
             option_group_items!option_group_items_option_group_id_fkey (
@@ -264,14 +227,12 @@ export default function KioskDevicePage() {
       .eq('visible_on_kiosk', true)
       .order('display_order')
 
-    // Charger produits avec leurs propositions et allergènes
     const { data: productsData } = await supabase
       .from('products')
       .select(`
         id, name, description, price, image_url, category_id, is_available,
         product_option_groups (
-          option_group_id,
-          display_order,
+          option_group_id, display_order,
           option_group:option_groups (
             id, name, selection_type, min_selections, max_selections,
             option_group_items!option_group_items_option_group_id_fkey (
@@ -294,7 +255,6 @@ export default function KioskDevicePage() {
       .eq('is_available', true)
       .order('display_order')
 
-    // Charger tous les option_groups pour les triggers
     const { data: allOptionGroupsData } = await supabase
       .from('option_groups')
       .select(`
@@ -314,7 +274,6 @@ export default function KioskDevicePage() {
     if (categoriesData && categoriesData.length > 0) {
       setSelectedCategory(categoriesData[0].id)
     }
-    
     setLoading(false)
   }
 
@@ -340,7 +299,6 @@ export default function KioskDevicePage() {
     setCurrentPropositions(propositions)
     setCurrentPropositionIndex(0)
     
-    // Pré-sélectionner les options par défaut
     const defaultOptions: SelectedOption[] = []
     propositions.forEach(og => {
       og.option_group_items.forEach(item => {
@@ -368,7 +326,6 @@ export default function KioskDevicePage() {
 
   function selectOption(optionGroup: OptionGroup, item: OptionGroupItem) {
     const price = item.price_override !== null ? item.price_override : item.product.price
-    
     const newOption: SelectedOption = {
       option_group_id: optionGroup.id,
       option_group_name: optionGroup.name,
@@ -380,13 +337,10 @@ export default function KioskDevicePage() {
     if (optionGroup.selection_type === 'single') {
       const exists = selectedOptions.find(o => o.item_id === item.id)
       if (exists) {
-        // Si déjà sélectionné et min_selections est 0, on peut désélectionner
         if (optionGroup.min_selections === 0) {
           setSelectedOptions(selectedOptions.filter(o => o.option_group_id !== optionGroup.id))
         }
-        // Sinon on ne fait rien (on ne peut pas désélectionner si c'est obligatoire)
       } else {
-        // Remplacer la sélection actuelle par la nouvelle
         setSelectedOptions([
           ...selectedOptions.filter(o => o.option_group_id !== optionGroup.id),
           newOption,
@@ -395,16 +349,13 @@ export default function KioskDevicePage() {
     } else {
       const exists = selectedOptions.find(o => o.item_id === item.id)
       if (exists) {
-        // Désélectionner seulement si on reste au-dessus du minimum
         const currentCount = selectedOptions.filter(o => o.option_group_id === optionGroup.id).length
         if (currentCount > optionGroup.min_selections) {
           setSelectedOptions(selectedOptions.filter(o => o.item_id !== item.id))
         }
       } else {
         const currentCount = selectedOptions.filter(o => o.option_group_id === optionGroup.id).length
-        if (optionGroup.max_selections && currentCount >= optionGroup.max_selections) {
-          return
-        }
+        if (optionGroup.max_selections && currentCount >= optionGroup.max_selections) return
         setSelectedOptions([...selectedOptions, newOption])
       }
     }
@@ -416,10 +367,8 @@ export default function KioskDevicePage() {
 
   function canProceed(): boolean {
     if (currentPropositions.length === 0) return true
-    
     const currentGroup = currentPropositions[currentPropositionIndex]
     if (!currentGroup) return true
-    
     const selectedCount = selectedOptions.filter(o => o.option_group_id === currentGroup.id).length
     return selectedCount >= currentGroup.min_selections
   }
@@ -428,7 +377,6 @@ export default function KioskDevicePage() {
     const currentGroup = currentPropositions[currentPropositionIndex]
     if (currentGroup) {
       const selectedInCurrentGroup = selectedOptions.filter(o => o.option_group_id === currentGroup.id)
-      
       const triggeredGroupIds: string[] = []
       selectedInCurrentGroup.forEach(selected => {
         const item = currentGroup.option_group_items.find(i => i.id === selected.item_id)
@@ -445,7 +393,6 @@ export default function KioskDevicePage() {
         if (triggeredGroups.length > 0) {
           const existingIds = new Set(currentPropositions.map(p => p.id))
           const newGroups = triggeredGroups.filter(g => !existingIds.has(g.id))
-          
           if (newGroups.length > 0) {
             const newPropositions = [
               ...currentPropositions.slice(0, currentPropositionIndex + 1),
@@ -475,9 +422,7 @@ export default function KioskDevicePage() {
 
   function addToCart() {
     if (!selectedProduct) return
-    
     const optionsTotal = selectedOptions.reduce((sum, o) => sum + o.price, 0)
-    
     const cartItem: CartItem = {
       id: `${selectedProduct.id}-${Date.now()}`,
       product_id: selectedProduct.id,
@@ -487,7 +432,6 @@ export default function KioskDevicePage() {
       options: [...selectedOptions],
       options_total: optionsTotal,
     }
-    
     setCart([...cart, cartItem])
     closeProductModal()
   }
@@ -516,10 +460,7 @@ export default function KioskDevicePage() {
 
   function getCartTotal(): number {
     const subtotal = getCartSubtotal()
-    if (orderType === 'eat_in') {
-      return subtotal * 1.06
-    }
-    return subtotal
+    return orderType === 'eat_in' ? subtotal * 1.06 : subtotal
   }
 
   function getVatRate(): number {
@@ -545,7 +486,6 @@ export default function KioskDevicePage() {
       })
       
       const data = await response.json()
-      
       if (data.success) {
         setPaymentSessionId(data.sessionId)
         setPaymentStatus('pending')
@@ -584,25 +524,17 @@ export default function KioskDevicePage() {
           setPaymentStatus('failed')
         }
       } catch (error) {
-        console.error('Poll error:', error)
         attempts++
-        if (attempts < maxAttempts) {
-          setTimeout(poll, 2000)
-        }
+        if (attempts < maxAttempts) setTimeout(poll, 2000)
       }
     }
-    
     poll()
   }
 
   async function finalizeOrder(orderId: string) {
-    // Paiement confirmé → passer la commande en 'pending' pour qu'elle apparaisse sur le KDS
     await supabase
       .from('orders')
-      .update({ 
-        status: 'pending',        // ← Maintenant visible sur le KDS
-        payment_status: 'paid' 
-      })
+      .update({ status: 'pending', payment_status: 'paid' })
       .eq('id', orderId)
     
     const { data } = await supabase
@@ -611,22 +543,17 @@ export default function KioskDevicePage() {
       .eq('id', orderId)
       .single()
     
-    // Afficher l'écran "Paiement validé" pendant 3 secondes
     setPaymentStatus('success')
-    
-    // Après 3 secondes, passer à l'écran de confirmation
     setTimeout(() => {
       setOrderNumber(data?.order_number || orderId)
       setCart([])
       setPaymentStatus('idle')
       setPaymentSessionId(null)
-      // NE PAS reset pendingOrderId ici - on en a besoin pour le QR code du ticket
     }, 3000)
   }
 
   async function submitOrder() {
     if (!orderType || cart.length === 0 || !device) return
-    
     setIsSubmitting(true)
     
     try {
@@ -635,13 +562,12 @@ export default function KioskDevicePage() {
       const taxAmount = totalTTC * vatRate / (100 + vatRate)
       const subtotalHT = totalTTC - taxAmount
       
-      // Créer la commande avec status 'awaiting_payment' pour qu'elle n'apparaisse PAS sur le KDS
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert({
           establishment_id: device.establishmentId,
           order_type: orderType,
-          status: 'awaiting_payment', // ← Ne sera visible sur KDS qu'après paiement
+          status: 'awaiting_payment',
           subtotal: subtotalHT,
           tax_amount: taxAmount,
           total_amount: totalTTC,
@@ -654,11 +580,9 @@ export default function KioskDevicePage() {
         .single()
       
       if (orderError) throw orderError
-      
-      // Stocker l'ID pour pouvoir annuler si paiement échoue
       setPendingOrderId(order.id)
       
-      const orderItems = cart.flatMap(item => ({
+      const orderItems = cart.map(item => ({
         order_id: order.id,
         product_id: item.product_id,
         product_name: item.name,
@@ -670,14 +594,10 @@ export default function KioskDevicePage() {
         line_total: (item.price + item.options_total) * item.quantity,
       }))
       
-      const { error: itemsError } = await supabase
-        .from('order_items')
-        .insert(orderItems)
-      
+      const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
       if (itemsError) throw itemsError
       
       await initiateVivaPayment(order.id, totalTTC)
-      
     } catch (error) {
       console.error('Erreur:', error)
       alert('Erreur lors de la commande')
@@ -685,10 +605,8 @@ export default function KioskDevicePage() {
     }
   }
 
-  // Helper pour extraire les allergènes d'un produit
   function getProductAllergens(product: Product) {
     const allergenMap = new Map<string, { emoji: string; name: string; is_trace: boolean }>()
-    
     product.product_ingredients?.forEach((pi: any) => {
       pi.ingredient?.ingredient_allergens?.forEach((ia: any) => {
         const existing = allergenMap.get(ia.allergen.code)
@@ -701,13 +619,11 @@ export default function KioskDevicePage() {
         }
       })
     })
-    
     return Array.from(allergenMap.values())
   }
 
   // ==================== RENDER ====================
 
-  // Écran de vérification
   if (authStatus === 'checking') {
     return (
       <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center">
@@ -725,95 +641,40 @@ export default function KioskDevicePage() {
     )
   }
 
-  // Écran d'erreur (pas de deviceCode)
-  if (authStatus === 'error') {
+  if (authStatus === 'unauthorized') {
     return (
-      <div className="min-h-screen bg-[#E63329] flex items-center justify-center p-4 sm:p-8">
-        <div className="text-center text-white">
-          <span className="text-6xl sm:text-8xl block mb-6 sm:mb-8">❌</span>
-          <h1 className="text-2xl sm:text-4xl font-bold mb-4">Erreur</h1>
-          <p className="text-base sm:text-xl mb-6 sm:mb-8">Code device invalide ou manquant</p>
-          <p className="text-sm sm:text-lg opacity-80">URL attendue : /kiosk/BORJU01</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Écran de saisie du PIN
-  if (authStatus === 'needPin') {
-    return (
-      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-4 sm:p-8">
-        <div className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-2xl border-4 border-[#F7B52C]">
-          <div className="text-center mb-6 sm:mb-8">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-4">
-              <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
-            </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-[#3D2314]">Authentification</h1>
-            <p className="text-[#3D2314]/60 text-sm sm:text-base">Borne {deviceCode}</p>
-          </div>
-          
-          {pinError && (
-            <div className="bg-red-50 border-2 border-[#E63329] text-[#E63329] px-4 py-2 sm:py-3 rounded-xl mb-4 text-center font-semibold text-sm sm:text-base">
-              {pinError}
-            </div>
-          )}
-          
-          <div className="mb-6">
-            <label className="block text-sm font-bold text-[#3D2314] mb-2">Code PIN</label>
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={8}
-              value={pinInput}
-              onChange={e => setPinInput(e.target.value.replace(/\D/g, ''))}
-              onKeyDown={e => e.key === 'Enter' && submitPin()}
-              className="w-full px-4 sm:px-6 py-3 sm:py-4 text-center text-2xl sm:text-3xl font-mono tracking-[0.3em] sm:tracking-[0.5em] rounded-xl border-3 border-[#F7B52C] focus:border-[#E63329] focus:outline-none bg-[#FFF9E6]"
-              placeholder="••••••"
-              autoFocus
-            />
-          </div>
-          
-          <button
-            onClick={submitPin}
-            disabled={pinInput.length < 4}
-            className="w-full bg-[#E63329] text-white font-bold py-3 sm:py-4 rounded-xl text-base sm:text-lg hover:bg-[#c42a22] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            ✓ Valider
-          </button>
-          
-          <p className="text-center text-xs text-[#3D2314]/50 mt-4 sm:mt-6">
-            Le PIN est disponible dans Admin → Devices
+      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-8">
+        <div className="text-center max-w-md">
+          <span className="text-6xl block mb-6">🔒</span>
+          <h1 className="text-2xl font-bold text-[#3D2314] mb-4">Accès non autorisé</h1>
+          <p className="text-[#3D2314]/60 mb-8">
+            Veuillez vous connecter et sélectionner ce device depuis la page de configuration.
           </p>
+          <button
+            onClick={() => router.push('/device')}
+            className="bg-[#E63329] text-white font-bold px-8 py-4 rounded-xl hover:bg-[#c42a22] transition-colors"
+          >
+            Aller à la configuration
+          </button>
         </div>
       </div>
     )
   }
 
-  // Écran de paiement en cours
+  // Payment screens
   if (paymentStatus === 'pending') {
     return (
-      <div className="min-h-screen bg-[#1E88E5] flex items-center justify-center p-4 sm:p-8">
+      <div className="min-h-screen bg-[#1E88E5] flex items-center justify-center p-8">
         <div className="text-center text-white">
-          <div className="mb-6 sm:mb-8">
-            <span className="text-6xl sm:text-8xl block animate-bounce">💳</span>
+          <span className="text-8xl block animate-bounce mb-8">💳</span>
+          <h1 className="text-4xl font-bold mb-4">Paiement en cours...</h1>
+          <p className="text-2xl mb-8">Présentez votre carte sur le terminal</p>
+          <div className="bg-white/20 rounded-3xl p-8 inline-block mb-8">
+            <p className="text-xl mb-2">Montant à payer</p>
+            <p className="text-6xl font-bold">{getCartTotal().toFixed(2)} €</p>
           </div>
-          <h1 className="text-2xl sm:text-4xl font-bold mb-4">Paiement en cours...</h1>
-          <p className="text-lg sm:text-2xl mb-6 sm:mb-8">Présentez votre carte sur le terminal</p>
-          
-          <div className="bg-white/20 rounded-2xl sm:rounded-3xl p-6 sm:p-8 inline-block mb-6 sm:mb-8">
-            <p className="text-base sm:text-xl mb-2">Montant à payer</p>
-            <p className="text-4xl sm:text-6xl font-bold">{getCartTotal().toFixed(2)} €</p>
-          </div>
-          
-          <div className="flex justify-center gap-2">
-            <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
-            <div className="w-3 h-3 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-            <div className="w-3 h-3 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-          </div>
-          
           <button
             onClick={async () => {
-              // Annuler la commande en attente si elle existe
               if (pendingOrderId) {
                 await supabase.from('orders').update({ status: 'cancelled' }).eq('id', pendingOrderId)
                 setPendingOrderId(null)
@@ -821,7 +682,7 @@ export default function KioskDevicePage() {
               setPaymentStatus('idle')
               setIsSubmitting(false)
             }}
-            className="mt-6 sm:mt-8 bg-white/20 text-white font-bold px-6 sm:px-8 py-2 sm:py-3 rounded-xl hover:bg-white/30 transition-colors"
+            className="mt-8 bg-white/20 text-white font-bold px-8 py-3 rounded-xl hover:bg-white/30"
           >
             Annuler
           </button>
@@ -830,56 +691,40 @@ export default function KioskDevicePage() {
     )
   }
 
-  // Écran de paiement validé ✅ (affiché 3 secondes avant la confirmation)
   if (paymentStatus === 'success') {
     return (
-      <div className="min-h-screen bg-[#4CAF50] flex items-center justify-center p-4 sm:p-8">
+      <div className="min-h-screen bg-[#4CAF50] flex items-center justify-center p-8">
         <div className="text-center text-white">
-          <div className="mb-6 sm:mb-8">
-            <span className="text-6xl sm:text-8xl block animate-bounce">✅</span>
-          </div>
-          <h1 className="text-2xl sm:text-4xl font-bold mb-4">Paiement validé !</h1>
-          <p className="text-lg sm:text-2xl mb-6 sm:mb-8">Votre commande est envoyée en cuisine</p>
-          
-          <div className="flex justify-center gap-2">
-            <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
-            <div className="w-3 h-3 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-            <div className="w-3 h-3 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-          </div>
+          <span className="text-8xl block animate-bounce mb-8">✅</span>
+          <h1 className="text-4xl font-bold mb-4">Paiement validé !</h1>
+          <p className="text-2xl">Votre commande est envoyée en cuisine</p>
         </div>
       </div>
     )
   }
 
-  // Écran de paiement échoué
   if (paymentStatus === 'failed') {
     return (
-      <div className="min-h-screen bg-[#E63329] flex items-center justify-center p-4 sm:p-8">
+      <div className="min-h-screen bg-[#E63329] flex items-center justify-center p-8">
         <div className="text-center text-white">
-          <span className="text-6xl sm:text-8xl block mb-6 sm:mb-8">❌</span>
-          <h1 className="text-2xl sm:text-4xl font-bold mb-4">Paiement refusé</h1>
-          <p className="text-base sm:text-xl mb-6 sm:mb-8">Veuillez réessayer ou utiliser une autre carte</p>
-          
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+          <span className="text-8xl block mb-8">❌</span>
+          <h1 className="text-4xl font-bold mb-4">Paiement refusé</h1>
+          <p className="text-xl mb-8">Veuillez réessayer ou utiliser une autre carte</p>
+          <div className="flex gap-4 justify-center">
             <button
               onClick={async () => {
-                // Réessayer avec la même commande
                 if (pendingOrderId) {
                   setPaymentStatus('idle')
                   setIsSubmitting(true)
                   await initiateVivaPayment(pendingOrderId, getCartTotal())
-                } else {
-                  setPaymentStatus('idle')
-                  setIsSubmitting(false)
                 }
               }}
-              className="bg-white text-[#E63329] font-bold text-base sm:text-xl px-6 sm:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl hover:bg-gray-100 transition-colors"
+              className="bg-white text-[#E63329] font-bold px-8 py-4 rounded-2xl"
             >
               Réessayer
             </button>
             <button
               onClick={async () => {
-                // Annuler la commande en attente
                 if (pendingOrderId) {
                   await supabase.from('orders').update({ status: 'cancelled' }).eq('id', pendingOrderId)
                   setPendingOrderId(null)
@@ -889,7 +734,7 @@ export default function KioskDevicePage() {
                 setOrderType(null)
                 setIsSubmitting(false)
               }}
-              className="bg-white/20 text-white font-bold text-base sm:text-xl px-6 sm:px-8 py-3 sm:py-4 rounded-xl sm:rounded-2xl hover:bg-white/30 transition-colors"
+              className="bg-white/20 text-white font-bold px-8 py-4 rounded-2xl"
             >
               Annuler
             </button>
@@ -899,111 +744,82 @@ export default function KioskDevicePage() {
     )
   }
 
-  // Écran de sélection du type de commande (ACCUEIL)
+  // Order type selection
   if (!orderType && !orderNumber) {
     return (
-      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-4 sm:p-8">
+      <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-8">
         <div className="text-center max-w-3xl w-full">
-          {/* Logo */}
-          <div className="w-32 h-32 sm:w-48 sm:h-48 mx-auto mb-4 sm:mb-6">
+          <div className="w-48 h-48 mx-auto mb-6">
             <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
           </div>
+          <h1 className="text-5xl font-black text-[#3D2314] mb-2">MDjambo</h1>
+          <p className="text-2xl text-[#3D2314]/70 mb-12">Touchez pour commander</p>
           
-          <h1 className="text-3xl sm:text-5xl font-black text-[#3D2314] mb-2">MDjambo</h1>
-          <p className="text-lg sm:text-2xl text-[#3D2314]/70 mb-8 sm:mb-12">Touchez pour commander</p>
-          
-          <div className="grid grid-cols-2 gap-4 sm:gap-8">
+          <div className="grid grid-cols-2 gap-8">
             <button
               onClick={() => setOrderType('eat_in')}
-              className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
+              className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
             >
-              <span className="text-5xl sm:text-8xl block mb-2 sm:mb-4 group-hover:scale-110 transition-transform">🍽️</span>
-              <span className="text-xl sm:text-3xl font-bold text-[#3D2314] block mb-1 sm:mb-2">Sur place</span>
-              <span className="text-[#E63329] font-semibold text-sm sm:text-lg">TVA 12%</span>
+              <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">🍽️</span>
+              <span className="text-3xl font-bold text-[#3D2314] block mb-2">Sur place</span>
+              <span className="text-[#E63329] font-semibold text-lg">TVA 12%</span>
             </button>
             
             <button
               onClick={() => setOrderType('takeaway')}
-              className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
+              className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
             >
-              <span className="text-5xl sm:text-8xl block mb-2 sm:mb-4 group-hover:scale-110 transition-transform">🥡</span>
-              <span className="text-xl sm:text-3xl font-bold text-[#3D2314] block mb-1 sm:mb-2">À emporter</span>
-              <span className="text-[#4CAF50] font-semibold text-sm sm:text-lg">TVA 6%</span>
+              <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">🥡</span>
+              <span className="text-3xl font-bold text-[#3D2314] block mb-2">À emporter</span>
+              <span className="text-[#4CAF50] font-semibold text-lg">TVA 6%</span>
             </button>
           </div>
           
-          {/* Nom du device discret */}
-          <p className="text-[#3D2314]/30 text-xs sm:text-sm mt-8 sm:mt-12">{device?.name}</p>
+          <p className="text-[#3D2314]/30 text-sm mt-12">{device?.name}</p>
         </div>
       </div>
     )
   }
 
-  // Écran de confirmation avec QR code ticket
+  // Order confirmation
   if (orderNumber) {
-    const ticketUrl = typeof window !== 'undefined' 
-      ? `${window.location.origin}/ticket/${pendingOrderId}`
-      : `/ticket/${pendingOrderId}`
+    const ticketUrl = typeof window !== 'undefined' ? `${window.location.origin}/ticket/${pendingOrderId}` : `/ticket/${pendingOrderId}`
     
     return (
-      <div className="min-h-screen bg-[#4CAF50] flex items-center justify-center p-4 sm:p-8">
+      <div className="min-h-screen bg-[#4CAF50] flex items-center justify-center p-8">
         <div className="text-center text-white max-w-lg">
-          <span className="text-5xl sm:text-7xl block mb-4 sm:mb-6">✅</span>
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">Merci !</h1>
-          <p className="text-base sm:text-xl mb-6">Votre commande est enregistrée</p>
+          <span className="text-7xl block mb-6">✅</span>
+          <h1 className="text-3xl font-bold mb-2">Merci !</h1>
+          <p className="text-xl mb-6">Votre commande est enregistrée</p>
           
-          {/* Numéro de commande */}
-          <div className="bg-white text-[#3D2314] rounded-2xl sm:rounded-3xl p-4 sm:p-6 mb-6 shadow-2xl">
-            <p className="text-sm sm:text-lg mb-1">Numéro de commande</p>
-            <p className="text-5xl sm:text-7xl font-black text-[#E63329]">{orderNumber}</p>
+          <div className="bg-white text-[#3D2314] rounded-3xl p-6 mb-6 shadow-2xl">
+            <p className="text-lg mb-1">Numéro de commande</p>
+            <p className="text-7xl font-black text-[#E63329]">{orderNumber}</p>
           </div>
           
-          {/* QR Code pour le ticket */}
           {pendingOrderId && (
-            <div className="bg-white rounded-2xl p-4 sm:p-6 mb-6 shadow-xl">
-              <p className="text-[#3D2314] text-sm sm:text-base font-semibold mb-3">
-                📱 Scannez pour votre ticket
-              </p>
+            <div className="bg-white rounded-2xl p-6 mb-6 shadow-xl">
+              <p className="text-[#3D2314] text-base font-semibold mb-3">📱 Scannez pour votre ticket</p>
               <div className="flex justify-center mb-3">
-                <div className="bg-white p-2 rounded-xl">
-                  <img 
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(ticketUrl)}`}
-                    alt="QR Code ticket"
-                    className="w-32 h-32 sm:w-40 sm:h-40"
-                  />
-                </div>
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(ticketUrl)}`}
+                  alt="QR Code ticket"
+                  className="w-40 h-40"
+                />
               </div>
-              <p className="text-[#3D2314]/60 text-xs sm:text-sm">
-                Gardez votre ticket sur votre téléphone
-              </p>
             </div>
           )}
           
-          <p className="text-sm sm:text-base mb-4 opacity-90">
-            Veuillez patienter, nous vous appellerons
-          </p>
-          
-          {/* Progress bar */}
           <div className="mb-6">
-            <div className="w-48 sm:w-64 mx-auto bg-white/30 rounded-full h-2 mb-2">
-              <div 
-                className="bg-white h-2 rounded-full transition-all duration-1000"
-                style={{ width: `${(countdown / 30) * 100}%` }}
-              />
+            <div className="w-64 mx-auto bg-white/30 rounded-full h-2 mb-2">
+              <div className="bg-white h-2 rounded-full transition-all duration-1000" style={{ width: `${(countdown / 30) * 100}%` }} />
             </div>
-            <p className="text-sm opacity-80">
-              Retour à l'accueil dans {countdown}s
-            </p>
+            <p className="text-sm opacity-80">Retour à l'accueil dans {countdown}s</p>
           </div>
           
           <button
-            onClick={() => {
-              setOrderNumber(null)
-              setOrderType(null)
-              setPendingOrderId(null)
-              setIsSubmitting(false)
-            }}
-            className="bg-white text-[#4CAF50] font-bold text-sm sm:text-lg px-6 sm:px-10 py-2 sm:py-3 rounded-xl hover:bg-gray-100 transition-colors"
+            onClick={() => { setOrderNumber(null); setOrderType(null); setPendingOrderId(null); setIsSubmitting(false) }}
+            className="bg-white text-[#4CAF50] font-bold text-lg px-10 py-3 rounded-xl"
           >
             Nouvelle commande
           </button>
@@ -1012,221 +828,128 @@ export default function KioskDevicePage() {
     )
   }
 
-  // ==================== INTERFACE PRINCIPALE ====================
+  // Main interface
   const filteredProducts = products.filter(p => p.category_id === selectedCategory)
   const currentGroup = currentPropositions[currentPropositionIndex]
 
   return (
     <div className="min-h-screen bg-[#FFF9E6] flex flex-col">
       {/* Header */}
-      <header className="bg-white shadow-md px-3 sm:px-6 py-2 sm:py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 sm:gap-4">
-          <button
-            onClick={() => {
-              setOrderType(null)
-              setCart([])
-            }}
-            className="text-[#3D2314]/50 hover:text-[#3D2314] font-semibold transition-colors text-sm sm:text-base"
-          >
-            ← <span className="hidden sm:inline">Retour</span>
+      <header className="bg-white shadow-md px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button onClick={() => { setOrderType(null); setCart([]) }} className="text-[#3D2314]/50 hover:text-[#3D2314]">
+            ← Retour
           </button>
-          <div className="w-8 h-8 sm:w-12 sm:h-12">
+          <div className="w-12 h-12">
             <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
           </div>
-          <span className="text-lg sm:text-2xl font-black text-[#E63329]">MDjambo</span>
+          <span className="text-2xl font-black text-[#E63329]">MDjambo</span>
         </div>
         
-        {/* Toggle Sur place / À emporter */}
-        <div className="flex items-center gap-1 sm:gap-2 bg-[#FFF9E6] rounded-full p-1">
+        <div className="flex items-center gap-2 bg-[#FFF9E6] rounded-full p-1">
           <button
             onClick={() => setOrderType('eat_in')}
-            className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2 rounded-full font-semibold transition-all text-sm sm:text-base ${
-              orderType === 'eat_in' 
-                ? 'bg-[#E63329] text-white shadow-md' 
-                : 'text-[#3D2314]/60 hover:text-[#3D2314]'
+            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+              orderType === 'eat_in' ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
             }`}
           >
-            <span className="text-base sm:text-xl">🍽️</span>
-            <span className="hidden sm:inline">Sur place</span>
+            🍽️ Sur place
           </button>
           <button
             onClick={() => setOrderType('takeaway')}
-            className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-5 py-1.5 sm:py-2 rounded-full font-semibold transition-all text-sm sm:text-base ${
-              orderType === 'takeaway' 
-                ? 'bg-[#E63329] text-white shadow-md' 
-                : 'text-[#3D2314]/60 hover:text-[#3D2314]'
+            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+              orderType === 'takeaway' ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
             }`}
           >
-            <span className="text-base sm:text-xl">🥡</span>
-            <span className="hidden sm:inline">À emporter</span>
+            🥡 À emporter
           </button>
         </div>
       </header>
 
-      {/* Categories Navigation */}
-      <nav className="bg-white border-b-2 border-[#F7B52C]/30 relative">
-        {/* Indicateur scroll gauche */}
-        <button 
-          onClick={() => {
-            const container = document.getElementById('categories-scroll')
-            if (container) container.scrollBy({ left: -200, behavior: 'smooth' })
-          }}
-          className="absolute left-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-r from-white via-white to-transparent flex items-center text-[#3D2314]/40 hover:text-[#E63329] transition-colors"
-        >
-          <span className="text-xl">◀</span>
-        </button>
-        
-        {/* Container scrollable */}
-        <div 
-          id="categories-scroll"
-          className="flex gap-1.5 sm:gap-2 overflow-x-auto py-2 sm:py-3 px-10 scrollbar-hide scroll-smooth"
-        >
+      {/* Categories */}
+      <nav className="bg-white border-b-2 border-[#F7B52C]/30">
+        <div className="flex gap-2 overflow-x-auto py-3 px-6">
           {categories.map(cat => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-3 rounded-full font-bold whitespace-nowrap transition-all text-sm sm:text-base flex-shrink-0 ${
+              className={`flex items-center gap-2 px-5 py-3 rounded-full font-bold whitespace-nowrap transition-all ${
                 selectedCategory === cat.id
                   ? 'bg-[#E63329] text-white shadow-lg scale-105'
                   : 'bg-[#FFF9E6] text-[#3D2314] hover:bg-[#F7B52C]/20'
               }`}
             >
-              <span className="text-lg sm:text-xl">{getCategoryIcon(cat.name)}</span>
+              <span className="text-xl">{getCategoryIcon(cat.name)}</span>
               <span>{cat.name}</span>
             </button>
           ))}
         </div>
-        
-        {/* Indicateur scroll droite */}
-        <button 
-          onClick={() => {
-            const container = document.getElementById('categories-scroll')
-            if (container) container.scrollBy({ left: 200, behavior: 'smooth' })
-          }}
-          className="absolute right-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-l from-white via-white to-transparent flex items-center text-[#3D2314]/40 hover:text-[#E63329] transition-colors"
-        >
-          <span className="text-xl">▶</span>
-        </button>
       </nav>
 
-      {/* Products Grid */}
-      <main className="flex-1 overflow-y-auto p-3 sm:p-6">
+      {/* Products */}
+      <main className="flex-1 overflow-y-auto p-6">
         {loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-4">
-                <img src="/Logo_Mdjambo.svg" alt="" className="w-full h-full animate-pulse" />
-              </div>
-              <p className="text-[#3D2314]/50">Chargement...</p>
-            </div>
+            <p className="text-[#3D2314]/50">Chargement...</p>
           </div>
         ) : (
-          <div className="product-grid">
-            {filteredProducts.map(product => {
-              const allergens = getProductAllergens(product)
-              
-              return (
-                <button
-                  key={product.id}
-                  onClick={() => openProductModal(product)}
-                  className="bg-white rounded-xl sm:rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left group"
-                >
-                  {/* Image */}
-                  <div className="aspect-square bg-[#FFF9E6] flex items-center justify-center overflow-hidden">
-                    {product.image_url ? (
-                      <img 
-                        src={product.image_url} 
-                        alt="" 
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" 
-                      />
-                    ) : (
-                      <span className="text-4xl sm:text-6xl">🍔</span>
-                    )}
-                  </div>
-                  
-                  {/* Info */}
-                  <div className="p-2 sm:p-4">
-                    <h3 className="font-bold text-[#3D2314] text-sm sm:text-lg mb-0.5 sm:mb-1 line-clamp-1">{product.name}</h3>
-                    <div className="flex items-center justify-between">
-                      <p className="text-lg sm:text-2xl font-black text-[#E63329]">{product.price.toFixed(2)} €</p>
-                      {allergens.length > 0 && (
-                        <div 
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setAllergenModalProduct(product)
-                          }}
-                          className="flex gap-0.5 bg-[#FFF9E6] rounded-lg px-1.5 sm:px-2 py-0.5 sm:py-1"
-                        >
-                          {allergens.slice(0, 3).map(a => (
-                            <span key={a.name} className={`text-xs sm:text-sm ${a.is_trace ? 'opacity-50' : ''}`}>
-                              {a.emoji}
-                            </span>
-                          ))}
-                          {allergens.length > 3 && (
-                            <span className="text-xs text-[#3D2314]/50">+{allergens.length - 3}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {filteredProducts.map(product => (
+              <button
+                key={product.id}
+                onClick={() => openProductModal(product)}
+                className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left"
+              >
+                <div className="aspect-square bg-[#FFF9E6] flex items-center justify-center">
+                  {product.image_url ? (
+                    <img src={product.image_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-6xl">🍔</span>
+                  )}
+                </div>
+                <div className="p-4">
+                  <h3 className="font-bold text-[#3D2314] text-lg mb-1 line-clamp-1">{product.name}</h3>
+                  <p className="text-2xl font-black text-[#E63329]">{product.price.toFixed(2)} €</p>
+                </div>
+              </button>
+            ))}
           </div>
         )}
       </main>
 
-      {/* Barre panier fixe en bas */}
+      {/* Cart bar */}
       {cart.length > 0 && (
         <div 
-          className="bg-[#E63329] text-white px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between cursor-pointer hover:bg-[#c42a22] transition-colors"
+          className="bg-[#E63329] text-white px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-[#c42a22]"
           onClick={() => setShowCart(true)}
         >
-          <div className="flex items-center gap-2 sm:gap-4">
-            <div className="bg-white/20 rounded-full px-2.5 sm:px-4 py-1.5 sm:py-2 flex items-center gap-1.5 sm:gap-2">
-              <span className="text-lg sm:text-2xl">🛒</span>
-              <span className="font-bold text-base sm:text-xl">{getCartItemCount()}</span>
+          <div className="flex items-center gap-4">
+            <div className="bg-white/20 rounded-full px-4 py-2 flex items-center gap-2">
+              <span className="text-2xl">🛒</span>
+              <span className="font-bold text-xl">{getCartItemCount()}</span>
             </div>
-            <span className="font-semibold text-sm sm:text-lg hidden sm:inline">
-              {getCartItemCount()} article{getCartItemCount() > 1 ? 's' : ''}
-            </span>
           </div>
-          
-          <div className="flex items-center gap-3 sm:gap-6">
-            <span className="text-xl sm:text-3xl font-black">{getCartTotal().toFixed(2)} €</span>
-            <div className="bg-white text-[#E63329] font-bold px-3 sm:px-6 py-2 sm:py-3 rounded-lg sm:rounded-xl flex items-center gap-1 sm:gap-2 hover:bg-gray-100 transition-colors text-sm sm:text-base">
-              <span className="hidden sm:inline">COMMANDER</span>
-              <span>→</span>
+          <div className="flex items-center gap-6">
+            <span className="text-3xl font-black">{getCartTotal().toFixed(2)} €</span>
+            <div className="bg-white text-[#E63329] font-bold px-6 py-3 rounded-xl">
+              COMMANDER →
             </div>
           </div>
         </div>
       )}
 
-      {/* Panel Panier (slide-up) */}
+      {/* Cart panel */}
       {showCart && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-50 flex items-end"
-          onClick={() => setShowCart(false)}
-        >
-          <div 
-            className="bg-white w-full max-h-[85vh] rounded-t-3xl overflow-hidden animate-slide-up"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header panier */}
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setShowCart(false)}>
+          <div className="bg-white w-full max-h-[85vh] rounded-t-3xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="bg-[#FFF9E6] px-6 py-5 flex items-center justify-between border-b-2 border-[#F7B52C]/30">
               <div className="flex items-center gap-3">
                 <span className="text-3xl">🛒</span>
                 <h2 className="text-2xl font-bold text-[#3D2314]">Votre commande</h2>
               </div>
-              <button 
-                onClick={() => setShowCart(false)}
-                className="w-10 h-10 rounded-full bg-[#3D2314]/10 flex items-center justify-center text-[#3D2314] hover:bg-[#3D2314]/20 transition-colors"
-              >
-                ✕
-              </button>
+              <button onClick={() => setShowCart(false)} className="w-10 h-10 rounded-full bg-[#3D2314]/10 flex items-center justify-center">✕</button>
             </div>
             
-            {/* Liste articles */}
             <div className="overflow-y-auto max-h-[45vh] p-6">
               {cart.map(item => (
                 <div key={item.id} className="flex items-start gap-4 py-4 border-b border-[#F7B52C]/20 last:border-0">
@@ -1234,101 +957,50 @@ export default function KioskDevicePage() {
                     <h3 className="font-bold text-[#3D2314] text-lg">{item.name}</h3>
                     {item.options.length > 0 && (
                       <div className="text-sm text-[#3D2314]/60 mt-1">
-                        {item.options.map(o => (
-                          <span key={o.item_id} className="block">
-                            + {o.item_name} {o.price > 0 && `(${o.price.toFixed(2)}€)`}
-                          </span>
-                        ))}
+                        {item.options.map(o => <span key={o.item_id} className="block">+ {o.item_name}</span>)}
                       </div>
                     )}
                     <p className="text-[#E63329] font-bold text-lg mt-2">
                       {((item.price + item.options_total) * item.quantity).toFixed(2)} €
                     </p>
                   </div>
-                  
                   <div className="flex items-center gap-3">
                     <div className="flex items-center bg-[#FFF9E6] rounded-full">
-                      <button
-                        onClick={() => updateQuantity(item.id, -1)}
-                        className="w-10 h-10 flex items-center justify-center text-[#E63329] font-bold text-xl hover:bg-[#F7B52C]/30 rounded-full transition-colors"
-                      >
-                        −
-                      </button>
-                      <span className="w-8 text-center font-bold text-[#3D2314]">{item.quantity}</span>
-                      <button
-                        onClick={() => updateQuantity(item.id, 1)}
-                        className="w-10 h-10 flex items-center justify-center text-[#E63329] font-bold text-xl hover:bg-[#F7B52C]/30 rounded-full transition-colors"
-                      >
-                        +
-                      </button>
+                      <button onClick={() => updateQuantity(item.id, -1)} className="w-10 h-10 flex items-center justify-center text-[#E63329] font-bold text-xl">−</button>
+                      <span className="w-8 text-center font-bold">{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.id, 1)} className="w-10 h-10 flex items-center justify-center text-[#E63329] font-bold text-xl">+</button>
                     </div>
-                    <button
-                      onClick={() => removeFromCart(item.id)}
-                      className="w-10 h-10 flex items-center justify-center text-[#E63329] hover:bg-red-50 rounded-full transition-colors"
-                    >
-                      🗑️
-                    </button>
+                    <button onClick={() => removeFromCart(item.id)} className="w-10 h-10 flex items-center justify-center text-[#E63329]">🗑️</button>
                   </div>
                 </div>
               ))}
             </div>
             
-            {/* Footer panier */}
             <div className="border-t-2 border-[#F7B52C]/30 p-6 bg-[#FFF9E6]">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-[#3D2314]/70">Sous-total</span>
-                <span className="font-semibold text-[#3D2314]">{getCartSubtotal().toFixed(2)} €</span>
+                <span className="font-semibold">{getCartSubtotal().toFixed(2)} €</span>
               </div>
-              {orderType === 'eat_in' && (
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-[#3D2314]/70">TVA (12%)</span>
-                  <span className="font-semibold text-[#3D2314]">+{(getCartSubtotal() * 0.06).toFixed(2)} €</span>
-                </div>
-              )}
               <div className="flex items-center justify-between mb-6">
                 <span className="text-xl font-bold text-[#3D2314]">TOTAL</span>
                 <span className="text-3xl font-black text-[#E63329]">{getCartTotal().toFixed(2)} €</span>
               </div>
-              
               <button
-                onClick={() => {
-                  setShowCart(false)
-                  submitOrder()
-                }}
+                onClick={() => { setShowCart(false); submitOrder() }}
                 disabled={isSubmitting}
-                className="w-full bg-[#E63329] text-white font-bold py-5 rounded-2xl text-xl hover:bg-[#c42a22] disabled:opacity-50 transition-colors flex items-center justify-center gap-3"
+                className="w-full bg-[#E63329] text-white font-bold py-5 rounded-2xl text-xl disabled:opacity-50"
               >
-                <span>💳</span>
-                <span>PAYER {getCartTotal().toFixed(2)} €</span>
-              </button>
-              
-              <button
-                onClick={() => {
-                  if (confirm('Annuler votre commande ?')) {
-                    setCart([])
-                    setShowCart(false)
-                  }
-                }}
-                className="w-full mt-3 text-[#3D2314]/50 font-semibold py-3 hover:text-[#E63329] transition-colors"
-              >
-                Annuler la commande
+                💳 PAYER {getCartTotal().toFixed(2)} €
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Produit avec propositions */}
+      {/* Product modal */}
       {selectedProduct && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={closeProductModal}
-        >
-          <div 
-            className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header produit */}
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeProductModal}>
+          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="relative">
               <div className="aspect-video bg-[#FFF9E6] flex items-center justify-center">
                 {selectedProduct.image_url ? (
@@ -1337,87 +1009,49 @@ export default function KioskDevicePage() {
                   <span className="text-8xl">🍔</span>
                 )}
               </div>
-              <button
-                onClick={closeProductModal}
-                className="absolute top-4 right-4 w-12 h-12 bg-white/90 backdrop-blur rounded-full flex items-center justify-center text-[#3D2314] shadow-lg hover:bg-white transition-colors"
-              >
-                ✕
-              </button>
+              <button onClick={closeProductModal} className="absolute top-4 right-4 w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-lg">✕</button>
             </div>
             
-            {/* Contenu */}
             <div className="p-6 overflow-y-auto max-h-[40vh]">
-              {/* Produit sans propositions */}
               {currentPropositions.length === 0 ? (
                 <div>
                   <h2 className="text-2xl font-bold text-[#3D2314] mb-2">{selectedProduct.name}</h2>
-                  {selectedProduct.description && (
-                    <p className="text-[#3D2314]/60 mb-4">{selectedProduct.description}</p>
-                  )}
                   <p className="text-3xl font-black text-[#E63329] mb-6">{selectedProduct.price.toFixed(2)} €</p>
-                  <button
-                    onClick={addToCart}
-                    className="w-full bg-[#E63329] text-white font-bold px-8 py-4 rounded-xl hover:bg-[#c42a22] transition-colors text-lg"
-                  >
+                  <button onClick={addToCart} className="w-full bg-[#E63329] text-white font-bold px-8 py-4 rounded-xl text-lg">
                     Ajouter au panier
                   </button>
                 </div>
               ) : currentGroup ? (
                 <div>
-                  {/* Progress bar */}
                   <div className="flex gap-1 mb-4">
                     {currentPropositions.map((_, idx) => (
-                      <div 
-                        key={idx} 
-                        className={`h-1 flex-1 rounded-full ${
-                          idx <= currentPropositionIndex ? 'bg-[#E63329]' : 'bg-[#F7B52C]/30'
-                        }`}
-                      />
+                      <div key={idx} className={`h-1 flex-1 rounded-full ${idx <= currentPropositionIndex ? 'bg-[#E63329]' : 'bg-[#F7B52C]/30'}`} />
                     ))}
                   </div>
-                  
                   <h3 className="text-xl font-bold text-[#3D2314] mb-1">{currentGroup.name}</h3>
                   <p className="text-[#3D2314]/60 mb-4">
                     {currentGroup.selection_type === 'single' ? 'Choisissez une option' : 'Choisissez vos options'}
-                    {currentGroup.min_selections > 0 && (
-                      <span className="text-[#E63329] ml-2 font-semibold">(obligatoire)</span>
-                    )}
-                    {currentGroup.max_selections && currentGroup.selection_type === 'multi' && (
-                      <span className="text-[#3D2314]/40 ml-2">(max {currentGroup.max_selections})</span>
-                    )}
+                    {currentGroup.min_selections > 0 && <span className="text-[#E63329] ml-2 font-semibold">(obligatoire)</span>}
                   </p>
-                  
                   <div className="space-y-3">
                     {currentGroup.option_group_items.map(item => {
                       const price = item.price_override !== null ? item.price_override : item.product.price
                       const isSelected = isOptionSelected(item.id)
-                      
                       return (
                         <button
                           key={item.id}
                           onClick={() => selectOption(currentGroup, item)}
-                          className={`w-full p-4 rounded-xl border-3 flex items-center gap-4 transition-all ${
-                            isSelected
-                              ? 'border-[#E63329] bg-red-50'
-                              : 'border-[#F7B52C]/30 hover:border-[#F7B52C]'
-                          }`}
+                          className={`w-full p-4 rounded-xl border-3 flex items-center gap-4 transition-all ${isSelected ? 'border-[#E63329] bg-red-50' : 'border-[#F7B52C]/30 hover:border-[#F7B52C]'}`}
                         >
-                          <div className={`w-7 h-7 rounded-full border-3 flex items-center justify-center ${
-                            isSelected ? 'border-[#E63329] bg-[#E63329]' : 'border-[#3D2314]/30'
-                          }`}>
+                          <div className={`w-7 h-7 rounded-full border-3 flex items-center justify-center ${isSelected ? 'border-[#E63329] bg-[#E63329]' : 'border-[#3D2314]/30'}`}>
                             {isSelected && <span className="text-white text-sm">✓</span>}
                           </div>
-                          
                           <div className="w-14 h-14 bg-[#FFF9E6] rounded-xl flex items-center justify-center text-3xl overflow-hidden">
-                            {item.product.image_url ? (
-                              <img src={item.product.image_url} alt="" className="w-full h-full object-cover" />
-                            ) : '🍽️'}
+                            {item.product.image_url ? <img src={item.product.image_url} alt="" className="w-full h-full object-cover" /> : '🍽️'}
                           </div>
-                          
                           <div className="flex-1 text-left">
                             <span className="font-bold text-[#3D2314]">{item.product.name}</span>
                           </div>
-                          
                           <span className={`font-bold text-lg ${price === 0 ? 'text-[#4CAF50]' : 'text-[#E63329]'}`}>
                             {price === 0 ? 'Inclus' : `+${price.toFixed(2)} €`}
                           </span>
@@ -1429,44 +1063,19 @@ export default function KioskDevicePage() {
               ) : null}
             </div>
             
-            {/* Footer */}
             {currentPropositions.length > 0 && (
               <div className="p-6 border-t-2 border-[#F7B52C]/30 bg-[#FFF9E6] flex items-center justify-between">
-                <button
-                  onClick={currentPropositionIndex === 0 ? closeProductModal : prevProposition}
-                  className="px-6 py-3 rounded-xl border-2 border-[#3D2314]/20 font-semibold text-[#3D2314] hover:bg-white transition-colors"
-                >
+                <button onClick={currentPropositionIndex === 0 ? closeProductModal : prevProposition} className="px-6 py-3 rounded-xl border-2 border-[#3D2314]/20 font-semibold">
                   {currentPropositionIndex === 0 ? 'Annuler' : '← Retour'}
                 </button>
-                
                 <div className="text-center">
                   <p className="text-sm text-[#3D2314]/50">Prix total</p>
                   <p className="text-2xl font-black text-[#E63329]">
                     {(selectedProduct.price + selectedOptions.reduce((sum, o) => sum + o.price, 0)).toFixed(2)} €
                   </p>
                 </div>
-                
-                <button
-                  onClick={nextProposition}
-                  disabled={!canProceed()}
-                  className="px-6 py-3 rounded-xl bg-[#E63329] text-white font-semibold disabled:opacity-50 hover:bg-[#c42a22] transition-colors"
-                >
-                  {(() => {
-                    const isLastProposition = currentPropositionIndex === currentPropositions.length - 1
-                    if (!isLastProposition) return 'Suivant →'
-                    
-                    const currentG = currentPropositions[currentPropositionIndex]
-                    if (currentG) {
-                      const selectedInGroup = selectedOptions.filter(o => o.option_group_id === currentG.id)
-                      const hasTriggeredItem = selectedInGroup.some(selected => {
-                        const item = currentG.option_group_items.find(i => i.id === selected.item_id)
-                        return item?.triggers_option_group_id
-                      })
-                      if (hasTriggeredItem) return 'Suivant →'
-                    }
-                    
-                    return 'Ajouter →'
-                  })()}
+                <button onClick={nextProposition} disabled={!canProceed()} className="px-6 py-3 rounded-xl bg-[#E63329] text-white font-semibold disabled:opacity-50">
+                  {currentPropositionIndex === currentPropositions.length - 1 ? 'Ajouter →' : 'Suivant →'}
                 </button>
               </div>
             )}
@@ -1474,164 +1083,9 @@ export default function KioskDevicePage() {
         </div>
       )}
 
-      {/* Modal Allergènes */}
-      {allergenModalProduct && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setAllergenModalProduct(null)}
-        >
-          <div 
-            className="bg-white rounded-3xl w-full max-w-lg max-h-[80vh] overflow-hidden shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-6 bg-[#F7B52C] text-white">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-white/20 rounded-xl flex items-center justify-center overflow-hidden">
-                    {allergenModalProduct.image_url ? (
-                      <img src={allergenModalProduct.image_url} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-3xl">🍔</span>
-                    )}
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-2xl">{allergenModalProduct.name}</h2>
-                    <p className="text-white/80">Informations allergènes</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setAllergenModalProduct(null)}
-                  className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl hover:bg-white/30 transition-colors"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6 overflow-y-auto max-h-[50vh]">
-              {(() => {
-                const allergens = getProductAllergens(allergenModalProduct)
-                const contains = allergens.filter(a => !a.is_trace)
-                const traces = allergens.filter(a => a.is_trace)
-                
-                if (allergens.length === 0) {
-                  return (
-                    <div className="text-center py-8">
-                      <span className="text-6xl block mb-4">✅</span>
-                      <p className="text-[#4CAF50] font-bold text-xl">Aucun allergène déclaré</p>
-                    </div>
-                  )
-                }
-                
-                return (
-                  <div className="space-y-6">
-                    {contains.length > 0 && (
-                      <div>
-                        <h3 className="font-bold text-[#E63329] text-lg mb-3 flex items-center gap-2">
-                          <span className="w-4 h-4 bg-[#E63329] rounded-full"></span>
-                          Contient
-                        </h3>
-                        <div className="grid grid-cols-2 gap-3">
-                          {contains.map(a => (
-                            <div key={a.name} className="flex items-center gap-3 bg-red-50 rounded-2xl p-4">
-                              <span className="text-3xl">{a.emoji}</span>
-                              <span className="font-bold text-[#E63329]">{a.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    
-                    {traces.length > 0 && (
-                      <div>
-                        <h3 className="font-bold text-[#F7B52C] text-lg mb-3 flex items-center gap-2">
-                          <span className="w-4 h-4 bg-[#F7B52C] rounded-full"></span>
-                          Peut contenir des traces de
-                        </h3>
-                        <div className="grid grid-cols-2 gap-3">
-                          {traces.map(a => (
-                            <div key={a.name} className="flex items-center gap-3 bg-yellow-50 rounded-2xl p-4">
-                              <span className="text-3xl">{a.emoji}</span>
-                              <span className="font-bold text-[#F7B52C]">{a.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    
-                    <div className="bg-[#FFF9E6] rounded-2xl p-4 mt-4">
-                      <p className="text-sm text-[#3D2314]/70">
-                        ⚠️ Ces informations sont fournies à titre indicatif. En cas d'allergie sévère, veuillez consulter notre personnel.
-                      </p>
-                    </div>
-                  </div>
-                )
-              })()}
-            </div>
-            
-            <div className="p-6 border-t border-[#F7B52C]/30">
-              <button
-                onClick={() => setAllergenModalProduct(null)}
-                className="w-full bg-[#E63329] text-white font-bold py-4 rounded-2xl text-xl hover:bg-[#c42a22] transition-colors"
-              >
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CSS pour l'animation slide-up */}
       <style jsx>{`
-        @keyframes slide-up {
-          from {
-            transform: translateY(100%);
-          }
-          to {
-            transform: translateY(0);
-          }
-        }
-        .animate-slide-up {
-          animation: slide-up 0.3s ease-out;
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-        .scroll-smooth {
-          scroll-behavior: smooth;
-        }
-        .product-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-          gap: 10px;
-        }
-        @media (min-width: 480px) {
-          .product-grid {
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: 14px;
-          }
-        }
-        @media (min-width: 640px) {
-          .product-grid {
-            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            gap: 18px;
-          }
-        }
-        @media (min-width: 1024px) {
-          .product-grid {
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 20px;
-          }
-        }
-        @media (min-width: 1440px) {
-          .product-grid {
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-          }
-        }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
     </div>
   )
