@@ -49,10 +49,10 @@ type GroupedItems = {
 
 type DeviceInfo = {
   id: string
+  code: string
   name: string
-  device_code: string
-  establishment_id: string
-  config: { columns?: string[]; displayMode?: 'compact' | 'detailed' }
+  type: string
+  establishmentId: string
 }
 
 type ColumnConfig = { pending: boolean; preparing: boolean; ready: boolean; completed: boolean }
@@ -252,16 +252,21 @@ function getPreviousStatus(currentStatus: string): string | null {
 
 // ==================== MAIN COMPONENT ====================
 export default function KitchenPage() {
+  // Auth state
+  const [authStatus, setAuthStatus] = useState<'checking' | 'needPin' | 'authenticated'>('checking')
+  const [pinInput, setPinInput] = useState('')
+  const [pinError, setPinError] = useState('')
+  const [deviceCode, setDeviceCode] = useState('')
+  const [device, setDevice] = useState<DeviceInfo | null>(null)
+  
+  // Data state
   const [orders, setOrders] = useState<Order[]>([])
   const [offeredOrders, setOfferedOrders] = useState<Order[]>([])
   const [currentTime, setCurrentTime] = useState(new Date())
   const [loading, setLoading] = useState(true)
-  const [authChecking, setAuthChecking] = useState(true)
-  const [device, setDevice] = useState<DeviceInfo | null>(null)
   const [showConfig, setShowConfig] = useState(false)
   const [columnConfig, setColumnConfig] = useState<ColumnConfig>({ pending: true, preparing: true, ready: true, completed: true })
   const [displayMode, setDisplayMode] = useState<'compact' | 'detailed'>('detailed')
-  const [establishmentId, setEstablishmentId] = useState<string>('a0000000-0000-0000-0000-000000000001')
   const [collapsedSections, setCollapsedSections] = useState<Record<string, Set<string>>>({})
   const [checkedItems, setCheckedItems] = useState<Record<string, Set<string>>>({})
   const [avgPrepTime, setAvgPrepTime] = useState<number>(DEFAULT_PREP_TIME)
@@ -275,46 +280,69 @@ export default function KitchenPage() {
     return () => clearInterval(timer)
   }, [])
 
-  // ==================== AUTH & LOADING ====================
+  // ==================== AUTH ====================
   async function checkAuth() {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-
-      if (!session) {
-        setAuthChecking(false)
-        loadOrders(establishmentId)
-        loadTempOrders(establishmentId)
-        setupRealtime(establishmentId)
-        return
-      }
-
-      const { data: profile } = await supabase.from('profiles').select('role, establishment_id').eq('id', session.user.id).single()
-
-      if (profile?.role?.startsWith('device_kds')) {
-        const { data: deviceData } = await supabase.from('devices').select('id, name, device_code, establishment_id, config').eq('auth_user_id', session.user.id).single()
-        if (deviceData) {
-          const config = typeof deviceData.config === 'string' ? JSON.parse(deviceData.config || '{}') : deviceData.config || {}
-          const columns = config.columns || DEFAULT_COLUMNS
-          setDevice({ ...deviceData, config })
-          setColumnConfig({ pending: columns.includes('pending'), preparing: columns.includes('preparing'), ready: columns.includes('ready'), completed: columns.includes('completed') })
-          setDisplayMode(config.displayMode || 'detailed')
-          setEstablishmentId(deviceData.establishment_id)
-          await supabase.from('devices').update({ last_seen_at: new Date().toISOString() }).eq('id', deviceData.id)
+      // Check if we have a device code in cookie/localStorage
+      const savedDeviceCode = localStorage.getItem('kds_device_code')
+      if (savedDeviceCode) {
+        setDeviceCode(savedDeviceCode)
+        const response = await fetch(`/api/device-auth?deviceCode=${savedDeviceCode}`)
+        const data = await response.json()
+        
+        if (data.authenticated && data.device) {
+          setDevice(data.device)
+          setAuthStatus('authenticated')
+          loadAllData(data.device.establishmentId)
+          return
         }
       }
-
-      setAuthChecking(false)
-      const estId = device?.establishment_id || establishmentId
-      loadOrders(estId)
-      loadTempOrders(estId)
-      setupRealtime(estId)
+      setAuthStatus('needPin')
     } catch (error) {
       console.error('Auth check error:', error)
-      setAuthChecking(false)
-      loadOrders(establishmentId)
-      loadTempOrders(establishmentId)
-      setupRealtime(establishmentId)
+      setAuthStatus('needPin')
     }
+  }
+
+  async function submitPin() {
+    if (!deviceCode.trim()) {
+      setPinError('Entrez le code du device (ex: KDSJU01)')
+      return
+    }
+    if (pinInput.length < 4) {
+      setPinError('Le PIN doit contenir au moins 4 chiffres')
+      return
+    }
+    
+    setPinError('')
+    
+    try {
+      const response = await fetch('/api/device-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceCode: deviceCode.toUpperCase(), pin: pinInput })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success && data.device) {
+        // Save device code for next time
+        localStorage.setItem('kds_device_code', deviceCode.toUpperCase())
+        setDevice(data.device)
+        setAuthStatus('authenticated')
+        loadAllData(data.device.establishmentId)
+      } else {
+        setPinError(data.error || 'Code device ou PIN incorrect')
+      }
+    } catch (error) {
+      setPinError('Erreur de connexion')
+    }
+  }
+
+  function loadAllData(estId: string) {
+    loadOrders(estId)
+    loadTempOrders(estId)
+    setupRealtime(estId)
   }
 
   async function loadTempOrders(estId: string) {
@@ -397,30 +425,21 @@ export default function KitchenPage() {
       const isOffered = offeredOrders.some(o => o.id === orderId)
       if (isOffered) {
         if (newStatus === 'completed') {
-          const { error } = await supabase.from('temp_orders').delete().eq('id', orderId)
-          if (error) window.alert('ERREUR temp_orders delete: ' + error.message)
-          else window.alert('OK temp_orders supprimé')
+          await supabase.from('temp_orders').delete().eq('id', orderId)
         } else {
-          const { error } = await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
-          if (error) window.alert('ERREUR temp_orders update: ' + error.message)
-          else window.alert('OK temp_orders -> ' + newStatus)
+          await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
         }
       } else {
         const updateData: any = { status: newStatus, updated_at: new Date().toISOString() }
         if (newStatus === 'preparing') updateData.preparation_started_at = new Date().toISOString()
-        const { error, data, count } = await supabase.from('orders').update(updateData).eq('id', orderId).select()
-        if (error) {
-          window.alert('ERREUR orders update: ' + error.message)
-        } else {
-          window.alert('OK orders -> ' + newStatus + ' (rows: ' + (data?.length || 0) + ')')
-        }
+        await supabase.from('orders').update(updateData).eq('id', orderId)
       }
 
       if (newStatus === 'completed' || newStatus === 'ready') {
         setCheckedItems(prev => { const newState = { ...prev }; delete newState[orderId]; return newState })
       }
     } catch (error: any) {
-      window.alert('EXCEPTION: ' + (error?.message || error))
+      console.error('Update status error:', error)
     }
   }
 
@@ -657,7 +676,7 @@ export default function KitchenPage() {
         <div className="flex border-t border-slate-600">
           {prevStatus ? (
             <div 
-              onClick={() => { window.alert('GAUCHE: ' + order.id + ' -> ' + prevStatus); updateStatus(order.id, prevStatus); }}
+              onClick={() => updateStatus(order.id, prevStatus)}
               className="flex-1 bg-slate-600 active:bg-slate-500 text-white py-3 text-lg font-bold cursor-pointer flex items-center justify-center select-none"
               style={{ WebkitTapHighlightColor: 'rgba(255,255,255,0.3)', touchAction: 'manipulation' }}
             >←</div>
@@ -666,7 +685,7 @@ export default function KitchenPage() {
           )}
           {column.nextStatus ? (
             <div 
-              onClick={() => { window.alert('DROITE: ' + order.id + ' -> ' + column.nextStatus); updateStatus(order.id, column.nextStatus!); }}
+              onClick={() => updateStatus(order.id, column.nextStatus!)}
               className={`flex-1 ${colors.bg} active:brightness-110 text-white py-3 text-lg font-bold cursor-pointer flex items-center justify-center select-none`}
               style={{ WebkitTapHighlightColor: 'rgba(255,255,255,0.3)', touchAction: 'manipulation' }}
             >→</div>
@@ -679,12 +698,73 @@ export default function KitchenPage() {
   }
 
   // ==================== MAIN RENDER ====================
-  if (authChecking) {
+  
+  // Checking auth
+  if (authStatus === 'checking') {
     return (
       <div className="h-screen bg-slate-900 flex items-center justify-center">
         <div className="text-white text-center">
           <span className="text-6xl block mb-2">👨‍🍳</span>
-          <p className="text-lg">Chargement...</p>
+          <p className="text-lg">Vérification...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Need PIN screen
+  if (authStatus === 'needPin') {
+    return (
+      <div className="h-screen bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+          <div className="text-center mb-6">
+            <span className="text-5xl block mb-2">👨‍🍳</span>
+            <h1 className="text-xl font-bold text-gray-900">Écran Cuisine (KDS)</h1>
+            <p className="text-gray-500 text-sm">Entrez le code device et le PIN</p>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Code Device</label>
+              <input
+                type="text"
+                value={deviceCode}
+                onChange={(e) => setDeviceCode(e.target.value.toUpperCase())}
+                placeholder="Ex: KDSJU01"
+                className="w-full text-center text-xl font-mono tracking-widest border-2 border-gray-200 rounded-xl p-3 focus:border-orange-500 focus:outline-none uppercase"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+                onKeyDown={(e) => e.key === 'Enter' && submitPin()}
+                placeholder="••••"
+                className="w-full text-center text-2xl font-mono tracking-widest border-2 border-gray-200 rounded-xl p-3 focus:border-orange-500 focus:outline-none"
+                maxLength={6}
+              />
+            </div>
+            
+            {pinError && (
+              <p className="text-red-500 text-center text-sm">{pinError}</p>
+            )}
+            
+            <button
+              onClick={submitPin}
+              className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl hover:bg-orange-600 transition-colors"
+            >
+              Connexion
+            </button>
+          </div>
+          
+          <div className="mt-6 p-3 bg-gray-50 rounded-xl">
+            <p className="text-gray-500 text-xs text-center">
+              💡 Le code device et PIN sont disponibles dans Admin → Devices
+            </p>
+          </div>
         </div>
       </div>
     )
@@ -699,7 +779,7 @@ export default function KitchenPage() {
       <div className="flex items-center justify-between px-2 py-1 bg-slate-800 border-b border-slate-700 flex-shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold">🍳 KDS</span>
-          <span className="text-[10px] text-gray-400">{device?.name || 'Demo'}</span>
+          <span className="text-[10px] text-gray-400">{device?.name || deviceCode}</span>
           <button onClick={() => setDisplayMode(displayMode === 'compact' ? 'detailed' : 'compact')} className="bg-slate-700 px-2 py-0.5 rounded text-xs">
             {displayMode === 'compact' ? '📖' : '📋'}
           </button>
