@@ -1016,12 +1016,13 @@ export default function KitchenPage() {
   }
 
   function renderOrder(order: Order, column: typeof COLUMNS[number], isInRound: boolean = false, roundInfo?: { sequence: number, totalInRound: number }) {
-    const colorClasses = {
+    const colorMap = {
       orange: { text: 'text-orange-400', bg: 'bg-orange-400', bgLight: 'bg-orange-400/20', border: 'border-orange-400', btn: 'bg-orange-500' },
       blue: { text: 'text-blue-400', bg: 'bg-blue-400', bgLight: 'bg-blue-400/20', border: 'border-blue-400', btn: 'bg-blue-500' },
       green: { text: 'text-green-400', bg: 'bg-green-400', bgLight: 'bg-green-400/20', border: 'border-green-400', btn: 'bg-green-500' },
       gray: { text: 'text-gray-400', bg: 'bg-gray-400', bgLight: 'bg-gray-400/20', border: 'border-gray-500', btn: 'bg-gray-500' },
-    }[column.color]
+    }
+    const colorClasses = colorMap[column.color as keyof typeof colorMap] || colorMap.gray
 
     const groupedItems = groupAndMergeItems(order.order_items)
     const totalItems = groupedItems.reduce((sum, g) => sum + g.items.length, 0)
@@ -1060,7 +1061,7 @@ export default function KitchenPage() {
           <div className="px-1.5 py-1 space-y-0.5">
             {displayMode === 'compact' ? (
               // Mode compact: liste simple
-              order.order_items.map((item, idx) => {
+              (order.order_items || []).map((item, idx) => {
                 const options = parseOptions(item.options_selected)
                 const isChecked = isItemChecked(order.id, `${item.product_name}-${idx}`)
                 return (
@@ -1452,7 +1453,7 @@ export default function KitchenPage() {
           {visibleColumns.map(column => {
             const columnOrders = column.key === 'completed' ? allOrders.filter(o => o.status === column.key).slice(-10) : allOrders.filter(o => o.status === column.key)
             const groupedOrders = getOrdersGroupedByRound(columnOrders)
-            const colorClasses = { orange: { text: 'text-orange-400', bg: 'bg-orange-400', bgLight: 'bg-orange-400/20' }, blue: { text: 'text-blue-400', bg: 'bg-blue-400', bgLight: 'bg-blue-400/20' }, green: { text: 'text-green-400', bg: 'bg-green-400', bgLight: 'bg-green-400/20' }, gray: { text: 'text-gray-400', bg: 'bg-gray-400', bgLight: 'bg-gray-400/20' } }[column.color]
+            const colorClasses = { orange: { text: 'text-orange-400', bg: 'bg-orange-400', bgLight: 'bg-orange-400/20' }, blue: { text: 'text-blue-400', bg: 'bg-blue-400', bgLight: 'bg-blue-400/20' }, green: { text: 'text-green-400', bg: 'bg-green-400', bgLight: 'bg-green-400/20' }, gray: { text: 'text-gray-400', bg: 'bg-gray-400', bgLight: 'bg-gray-400/20' } }[column.color as 'orange' | 'blue' | 'green' | 'gray'] || { text: 'text-gray-400', bg: 'bg-gray-400', bgLight: 'bg-gray-400/20' }
 
             return (
               <div key={column.key} data-column={column.key} className={`bg-slate-800 rounded p-1 overflow-y-auto transition-all flex flex-col ${dragOverColumn === column.key ? 'ring-2 ring-white/50 bg-slate-700' : ''}`}
