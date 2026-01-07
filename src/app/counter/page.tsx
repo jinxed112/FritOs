@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 
@@ -95,9 +96,24 @@ type LateOrder = {
   minutes_late: number
 }
 
+type DeviceInfo = {
+  id: string
+  code: string
+  name: string
+  type: string
+  vivaTerminalId: string | null
+  establishmentId: string
+}
+
 // ==================== COMPONENT ====================
 
 export default function CounterPage() {
+  const router = useRouter()
+  
+  // Auth state
+  const [authStatus, setAuthStatus] = useState<'checking' | 'unauthorized' | 'authenticated'>('checking')
+  const [device, setDevice] = useState<DeviceInfo | null>(null)
+  
   // Data state
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -133,21 +149,57 @@ export default function CounterPage() {
   const [allergenModalProduct, setAllergenModalProduct] = useState<Product | null>(null)
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
 
   // ==================== EFFECTS ====================
 
   useEffect(() => {
-    loadData()
-    loadLateOrders()
-    
-    const interval = setInterval(loadLateOrders, 60000)
-    return () => clearInterval(interval)
+    checkAuth()
   }, [])
+
+  // ==================== AUTH ====================
+  
+  async function checkAuth() {
+    try {
+      // 1. Vérifier session Supabase
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setAuthStatus('unauthorized')
+        return
+      }
+
+      // 2. Vérifier le cookie device via API
+      const response = await fetch('/api/device-auth')
+      const data = await response.json()
+      
+      if (!data.device) {
+        setAuthStatus('unauthorized')
+        return
+      }
+
+      // 3. Vérifier que c'est bien un counter
+      if (data.device.type !== 'counter') {
+        setAuthStatus('unauthorized')
+        return
+      }
+
+      setDevice(data.device)
+      setAuthStatus('authenticated')
+      
+      // Load data with device's establishment
+      loadData(data.device.establishmentId)
+      loadLateOrders(data.device.establishmentId)
+      
+      const interval = setInterval(() => loadLateOrders(data.device.establishmentId), 60000)
+      return () => clearInterval(interval)
+    } catch (error) {
+      console.error('Auth check error:', error)
+      setAuthStatus('unauthorized')
+    }
+  }
 
   // ==================== DATA LOADING ====================
 
-  async function loadData() {
+  async function loadData(establishmentId: string) {
     console.log('=== LOADING COUNTER DATA ===')
     
     const { data: categoriesData, error: catError } = await supabase
@@ -228,7 +280,7 @@ export default function CounterPage() {
     setLoading(false)
   }
 
-  async function loadLateOrders() {
+  async function loadLateOrders(establishmentId: string) {
     const now = new Date()
     const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000)
     
@@ -440,7 +492,7 @@ export default function CounterPage() {
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert({
-          establishment_id: establishmentId,
+          establishment_id: device!.establishmentId,
           order_type: orderType,
           status: 'pending',
           subtotal: subtotalHT,
@@ -450,6 +502,7 @@ export default function CounterPage() {
           payment_method: paymentMethod === 'offered' ? 'cash' : paymentMethod,
           payment_status: 'paid',
           is_offered: isOffered,
+          device_id: device!.id,
           metadata: isOffered && offeredReason ? JSON.stringify({ offered_reason: offeredReason }) : null,
         })
         .select()
@@ -506,7 +559,7 @@ export default function CounterPage() {
       .update({ status: 'completed' })
       .eq('id', orderId)
     
-    loadLateOrders()
+    if (device) loadLateOrders(device.establishmentId)
   }
 
   async function cancelOrder(orderId: string) {
@@ -517,7 +570,7 @@ export default function CounterPage() {
       .update({ status: 'cancelled' })
       .eq('id', orderId)
     
-    loadLateOrders()
+    if (device) loadLateOrders(device.establishmentId)
   }
 
   async function postponeOrder(orderId: string, minutes: number = 30) {
@@ -536,7 +589,7 @@ export default function CounterPage() {
         .update({ scheduled_time: newTime.toISOString() })
         .eq('id', orderId)
       
-      loadLateOrders()
+      if (device) loadLateOrders(device.establishmentId)
     }
   }
 
@@ -590,6 +643,39 @@ export default function CounterPage() {
 
   // ==================== RENDER ====================
 
+  // Checking auth
+  if (authStatus === 'checking') {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <span className="text-6xl block mb-4 animate-pulse">📋</span>
+          <p className="text-gray-500 text-xl">Vérification...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Need to login via /device
+  if (authStatus === 'unauthorized') {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <span className="text-6xl block mb-6">🔒</span>
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Accès non autorisé</h1>
+          <p className="text-gray-500 mb-8">
+            Veuillez vous connecter et sélectionner une caisse depuis la page de configuration.
+          </p>
+          <button
+            onClick={() => router.push('/device')}
+            className="bg-orange-500 text-white font-bold px-8 py-4 rounded-xl hover:bg-orange-600 transition-colors"
+          >
+            Aller à la configuration
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -629,9 +715,18 @@ export default function CounterPage() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header - Plus grand pour tablette */}
         <header className="bg-slate-800 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
-          <h1 className="text-lg font-bold flex items-center gap-2">
-            📋 Caisse
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-bold flex items-center gap-2">
+              📋 Caisse
+            </h1>
+            <span className="text-xs text-gray-400">{device?.name}</span>
+            <button
+              onClick={() => router.push('/device')}
+              className="bg-slate-700 px-2 py-1 rounded text-xs"
+            >
+              🔄
+            </button>
+          </div>
           
           <div className="flex items-center gap-3">
             {/* Type de commande - Boutons plus grands */}
@@ -1190,7 +1285,7 @@ export default function CounterPage() {
             
             <div className="p-4 border-t bg-gray-50 flex-shrink-0">
               <button
-                onClick={loadLateOrders}
+                onClick={() => device && loadLateOrders(device.establishmentId)}
                 className="w-full bg-gray-200 text-gray-700 font-semibold py-4 rounded-xl active:bg-gray-300"
               >
                 🔄 Rafraîchir
