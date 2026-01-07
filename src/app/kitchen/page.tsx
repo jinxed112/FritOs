@@ -422,20 +422,23 @@ export default function KitchenPage() {
 
   // ==================== ACTIONS ====================
   async function updateStatus(orderId: string, newStatus: string) {
+    const isOffered = offeredOrders.some(o => o.id === orderId)
+    
     try {
-      const isOffered = offeredOrders.some(o => o.id === orderId)
-      if (isOffered) {
-        if (newStatus === 'completed') {
-          await supabase.from('temp_orders').delete().eq('id', orderId)
-        } else {
-          await supabase.from('temp_orders').update({ status: newStatus }).eq('id', orderId)
-        }
-      } else {
-        const updateData: any = { status: newStatus, updated_at: new Date().toISOString() }
-        if (newStatus === 'preparing') updateData.preparation_started_at = new Date().toISOString()
-        await supabase.from('orders').update(updateData).eq('id', orderId)
+      const response = await fetch('/api/kitchen/update-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, newStatus, isOffered })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        console.error('Update status error:', data.error)
+        return
       }
 
+      // Clear checked items when completed or ready
       if (newStatus === 'completed' || newStatus === 'ready') {
         setCheckedItems(prev => { const newState = { ...prev }; delete newState[orderId]; return newState })
       }
