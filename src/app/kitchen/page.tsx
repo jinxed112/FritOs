@@ -1008,6 +1008,13 @@ export default function KitchenPage() {
     )
   }
 
+  // Obtenir le statut précédent
+  function getPreviousStatus(currentStatus: string): string | null {
+    const order = ['pending', 'preparing', 'ready', 'completed']
+    const idx = order.indexOf(currentStatus)
+    return idx > 0 ? order[idx - 1] : null
+  }
+
   function renderOrder(order: Order, column: typeof COLUMNS[number], isInRound: boolean = false, roundInfo?: { sequence: number, totalInRound: number }) {
     const colorClasses = {
       orange: { text: 'text-orange-400', bg: 'bg-orange-400', bgLight: 'bg-orange-400/20', border: 'border-orange-400', btn: 'bg-orange-500' },
@@ -1024,13 +1031,8 @@ export default function KitchenPage() {
     const launchInfo = formatLaunchTime(order)
     const timeSince = getTimeSinceLaunch(order)
     
-    // Handler pour le bouton - utilise une fonction nommée pour debug
-    const handleButtonClick = () => {
-      console.log('Button clicked for order:', order.id, '-> new status:', column.nextStatus)
-      if (column.nextStatus) {
-        updateStatus(order.id, column.nextStatus)
-      }
-    }
+    const prevStatus = getPreviousStatus(column.key)
+    const nextStatus = column.nextStatus
     
     return (
       <div key={order.id} className={`bg-slate-700 rounded text-xs overflow-hidden border-l-2 ${isInRound ? 'border-purple-500' : colorClasses.border} ${allChecked ? 'ring-1 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-1 ring-red-500' : ''}`}>
@@ -1048,23 +1050,9 @@ export default function KitchenPage() {
               <span className="text-[10px] text-cyan-300">⏰{formatTime(order.scheduled_time)}</span>
             )}
           </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <span className={`text-[10px] ${timeSince.isWaiting ? 'text-gray-400' : launchInfo.isPast ? 'text-red-400' : 'text-gray-400'}`}>
-              {timeSince.display}
-            </span>
-            {/* BOUTON - avec anchor tag comme fallback ultime */}
-            {column.nextStatus && !isInRound && (
-              <a
-                href="#"
-                onClick={(e) => { e.preventDefault(); handleButtonClick(); }}
-                onTouchEnd={(e) => { e.preventDefault(); handleButtonClick(); }}
-                className={`${colorClasses.btn} text-white w-8 h-6 rounded flex items-center justify-center text-sm font-bold no-underline select-none`}
-                style={{ WebkitTapHighlightColor: 'transparent' }}
-              >
-                →
-              </a>
-            )}
-          </div>
+          <span className={`text-[10px] ${timeSince.isWaiting ? 'text-gray-400' : launchInfo.isPast ? 'text-red-400' : 'text-gray-400'}`}>
+            {timeSince.display}
+          </span>
         </div>
         
         {/* Items - affichage direct sans catégories en mode compact */}
@@ -1146,6 +1134,32 @@ export default function KitchenPage() {
         {order.order_type === 'delivery' && order.customer_name && column.key !== 'completed' && (
           <div className="px-1.5 py-0.5 bg-slate-600/50 text-[10px] text-gray-300 truncate">
             📍 {order.customer_name} {order.delivery_notes && `- ${order.delivery_notes}`}
+          </div>
+        )}
+        
+        {/* BOUTONS ← → en bas du ticket - PAS dans une tournée */}
+        {!isInRound && (
+          <div className="flex border-t border-slate-600">
+            {prevStatus ? (
+              <input
+                type="button"
+                value="←"
+                onClick={() => updateStatus(order.id, prevStatus)}
+                className="flex-1 bg-slate-600 hover:bg-slate-500 active:bg-slate-400 text-white py-2 text-lg font-bold cursor-pointer border-none"
+              />
+            ) : (
+              <div className="flex-1 bg-slate-800 py-2" />
+            )}
+            {nextStatus ? (
+              <input
+                type="button"
+                value="→"
+                onClick={() => updateStatus(order.id, nextStatus)}
+                className={`flex-1 ${colorClasses.btn} hover:brightness-110 active:brightness-125 text-white py-2 text-lg font-bold cursor-pointer border-none`}
+              />
+            ) : (
+              <div className="flex-1 bg-slate-800 py-2" />
+            )}
           </div>
         )}
       </div>
