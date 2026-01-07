@@ -1025,102 +1025,107 @@ export default function KitchenPage() {
     const showUrgentStyle = launchInfo.isNow || launchInfo.isPast
     const showUpcomingStyle = launchInfo.isUpcoming
     
+    // Bouton séparé de la carte pour éviter les conflits touch
+    const actionButton = column.nextStatus && !isInRound ? (
+      <button 
+        type="button"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          updateStatus(order.id, column.nextStatus!);
+        }}
+        className={`${colorClasses.btn} text-white w-14 h-full min-h-[80px] rounded-xl flex items-center justify-center transition-colors text-2xl shadow-lg active:scale-95 flex-shrink-0`}
+      >
+        →
+      </button>
+    ) : null;
+
     return (
-      <div key={order.id} 
-        draggable 
-        onDragStart={(e) => handleDragStart(e, order.id)} 
-        onDragEnd={handleDragEnd}
-        onTouchStart={(e) => handleTouchStart(e, order.id)}
-        style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
-        className={`bg-slate-700 rounded-xl overflow-hidden border-l-4 ${isInRound ? 'border-purple-500' : colorClasses.border} ${draggedOrder === order.id || touchDragOrder === order.id ? 'opacity-50 scale-95' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${showUrgentStyle && column.key === 'pending' ? 'ring-2 ring-red-500' : ''} ${showUpcomingStyle && column.key === 'pending' ? 'ring-2 ring-orange-500' : ''}`}>
+      <div key={order.id} className="flex gap-2 items-stretch">
+        {/* Carte de commande */}
+        <div 
+          draggable 
+          onDragStart={(e) => handleDragStart(e, order.id)} 
+          onDragEnd={handleDragEnd}
+          onTouchStart={(e) => handleTouchStart(e, order.id)}
+          style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
+          className={`flex-1 bg-slate-700 rounded-xl overflow-hidden border-l-4 ${isInRound ? 'border-purple-500' : colorClasses.border} ${draggedOrder === order.id || touchDragOrder === order.id ? 'opacity-50 scale-95' : ''} ${column.key === 'completed' ? 'opacity-60' : ''} ${allChecked ? 'ring-2 ring-green-500' : ''} ${showUrgentStyle && column.key === 'pending' ? 'ring-2 ring-red-500' : ''} ${showUpcomingStyle && column.key === 'pending' ? 'ring-2 ring-orange-500' : ''}`}>
         
-        <div className={`p-3 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/40' : launchInfo.isNow ? 'bg-red-500/30' : launchInfo.isUpcoming ? 'bg-orange-500/20' : isInRound ? 'bg-purple-500/20' : 'bg-slate-600/50'}`}>
-          <div className="flex items-center gap-2">
-            {isInRound && roundInfo && (
-              <span className="bg-purple-500 text-white text-xs px-2 py-1 rounded-full font-bold">
-                {roundInfo.sequence}/{roundInfo.totalInRound}
+          <div className={`p-3 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/40' : launchInfo.isNow ? 'bg-red-500/30' : launchInfo.isUpcoming ? 'bg-orange-500/20' : isInRound ? 'bg-purple-500/20' : 'bg-slate-600/50'}`}>
+            <div className="flex items-center gap-2">
+              {isInRound && roundInfo && (
+                <span className="bg-purple-500 text-white text-xs px-2 py-1 rounded-full font-bold">
+                  {roundInfo.sequence}/{roundInfo.totalInRound}
+                </span>
+              )}
+              <span className={`${column.key === 'completed' ? 'text-xl' : 'text-2xl'} font-bold`}>{order.order_number || '?'}</span>
+              <span className="text-xl">{getOrderTypeEmoji(order.order_type)}</span>
+              {order.is_offered && <span className="text-lg" title="Offert">🎁</span>}
+              {/* Badge de timing - seulement si PAS dans une tournée */}
+              {column.key !== 'completed' && !isInRound && (
+                <span className={`text-xs px-2 py-1 rounded font-bold ${
+                  launchInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
+                  launchInfo.isNow ? 'bg-red-500 text-white' :
+                  launchInfo.isUpcoming ? 'bg-orange-500 text-white' :
+                  isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'
+                }`}>
+                  {launchInfo.isNow ? '🔥 MAINTENANT' : 
+                   launchInfo.isPast ? `⚠️ RETARD` :
+                   launchInfo.isUpcoming ? `⏰ ${launchInfo.time}` :
+                   isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
+                </span>
+              )}
+              {isCC && <span className="text-xs text-gray-400">{order.order_type === 'delivery' ? '🚗' : '🛍️'}</span>}
+              {column.key !== 'completed' && totalItems > 0 && (
+                <span className={`text-xs px-2 py-0.5 rounded-full ${allChecked ? 'bg-green-500 text-white' : 'bg-slate-500 text-gray-300'}`}>
+                  {checkedCount}/{totalItems}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`font-mono text-sm ${getLaunchTimeColor(order)}`}>
+                {getTimeSinceLaunch(order).display}
               </span>
-            )}
-            <span className={`${column.key === 'completed' ? 'text-xl' : 'text-2xl'} font-bold`}>{order.order_number || '?'}</span>
-            <span className="text-xl">{getOrderTypeEmoji(order.order_type)}</span>
-            {order.is_offered && <span className="text-lg" title="Offert">🎁</span>}
-            {/* Badge de timing - seulement si PAS dans une tournée */}
-            {column.key !== 'completed' && !isInRound && (
-              <span className={`text-xs px-2 py-1 rounded font-bold ${
-                launchInfo.isPast ? 'bg-red-500 text-white animate-pulse' :
-                launchInfo.isNow ? 'bg-red-500 text-white' :
-                launchInfo.isUpcoming ? 'bg-orange-500 text-white' :
-                isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'
-              }`}>
-                {launchInfo.isNow ? '🔥 MAINTENANT' : 
-                 launchInfo.isPast ? `⚠️ RETARD` :
-                 launchInfo.isUpcoming ? `⏰ ${launchInfo.time}` :
-                 isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
-              </span>
-            )}
-            {isCC && <span className="text-xs text-gray-400">{order.order_type === 'delivery' ? '🚗' : '🛍️'}</span>}
-            {column.key !== 'completed' && totalItems > 0 && (
-              <span className={`text-xs px-2 py-0.5 rounded-full ${allChecked ? 'bg-green-500 text-white' : 'bg-slate-500 text-gray-300'}`}>
-                {checkedCount}/{totalItems}
-              </span>
-            )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`font-mono text-sm ${getLaunchTimeColor(order)}`}>
-              {getTimeSinceLaunch(order).display}
-            </span>
-            {/* Bouton flèche - TOUJOURS visible pour faciliter l'utilisation tactile */}
-            {column.nextStatus && (
-              <button 
-                onTouchStart={(e) => e.stopPropagation()}
-                onTouchEnd={(e) => { 
-                  e.stopPropagation(); 
-                  e.preventDefault();
-                  updateStatus(order.id, column.nextStatus!);
-                }}
-                onClick={(e) => { e.stopPropagation(); updateStatus(order.id, column.nextStatus!) }} 
-                className={`${colorClasses.btn} text-white w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-colors text-xl sm:text-2xl shadow-lg active:scale-95`}
-              >
-                →
-              </button>
-            )}
-          </div>
+        
+          {column.key !== 'completed' && renderOrderInfo(order, isInRound)}
+        
+          {column.key !== 'completed' && (
+            <div className="p-3 space-y-2">
+              {groupedItems.map((group, idx) => {
+                const isCollapsed = isSectionCollapsed(order.id, group.categoryName)
+                const isSelfService = isDefaultCollapsed(group.categoryName)
+                const catCheckedCount = group.items.filter(item => isItemChecked(order.id, item.key)).length
+                const catAllChecked = group.items.length > 0 && catCheckedCount === group.items.length
+              
+                return (
+                  <div key={idx}>
+                    <button onClick={() => toggleSection(order.id, group.categoryName)}
+                      className={`w-full flex items-center gap-2 mb-1 pb-1 border-b border-slate-600 hover:bg-slate-600/50 rounded transition-colors ${isCollapsed ? 'opacity-70' : ''} ${catAllChecked ? 'opacity-50' : ''}`}>
+                      <span className="text-lg">{group.categoryIcon}</span>
+                      <span className={`text-sm font-semibold uppercase tracking-wide ${group.textClass} ${catAllChecked ? 'line-through' : ''}`}>{group.categoryName}</span>
+                      <span className={`ml-auto px-2 py-0.5 rounded text-xs font-bold ${catAllChecked ? 'bg-green-500/30 text-green-400' : `${group.bgClass} ${group.textClass}`}`}>
+                        {catAllChecked ? '✓' : group.totalCount}
+                      </span>
+                      {isSelfService && <span className="text-xs text-gray-400" title="Self-service">🙋</span>}
+                      <span className="text-gray-400">{isCollapsed ? '▶' : '▼'}</span>
+                    </button>
+                    {!isCollapsed && <div className="space-y-1 ml-2">{group.items.map(item => renderMergedItem(item, order.id))}</div>}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        
+          {column.key === 'completed' && (
+            <div className="p-3">
+              <p className="text-gray-400 text-sm">{order.order_items.reduce((sum, item) => sum + (item.quantity || 0), 0)} article(s)</p>
+            </div>
+          )}
         </div>
         
-        {column.key !== 'completed' && renderOrderInfo(order, isInRound)}
-        
-        {column.key !== 'completed' && (
-          <div className="p-3 space-y-2">
-            {groupedItems.map((group, idx) => {
-              const isCollapsed = isSectionCollapsed(order.id, group.categoryName)
-              const isSelfService = isDefaultCollapsed(group.categoryName)
-              const catCheckedCount = group.items.filter(item => isItemChecked(order.id, item.key)).length
-              const catAllChecked = group.items.length > 0 && catCheckedCount === group.items.length
-              
-              return (
-                <div key={idx}>
-                  <button onClick={() => toggleSection(order.id, group.categoryName)}
-                    className={`w-full flex items-center gap-2 mb-1 pb-1 border-b border-slate-600 hover:bg-slate-600/50 rounded transition-colors ${isCollapsed ? 'opacity-70' : ''} ${catAllChecked ? 'opacity-50' : ''}`}>
-                    <span className="text-lg">{group.categoryIcon}</span>
-                    <span className={`text-sm font-semibold uppercase tracking-wide ${group.textClass} ${catAllChecked ? 'line-through' : ''}`}>{group.categoryName}</span>
-                    <span className={`ml-auto px-2 py-0.5 rounded text-xs font-bold ${catAllChecked ? 'bg-green-500/30 text-green-400' : `${group.bgClass} ${group.textClass}`}`}>
-                      {catAllChecked ? '✓' : group.totalCount}
-                    </span>
-                    {isSelfService && <span className="text-xs text-gray-400" title="Self-service">🙋</span>}
-                    <span className="text-gray-400">{isCollapsed ? '▶' : '▼'}</span>
-                  </button>
-                  {!isCollapsed && <div className="space-y-1 ml-2">{group.items.map(item => renderMergedItem(item, order.id))}</div>}
-                </div>
-              )
-            })}
-          </div>
-        )}
-        
-        {column.key === 'completed' && (
-          <div className="p-3">
-            <p className="text-gray-400 text-sm">{order.order_items.reduce((sum, item) => sum + (item.quantity || 0), 0)} article(s)</p>
-          </div>
-        )}
+        {/* Bouton action SÉPARÉ - en dehors de la carte draggable */}
+        {actionButton}
       </div>
     )
   }
