@@ -629,7 +629,7 @@ export default function KitchenPage() {
                   <span className="font-bold text-xs">{column.label}</span>
                   <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-3">
+                <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-3 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                   {columnOrders.length === 0 ? (
                     <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
                   ) : (
