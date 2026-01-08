@@ -706,6 +706,7 @@ export default function KitchenPage() {
           sensors={sensors} 
           onDragStart={handleDragStart} 
           onDragEnd={handleDragEnd}
+          autoScroll={false}
         >
           <div className={`flex-1 grid ${gridCols} gap-1 p-1 overflow-hidden`}>
             {visibleColumns.map(column => {
