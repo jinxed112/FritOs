@@ -3,6 +3,18 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
 
 // ==================== TYPES ====================
 type OrderItem = {
@@ -71,7 +83,6 @@ const COLUMNS = [
   { key: 'completed', label: 'Clôturé', color: 'gray', nextStatus: null },
 ] as const
 
-const DEFAULT_COLUMNS = ['pending', 'preparing', 'ready', 'completed']
 const DEFAULT_COLLAPSED_CATEGORIES = ['boissons', 'bières', 'biere', 'softs', 'drinks']
 const DEFAULT_PREP_TIME = 10
 
@@ -129,8 +140,7 @@ const COLOR_CLASSES = {
 // ==================== HELPER FUNCTIONS ====================
 function isSauce(optionName: string): boolean {
   if (!optionName) return false
-  const lower = optionName.toLowerCase()
-  return SAUCE_KEYWORDS.some(kw => lower.includes(kw))
+  return SAUCE_KEYWORDS.some(kw => optionName.toLowerCase().includes(kw))
 }
 
 function isExclusion(optionName: string): boolean {
@@ -160,8 +170,7 @@ function getCategoryConfig(categoryName: string | undefined | null) {
 
 function isDefaultCollapsed(categoryName: string | undefined | null): boolean {
   if (!categoryName) return false
-  const lower = categoryName.toLowerCase()
-  return DEFAULT_COLLAPSED_CATEGORIES.some(cat => lower.includes(cat))
+  return DEFAULT_COLLAPSED_CATEGORIES.some(cat => categoryName.toLowerCase().includes(cat))
 }
 
 function parseOptions(optionsJson: string | null): ParsedOption[] {
@@ -182,44 +191,29 @@ function getItemKey(productName: string, options: ParsedOption[]): string {
 
 function groupAndMergeItems(items: OrderItem[]): GroupedItems[] {
   if (!items || !Array.isArray(items)) return []
-
   const categoryGroups: Record<string, Record<string, MergedItem>> = {}
-
   for (const item of items) {
     if (!item) continue
     const catName = item.category_name || 'Autres'
     const options = parseOptions(item.options_selected)
     const key = getItemKey(item.product_name, options)
-
     if (!categoryGroups[catName]) categoryGroups[catName] = {}
     if (!categoryGroups[catName][key]) {
       categoryGroups[catName][key] = { key, product_name: item.product_name || 'Produit inconnu', totalQuantity: 0, options, notes: [] }
     }
-
     categoryGroups[catName][key].totalQuantity += (item.quantity || 1)
     if (item.notes) categoryGroups[catName][key].notes.push(item.notes)
   }
-
   const categoryOrder = ['frites', 'frite', 'snacks', 'viandes', 'burgers', 'mitraillette', 'sauces', 'salades', 'boissons', 'bières', 'desserts']
-
   return Object.entries(categoryGroups)
     .map(([categoryName, mergedItems]) => {
       const config = getCategoryConfig(categoryName)
       const itemsArray = Object.values(mergedItems)
-      return {
-        categoryName,
-        categoryIcon: config.icon,
-        textClass: config.textClass,
-        bgClass: config.bgClass,
-        items: itemsArray,
-        totalCount: itemsArray.reduce((sum, item) => sum + item.totalQuantity, 0),
-      }
+      return { categoryName, categoryIcon: config.icon, textClass: config.textClass, bgClass: config.bgClass, items: itemsArray, totalCount: itemsArray.reduce((sum, item) => sum + item.totalQuantity, 0) }
     })
     .sort((a, b) => {
-      const aLower = (a.categoryName || '').toLowerCase()
-      const bLower = (b.categoryName || '').toLowerCase()
-      const aIdx = categoryOrder.findIndex(c => aLower.includes(c))
-      const bIdx = categoryOrder.findIndex(c => bLower.includes(c))
+      const aIdx = categoryOrder.findIndex(c => a.categoryName.toLowerCase().includes(c))
+      const bIdx = categoryOrder.findIndex(c => b.categoryName.toLowerCase().includes(c))
       if (aIdx === -1 && bIdx === -1) return 0
       if (aIdx === -1) return 1
       if (bIdx === -1) return -1
@@ -228,8 +222,7 @@ function groupAndMergeItems(items: OrderItem[]): GroupedItems[] {
 }
 
 function getOrderTypeEmoji(orderType: string | undefined | null): string {
-  if (!orderType) return '📋'
-  return ORDER_TYPE_EMOJI[orderType] || '📋'
+  return orderType ? ORDER_TYPE_EMOJI[orderType] || '📋' : '📋'
 }
 
 function isClickAndCollect(order: Order): boolean {
@@ -239,17 +232,47 @@ function isClickAndCollect(order: Order): boolean {
 function formatTime(isoString: string | null | undefined): string {
   if (!isoString) return '--:--'
   try {
-    const date = new Date(isoString)
-    return date.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return '--:--'
-  }
+    return new Date(isoString).toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
+  } catch { return '--:--' }
 }
 
-function getPreviousStatus(currentStatus: string): string | null {
-  const order = ['pending', 'preparing', 'ready', 'completed']
-  const idx = order.indexOf(currentStatus)
-  return idx > 0 ? order[idx - 1] : null
+// ==================== DRAGGABLE ORDER CARD ====================
+function DraggableOrderCard({ order, column, children }: { order: Order; column: typeof COLUMNS[number]; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: order.id,
+    data: { order, fromColumn: column.key }
+  })
+
+  const style = transform ? {
+    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+    zIndex: isDragging ? 1000 : undefined,
+  } : undefined
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className={`touch-none ${isDragging ? 'opacity-50 scale-105' : ''}`}
+    >
+      {children}
+    </div>
+  )
+}
+
+// ==================== DROPPABLE COLUMN ====================
+function DroppableColumn({ columnKey, children, isOver }: { columnKey: string; children: React.ReactNode; isOver: boolean }) {
+  const { setNodeRef } = useDroppable({ id: columnKey })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex-1 overflow-y-auto p-1 space-y-1 transition-colors ${isOver ? 'bg-white/10' : ''}`}
+    >
+      {children}
+    </div>
+  )
 }
 
 // ==================== MAIN COMPONENT ====================
@@ -266,17 +289,28 @@ export default function KitchenPage() {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [loading, setLoading] = useState(true)
   const [showConfig, setShowConfig] = useState(false)
-  const [columnConfig, setColumnConfig] = useState<ColumnConfig>({ pending: true, preparing: true, ready: true, completed: true })
+  // Default: 3 colonnes (sans completed)
+  const [columnConfig, setColumnConfig] = useState<ColumnConfig>({ pending: true, preparing: true, ready: true, completed: false })
   const [displayMode, setDisplayMode] = useState<'compact' | 'detailed'>('detailed')
   const [collapsedSections, setCollapsedSections] = useState<Record<string, Set<string>>>({})
   const [checkedItems, setCheckedItems] = useState<Record<string, Set<string>>>({})
   const [avgPrepTime, setAvgPrepTime] = useState<number>(DEFAULT_PREP_TIME)
   
-  // Drag & Drop state
-  const [draggedOrderId, setDraggedOrderId] = useState<string | null>(null)
-  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
+  // Drag state
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
 
   const supabase = createClient()
+
+  // DnD sensors - support both mouse and touch
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 }
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 5 }
+    })
+  )
 
   // ==================== EFFECTS ====================
   useEffect(() => {
@@ -288,28 +322,17 @@ export default function KitchenPage() {
   // ==================== AUTH ====================
   async function checkAuth() {
     try {
-      // 1. Vérifier session Supabase
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
         setAuthStatus('unauthorized')
         return
       }
-
-      // 2. Vérifier le cookie device via API
       const response = await fetch('/api/device-auth')
       const data = await response.json()
-      
-      if (!data.device) {
+      if (!data.device || data.device.type !== 'kds') {
         setAuthStatus('unauthorized')
         return
       }
-
-      // 3. Vérifier que c'est bien un KDS
-      if (data.device.type !== 'kds') {
-        setAuthStatus('unauthorized')
-        return
-      }
-
       setDevice(data.device)
       setAuthStatus('authenticated')
       loadAllData(data.device.establishmentId)
@@ -326,119 +349,98 @@ export default function KitchenPage() {
   }
 
   async function loadTempOrders(estId: string) {
-    try {
-      const { data } = await supabase.from('temp_orders').select('*').eq('establishment_id', estId).neq('status', 'completed').order('created_at', { ascending: true })
-      if (data) {
-        setOfferedOrders(data.map(t => ({
-          id: t.id, order_number: t.order_number || 'X', order_type: t.order_type || 'takeaway',
-          status: t.status || 'pending', created_at: t.created_at, is_offered: true,
-          order_items: Array.isArray(t.order_items) ? t.order_items : []
-        })))
-      }
-    } catch (error) {
-      console.error('Load temp orders error:', error)
+    const { data } = await supabase
+      .from('temp_orders')
+      .select('*')
+      .eq('establishment_id', estId)
+      .neq('status', 'completed')
+      .order('created_at', { ascending: true })
+    if (data) {
+      setOfferedOrders(data.map(t => ({
+        id: t.id, order_number: t.order_number || 'X', order_type: t.order_type || 'takeaway',
+        status: t.status || 'pending', created_at: t.created_at, is_offered: true,
+        order_items: Array.isArray(t.order_items) ? t.order_items : []
+      })))
     }
   }
 
   function setupRealtime(estId: string) {
-    const dbChannel = supabase.channel('orders-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: `establishment_id=eq.${estId}` }, () => { loadOrders(estId); playNotificationSound() })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `establishment_id=eq.${estId}` }, () => loadOrders(estId))
+    const channel = supabase.channel('kds-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `establishment_id=eq.${estId}` }, () => loadOrders(estId))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'temp_orders', filter: `establishment_id=eq.${estId}` }, () => loadTempOrders(estId))
       .subscribe()
-
-    const tempChannel = supabase.channel('temp-orders-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'temp_orders', filter: `establishment_id=eq.${estId}` }, () => { loadTempOrders(estId); playNotificationSound() })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'temp_orders', filter: `establishment_id=eq.${estId}` }, () => loadTempOrders(estId))
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'temp_orders' }, () => loadTempOrders(estId))
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(dbChannel)
-      supabase.removeChannel(tempChannel)
-    }
-  }
-
-  function playNotificationSound() {
-    try {
-      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2Onp+ZjHdtcX2Nqb27sZR3Y2h2lrjP0sKfdVlhc5W70NTDn3VXXmyOpL28sJuGcWpvf5CfoJmQgXZwb3iGlJyblI2CdnBweoqYoZ+Xj4NzcHN9jZmgnJOLfnNxdYKQmZyYkIh9c3F1gI6Ym5eRiH50cnWAjZeamJGJf3VzdIGNlpiXkYl+dHN0gYyVl5aQiH50c3SBjJSWlZCHfnRzdIGLk5WUj4d+dHN0gYuTlJOPh350c3SBi5KUk4+HfnRzdIGLkpSTj4d+dHN0gYuSk5OOhn10c3SBi5GTko6GfXRzdIGKkZKSjoZ9dHN0gYqRkpKOhn10c3SBipGRkY2GfXRzdIGKkJGRjYZ9dHN0gYqQkZGNhn10c3SBio+QkI2FfXRzdIGKj5CQjYV9dHN0gYmPj4+MhX10c3R/')
-      audio.volume = 0.5
-      audio.play().catch(() => { })
-    } catch { }
+    return () => supabase.removeChannel(channel)
   }
 
   async function loadOrders(estId: string) {
-    try {
-      const today = new Date(); today.setHours(0, 0, 0, 0)
-      const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
-
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          id, order_number, order_type, status, created_at,
-          customer_name, customer_phone, scheduled_time, delivery_notes, metadata,
-          order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )
-        `)
-        .eq('establishment_id', estId)
-        .neq('status', 'cancelled')
-        .or(`created_at.gte.${today.toISOString()},and(scheduled_time.gte.${today.toISOString()},scheduled_time.lt.${tomorrow.toISOString()}),status.in.(pending,preparing,ready)`)
-        .order('created_at', { ascending: true })
-
-      if (!error && data) {
-        setOrders(data.map(order => ({
-          ...order,
-          order_type: order.order_type || 'takeaway',
-          metadata: typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata,
-          order_items: Array.isArray(order.order_items)
-            ? order.order_items.map((item: any) => ({ ...item, category_name: item.product?.category?.name || 'Autres' }))
-            : []
-        })))
-      }
-    } catch (error) {
-      console.error('Load orders error:', error)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const { data } = await supabase
+      .from('orders')
+      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, delivery_notes, metadata, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
+      .eq('establishment_id', estId)
+      .neq('status', 'cancelled')
+      .gte('created_at', today.toISOString())
+      .order('created_at', { ascending: true })
+    if (data) {
+      setOrders(data.map(order => ({
+        ...order,
+        order_type: order.order_type || 'takeaway',
+        metadata: typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata,
+        order_items: Array.isArray(order.order_items) ? order.order_items.map((item: any) => ({ ...item, category_name: item.product?.category?.name || 'Autres' })) : []
+      })))
     }
     setLoading(false)
   }
 
-  // ==================== ACTIONS ====================
   async function updateStatus(orderId: string, newStatus: string) {
     const isOffered = offeredOrders.some(o => o.id === orderId)
-    
     try {
       const response = await fetch('/api/kitchen/update-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId, newStatus, isOffered })
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        console.error('Update status error:', data.error)
-        return
-      }
-
-      // Clear checked items when completed or ready
+      if (!response.ok) console.error('Update status error')
       if (newStatus === 'completed' || newStatus === 'ready') {
         setCheckedItems(prev => { const newState = { ...prev }; delete newState[orderId]; return newState })
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Update status error:', error)
     }
   }
 
-  function toggleItemChecked(orderId: string, itemKey: string) {
-    setCheckedItems(prev => {
-      const orderChecked = prev[orderId] || new Set<string>()
-      const newSet = new Set(orderChecked)
-      if (newSet.has(itemKey)) newSet.delete(itemKey)
-      else newSet.add(itemKey)
-      return { ...prev, [orderId]: newSet }
-    })
+  async function saveConfig(config: ColumnConfig, mode: 'compact' | 'detailed') {
+    if (!device) return
+    const columns = Object.entries(config).filter(([_, v]) => v).map(([k]) => k)
+    if (columns.length === 0) return
+    await supabase.from('devices').update({ config: { columns, displayMode: mode } }).eq('id', device.id)
   }
 
-  function isItemChecked(orderId: string, itemKey: string): boolean {
-    return checkedItems[orderId]?.has(itemKey) || false
+  // ==================== DRAG HANDLERS ====================
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string)
   }
+
+  function handleDragOver(event: any) {
+    setOverId(event.over?.id || null)
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    setActiveId(null)
+    setOverId(null)
+    
+    if (over && active.id !== over.id) {
+      const newStatus = over.id as string
+      if (['pending', 'preparing', 'ready', 'completed'].includes(newStatus)) {
+        updateStatus(active.id as string, newStatus)
+      }
+    }
+  }
+
+  // ==================== HELPERS ====================
+  const allOrders = [...orders, ...offeredOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
 
   function toggleSection(orderId: string, categoryName: string) {
     setCollapsedSections(prev => {
@@ -455,41 +457,45 @@ export default function KitchenPage() {
     return isDefaultCollapsed(categoryName)
   }
 
-  async function saveConfig(newConfig: ColumnConfig, newDisplayMode: 'compact' | 'detailed') {
-    if (!device) return
-    const columns = Object.entries(newConfig).filter(([_, v]) => v).map(([k]) => k)
-    if (columns.length === 0) return
-    const updatedConfig = { ...device.config, columns, displayMode: newDisplayMode }
-    const { error } = await supabase.from('devices').update({ config: updatedConfig }).eq('id', device.id)
-    if (!error) { setColumnConfig(newConfig); setDisplayMode(newDisplayMode); setDevice({ ...device, config: updatedConfig }) }
+  function toggleItemChecked(orderId: string, itemKey: string) {
+    setCheckedItems(prev => {
+      const orderChecked = prev[orderId] || new Set<string>()
+      const newSet = new Set(orderChecked)
+      if (newSet.has(itemKey)) newSet.delete(itemKey)
+      else newSet.add(itemKey)
+      return { ...prev, [orderId]: newSet }
+    })
   }
 
-  // ==================== TIME HELPERS ====================
-  function getLaunchTime(order: Order): number {
-    if (!order.scheduled_time || order.metadata?.source !== 'click_and_collect') {
-      return new Date(order.created_at).getTime()
-    }
-    const scheduledTime = new Date(order.scheduled_time).getTime()
-    const prepTime = avgPrepTime * 60 * 1000
-    if (order.order_type === 'delivery') {
-      const deliveryTime = (order.metadata?.delivery_duration || 15) * 60 * 1000
-      return scheduledTime - prepTime - deliveryTime
-    }
-    return scheduledTime - prepTime
+  function isItemChecked(orderId: string, itemKey: string): boolean {
+    return checkedItems[orderId]?.has(itemKey) || false
+  }
+
+  function getTimeSinceLaunch(order: Order): { display: string } {
+    const created = new Date(order.created_at).getTime()
+    const now = currentTime.getTime()
+    const diffMinutes = Math.floor((now - created) / (60 * 1000))
+    if (diffMinutes < 1) return { display: '< 1m' }
+    if (diffMinutes < 60) return { display: `${diffMinutes}m` }
+    return { display: `${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}` }
+  }
+
+  function getTimeColor(order: Order): string {
+    const diffMinutes = Math.floor((currentTime.getTime() - new Date(order.created_at).getTime()) / (60 * 1000))
+    if (diffMinutes < 5) return 'text-green-400'
+    if (diffMinutes < 10) return 'text-yellow-400'
+    if (diffMinutes < 15) return 'text-orange-400'
+    return 'text-red-400'
   }
 
   function formatLaunchTime(order: Order): { time: string; isNow: boolean; isPast: boolean; isUpcoming: boolean } {
-    const launchTime = getLaunchTime(order)
-    const now = currentTime.getTime()
-    const diffMinutes = (launchTime - now) / (60 * 1000)
-
     if (!order.scheduled_time || order.metadata?.source !== 'click_and_collect') {
       return { time: 'MAINTENANT', isNow: true, isPast: false, isUpcoming: false }
     }
-
-    const launchDate = new Date(launchTime)
-    const timeStr = launchDate.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
-
+    const scheduled = new Date(order.scheduled_time).getTime()
+    const now = currentTime.getTime()
+    const diffMinutes = (scheduled - now) / (60 * 1000)
+    const timeStr = formatTime(order.scheduled_time)
     return {
       time: timeStr,
       isNow: diffMinutes <= 0 && diffMinutes > -10,
@@ -498,89 +504,56 @@ export default function KitchenPage() {
     }
   }
 
-  function getTimeSinceLaunch(order: Order): { display: string; isWaiting: boolean } {
-    const launchTime = getLaunchTime(order)
-    const now = currentTime.getTime()
-    const diffMs = now - launchTime
-    const diffMinutes = Math.floor(diffMs / (60 * 1000))
-
-    if (diffMinutes < 0) {
-      const minutesUntil = Math.abs(diffMinutes)
-      if (minutesUntil < 60) return { display: `dans ${minutesUntil}min`, isWaiting: true }
-      const hours = Math.floor(minutesUntil / 60)
-      const mins = minutesUntil % 60
-      return { display: `dans ${hours}h${mins.toString().padStart(2, '0')}`, isWaiting: true }
-    }
-
-    if (diffMinutes < 1) return { display: '<1min', isWaiting: false }
-    if (diffMinutes < 60) return { display: `${diffMinutes}min`, isWaiting: false }
-    return { display: `${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}`, isWaiting: false }
-  }
-
-  function getTimeColor(order: Order): string {
-    const launchTime = getLaunchTime(order)
-    const now = currentTime.getTime()
-    const diffMinutes = Math.floor((now - launchTime) / (60 * 1000))
-
-    if (diffMinutes < 0) return 'text-gray-400'
-    if (diffMinutes < 5) return 'text-green-400'
-    if (diffMinutes < 10) return 'text-yellow-400'
-    if (diffMinutes < 15) return 'text-orange-400'
-    return 'text-red-400'
-  }
-
-  // ==================== RENDER HELPERS ====================
-  const allOrders = [...orders, ...offeredOrders].sort((a, b) => getLaunchTime(a) - getLaunchTime(b))
-
+  // ==================== RENDER ITEM ====================
   function renderItem(item: MergedItem, orderId: string) {
     const isHigh = item.totalQuantity >= 2
     const isVeryHigh = item.totalQuantity >= 4
     const isChecked = isItemChecked(orderId, item.key)
+    let qtyClass = 'bg-slate-500'
+    if (isChecked) qtyClass = 'bg-green-600'
+    else if (isVeryHigh) qtyClass = 'bg-red-500'
+    else if (isHigh) qtyClass = 'bg-yellow-500'
 
     return (
       <div
         key={item.key}
-        className={`p-1.5 rounded cursor-pointer ${isChecked ? 'bg-green-500/20 opacity-50' : isVeryHigh ? 'bg-red-500/20' : isHigh ? 'bg-yellow-500/10' : ''}`}
-        onClick={() => toggleItemChecked(orderId, item.key)}
+        onClick={(e) => { e.stopPropagation(); toggleItemChecked(orderId, item.key) }}
+        className={`flex items-start gap-1.5 p-1 rounded cursor-pointer transition-all ${isChecked ? 'bg-green-500/20 opacity-60' : isVeryHigh ? 'bg-red-500/20' : ''}`}
       >
-        <div className="flex items-start gap-1.5">
-          <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 text-xs ${isChecked ? 'bg-green-500 border-green-500 text-white' : 'border-gray-500'}`}>
-            {isChecked && '✓'}
-          </div>
-          <span className={`min-w-[20px] h-5 rounded flex items-center justify-center text-xs font-bold ${isVeryHigh ? 'bg-red-500 text-white' : isHigh ? 'bg-yellow-500 text-black' : 'bg-slate-600 text-white'}`}>
-            {item.totalQuantity}
+        <div className={`${qtyClass} text-white min-w-[20px] h-5 rounded flex items-center justify-center text-xs font-bold flex-shrink-0`}>
+          {item.totalQuantity}
+        </div>
+        <div className="flex-1 min-w-0">
+          <span className={`text-xs ${isChecked ? 'line-through text-gray-500' : ''} ${isHigh ? 'font-bold' : ''}`}>
+            {item.product_name}
+            {isVeryHigh && !isChecked && ' ⚠️'}
           </span>
-          <div className="flex-1 min-w-0">
-            <span className={`text-xs ${isChecked ? 'line-through text-gray-500' : ''} ${isHigh ? 'font-bold' : ''}`}>
-              {item.product_name}
-              {isVeryHigh && !isChecked && ' ⚠️'}
-            </span>
-            {item.options.length > 0 && (
-              <div className={`flex flex-wrap gap-0.5 mt-0.5 ${isChecked ? 'opacity-50' : ''}`}>
-                {item.options.map((opt, idx) => {
-                  const iconData = getOptionIcon(opt.item_name)
-                  const excluded = isExclusion(opt.item_name)
-                  if (displayMode === 'compact' && iconData) {
-                    return <span key={idx} className={`text-sm ${excluded ? 'opacity-50' : ''}`} title={opt.item_name}>{excluded && '🚫'}{iconData.icon}</span>
-                  }
-                  return (
-                    <span key={idx} className={`text-[10px] px-1 rounded ${excluded ? 'bg-gray-600 line-through' : 'bg-slate-600'}`}>
-                      {excluded && '🚫'}{iconData && <span className={iconData.color}>{iconData.icon}</span>} {opt.item_name}
-                    </span>
-                  )
-                })}
-              </div>
-            )}
-            {item.notes.filter(n => n).map((note, idx) => (
-              <p key={idx} className="text-yellow-400 text-[10px] mt-0.5">📝 {note}</p>
-            ))}
-          </div>
+          {item.options.length > 0 && (
+            <div className={`flex flex-wrap gap-0.5 mt-0.5 ${isChecked ? 'opacity-50' : ''}`}>
+              {item.options.map((opt, idx) => {
+                const iconData = getOptionIcon(opt.item_name)
+                const excluded = isExclusion(opt.item_name)
+                if (displayMode === 'compact' && iconData) {
+                  return <span key={idx} className={`text-sm ${excluded ? 'opacity-50' : ''}`} title={opt.item_name}>{excluded && '🚫'}{iconData.icon}</span>
+                }
+                return (
+                  <span key={idx} className={`text-[10px] px-1 rounded ${excluded ? 'bg-gray-600 line-through' : 'bg-slate-600'}`}>
+                    {excluded && '🚫'}{iconData && <span className={iconData.color}>{iconData.icon}</span>} {opt.item_name}
+                  </span>
+                )
+              })}
+            </div>
+          )}
+          {item.notes.filter(n => n).map((note, idx) => (
+            <p key={idx} className="text-yellow-400 text-[10px] mt-0.5">📝 {note}</p>
+          ))}
         </div>
       </div>
     )
   }
 
-  function renderOrder(order: Order, column: typeof COLUMNS[number]) {
+  // ==================== RENDER ORDER ====================
+  function renderOrder(order: Order, column: typeof COLUMNS[number], isDragOverlay: boolean = false) {
     const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
     const groupedItems = groupAndMergeItems(order.order_items || [])
     const totalItems = groupedItems.reduce((sum, g) => sum + g.items.length, 0)
@@ -590,21 +563,8 @@ export default function KitchenPage() {
     const launchInfo = formatLaunchTime(order)
     const timeSince = getTimeSinceLaunch(order)
 
-    return (
-      <div 
-        key={order.id} 
-        draggable
-        onDragStart={(e) => {
-          setDraggedOrderId(order.id)
-          e.dataTransfer.effectAllowed = 'move'
-        }}
-        onDragEnd={() => {
-          setDraggedOrderId(null)
-          setDragOverColumn(null)
-        }}
-        className={`bg-slate-700 rounded overflow-hidden border-l-2 ${colors.border} ${allChecked ? 'ring-1 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-1 ring-red-500 animate-pulse' : ''} ${draggedOrderId === order.id ? 'opacity-50' : ''} cursor-grab active:cursor-grabbing`}
-      >
-
+    const cardContent = (
+      <div className={`bg-slate-700 rounded overflow-hidden border-l-2 ${colors.border} ${allChecked ? 'ring-1 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-1 ring-red-500 animate-pulse' : ''} ${isDragOverlay ? 'shadow-2xl scale-105' : ''}`}>
         {/* Header */}
         <div className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'}`}>
           <div className="flex items-center gap-1.5">
@@ -619,12 +579,12 @@ export default function KitchenPage() {
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-[10px] font-mono ${getTimeColor(order)}`}>{timeSince.display}</span>
-            {column.nextStatus && (
-              <button 
-                onClick={() => updateStatus(order.id, column.nextStatus!)}
+            {column.nextStatus && !isDragOverlay && (
+              <button
+                onClick={(e) => { e.stopPropagation(); updateStatus(order.id, column.nextStatus!) }}
                 className={`${colors.bg} hover:brightness-110 active:scale-95 text-white w-7 h-7 rounded-lg flex items-center justify-center transition-all text-sm font-bold`}
               >
-                {column.key === 'pending' ? '▶' : column.key === 'preparing' ? '✓' : '✓'}
+                {column.key === 'pending' ? '▶' : '✓'}
               </button>
             )}
           </div>
@@ -644,19 +604,20 @@ export default function KitchenPage() {
               const isCollapsed = isSectionCollapsed(order.id, group.categoryName)
               const catCheckedCount = group.items.filter(item => isItemChecked(order.id, item.key)).length
               const catAllChecked = group.items.length > 0 && catCheckedCount === group.items.length
-
               return (
                 <div key={idx}>
                   <div
-                    className={`flex items-center gap-1 cursor-pointer border-b border-slate-600 pb-0.5 mb-0.5 ${catAllChecked ? 'opacity-40' : ''}`}
-                    onClick={() => toggleSection(order.id, group.categoryName)}
+                    onClick={(e) => { e.stopPropagation(); toggleSection(order.id, group.categoryName) }}
+                    className={`flex items-center gap-1 cursor-pointer ${isCollapsed ? 'opacity-70' : ''}`}
                   >
-                    <span>{group.categoryIcon}</span>
-                    <span className={`text-[10px] font-bold uppercase ${group.textClass} ${catAllChecked ? 'line-through' : ''}`}>{group.categoryName}</span>
-                    <span className={`ml-auto text-[10px] px-1 rounded ${catAllChecked ? 'bg-green-500/30 text-green-400' : group.bgClass + ' ' + group.textClass}`}>
+                    <span className="text-xs">{group.categoryIcon}</span>
+                    <span className={`text-[10px] font-semibold uppercase ${group.textClass} ${catAllChecked ? 'line-through opacity-50' : ''}`}>
+                      {group.categoryName}
+                    </span>
+                    <span className={`text-[10px] px-1 rounded ${catAllChecked ? 'bg-green-500/30 text-green-400' : group.bgClass}`}>
                       {catAllChecked ? '✓' : group.totalCount}
                     </span>
-                    <span className="text-gray-500 text-[10px]">{isCollapsed ? '▶' : '▼'}</span>
+                    <span className="text-gray-500 text-[10px] ml-auto">{isCollapsed ? '▶' : '▼'}</span>
                   </div>
                   {!isCollapsed && (
                     <div className="space-y-0.5 ml-1">
@@ -669,7 +630,7 @@ export default function KitchenPage() {
           </div>
         )}
 
-        {/* Progress for completed */}
+        {/* Compact for completed */}
         {column.key === 'completed' && (
           <div className="px-2 py-1 text-[10px] text-gray-400">
             {(order.order_items || []).reduce((sum, item) => sum + (item.quantity || 0), 0)} article(s)
@@ -677,11 +638,11 @@ export default function KitchenPage() {
         )}
       </div>
     )
+
+    return cardContent
   }
 
   // ==================== MAIN RENDER ====================
-  
-  // Checking auth
   if (authStatus === 'checking') {
     return (
       <div className="h-screen bg-slate-900 flex items-center justify-center">
@@ -693,20 +654,14 @@ export default function KitchenPage() {
     )
   }
 
-  // Need to login via /device
   if (authStatus === 'unauthorized') {
     return (
       <div className="h-screen bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center p-4">
         <div className="text-center max-w-md">
           <span className="text-6xl block mb-6">🔒</span>
           <h1 className="text-2xl font-bold text-white mb-4">Accès non autorisé</h1>
-          <p className="text-gray-400 mb-8">
-            Veuillez vous connecter et sélectionner un écran cuisine depuis la page de configuration.
-          </p>
-          <button
-            onClick={() => router.push('/device')}
-            className="bg-orange-500 text-white font-bold px-8 py-4 rounded-xl hover:bg-orange-600 transition-colors"
-          >
+          <p className="text-gray-400 mb-8">Veuillez vous connecter et sélectionner un écran cuisine depuis la page de configuration.</p>
+          <button onClick={() => router.push('/device')} className="bg-orange-500 text-white font-bold px-8 py-4 rounded-xl hover:bg-orange-600 transition-colors">
             Aller à la configuration
           </button>
         </div>
@@ -716,6 +671,8 @@ export default function KitchenPage() {
 
   const visibleColumns = COLUMNS.filter(col => columnConfig[col.key as keyof ColumnConfig])
   const gridCols = visibleColumns.length <= 2 ? `grid-cols-${visibleColumns.length}` : visibleColumns.length === 3 ? 'grid-cols-3' : 'grid-cols-4'
+  const activeOrder = activeId ? allOrders.find(o => o.id === activeId) : null
+  const activeColumn = activeOrder ? COLUMNS.find(c => c.key === activeOrder.status) : null
 
   return (
     <div className="h-screen bg-slate-900 text-white flex flex-col overflow-hidden">
@@ -733,51 +690,51 @@ export default function KitchenPage() {
         <div className="text-xl font-mono font-bold">{currentTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
 
-      {/* Columns */}
+      {/* Columns with DnD */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-gray-400">Chargement...</p></div>
       ) : (
-        <div className={`flex-1 grid ${gridCols} gap-1 p-1 overflow-hidden`}>
-          {visibleColumns.map(column => {
-            const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
-            const columnOrders = column.key === 'completed'
-              ? allOrders.filter(o => o.status === column.key).slice(-10)
-              : allOrders.filter(o => o.status === column.key)
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          <div className={`flex-1 grid ${gridCols} gap-1 p-1 overflow-hidden`}>
+            {visibleColumns.map(column => {
+              const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
+              const columnOrders = column.key === 'completed'
+                ? allOrders.filter(o => o.status === column.key).slice(-10)
+                : allOrders.filter(o => o.status === column.key)
 
-            return (
-              <div 
-                key={column.key} 
-                className={`flex flex-col bg-slate-800 rounded overflow-hidden transition-all ${dragOverColumn === column.key ? 'ring-2 ring-white/50' : ''}`}
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  e.dataTransfer.dropEffect = 'move'
-                  setDragOverColumn(column.key)
-                }}
-                onDragLeave={() => setDragOverColumn(null)}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  if (draggedOrderId) {
-                    updateStatus(draggedOrderId, column.key)
-                  }
-                  setDraggedOrderId(null)
-                  setDragOverColumn(null)
-                }}
-              >
-                <div className={`${colors.bg} text-white px-2 py-1 flex items-center justify-between flex-shrink-0`}>
-                  <span className="font-bold text-xs">{column.label}</span>
-                  <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
+              return (
+                <div key={column.key} className="flex flex-col bg-slate-800 rounded overflow-hidden">
+                  <div className={`${colors.bg} text-white px-2 py-1 flex items-center justify-between flex-shrink-0`}>
+                    <span className="font-bold text-xs">{column.label}</span>
+                    <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
+                  </div>
+                  <DroppableColumn columnKey={column.key} isOver={overId === column.key}>
+                    {columnOrders.length === 0 ? (
+                      <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
+                    ) : (
+                      columnOrders.map(order => (
+                        <DraggableOrderCard key={order.id} order={order} column={column}>
+                          {renderOrder(order, column)}
+                        </DraggableOrderCard>
+                      ))
+                    )}
+                  </DroppableColumn>
                 </div>
-                <div className="flex-1 overflow-y-auto p-1 space-y-1">
-                  {columnOrders.length === 0 ? (
-                    <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
-                  ) : (
-                    columnOrders.map(order => renderOrder(order, column))
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+
+          {/* Drag overlay */}
+          <DragOverlay>
+            {activeOrder && activeColumn ? renderOrder(activeOrder, activeColumn, true) : null}
+          </DragOverlay>
+        </DndContext>
       )}
 
       {/* Config modal */}
@@ -785,7 +742,6 @@ export default function KitchenPage() {
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-slate-800 rounded-xl p-4 w-full max-w-sm">
             <h2 className="text-lg font-bold mb-4">⚙️ Configuration</h2>
-
             <p className="text-gray-300 text-sm mb-2">Mode d'affichage :</p>
             <div className="grid grid-cols-2 gap-2 mb-4">
               <button onClick={() => setDisplayMode('detailed')} className={`p-3 rounded-lg border ${displayMode === 'detailed' ? 'border-orange-500 bg-orange-500/20' : 'border-slate-600'}`}>
@@ -795,7 +751,6 @@ export default function KitchenPage() {
                 <span className="text-xl block">📋</span><span className="text-xs">Compact</span>
               </button>
             </div>
-
             <p className="text-gray-300 text-sm mb-2">Colonnes :</p>
             <div className="space-y-2 mb-4">
               {COLUMNS.map(col => (
@@ -807,7 +762,6 @@ export default function KitchenPage() {
                 </label>
               ))}
             </div>
-
             <div className="flex gap-2">
               <button onClick={() => setShowConfig(false)} className="flex-1 bg-gray-600 py-2 rounded-lg">Fermer</button>
               {device && <button onClick={() => { saveConfig(columnConfig, displayMode); setShowConfig(false) }} className="flex-1 bg-orange-500 py-2 rounded-lg">💾 Sauver</button>}
