@@ -201,121 +201,178 @@ export default function ReportsPage() {
     return badges[status] || <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">{status}</span>
   }
 
-  // Export Excel complet
+  // Export Excel format RestoMax - 5 fichiers
   async function exportExcel() {
-    if (orders.length === 0) {
+    const paidOrders = orders.filter(o => o.payment_status === 'paid' && o.status !== 'cancelled')
+    
+    if (paidOrders.length === 0) {
       alert('Aucune donnée à exporter')
       return
     }
 
-    const wb = XLSX.utils.book_new()
+    // Calculer les données par jour avec ventilation TVA complète
+    const dailyData = new Map<string, any>()
+    const itemsSales = new Map<string, { qty: number, total: number, category: string }>()
+    const categoryTotals = new Map<string, number>()
 
-    // Feuille 1: Résumé
-    const summaryData = [
-      ['RAPPORT DE VENTES - MDjambo'],
-      [''],
-      ['Période:', `${formatDate(dateRange.start)} - ${formatDate(dateRange.end)}`],
-      [''],
-      ['RÉSUMÉ GÉNÉRAL'],
-      ['Nombre de commandes', totals.orders],
-      ['Total HT', totals.ht],
-      ['Total TVA', totals.tva],
-      ['Total TTC', totals.ttc],
-      [''],
-      ['PAR TYPE DE COMMANDE'],
-      ['Sur place', totals.eat_in],
-      ['Emporter', totals.takeaway],
-      ['Livraison', totals.delivery],
-      [''],
-      ['PAR MODE DE PAIEMENT'],
-      ['Espèces', totals.cash],
-      ['Carte', totals.card],
-    ]
-    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
-    XLSX.utils.book_append_sheet(wb, wsSummary, 'Résumé')
+    paidOrders.forEach(order => {
+      const dateKey = order.created_at.split('T')[0].replace(/-/g, '/')
+      const existing = dailyData.get(dateKey) || {
+        date: dateKey,
+        caTTC: 0,
+        caPlace: 0,
+        caEmporter: 0,
+        caDelivery: 0,
+        ttc21: 0, ttc12: 0, ttc6: 0, ttc0: 0,
+        htva21: 0, htva12: 0, htva6: 0, htva0: 0,
+        tva21: 0, tva12: 0, tva6: 0,
+        cash: 0, card: 0,
+        tickets: 0
+      }
 
-    // Feuille 2: Stats par jour
-    const dailyHeaders = ['Date', 'Commandes', 'HT', 'TVA', 'TTC', 'Sur place', 'Emporter', 'Livraison', 'Espèces', 'Carte']
-    const dailyRows = stats.map(d => [
-      d.date, d.orders_count, d.total_ht, d.total_tva, d.total_ttc,
-      d.eat_in_total, d.takeaway_total, d.delivery_total, d.cash_total, d.card_total
-    ])
-    const wsDaily = XLSX.utils.aoa_to_sheet([dailyHeaders, ...dailyRows])
-    XLSX.utils.book_append_sheet(wb, wsDaily, 'Par jour')
+      const orderTotal = Number(order.total) || 0
+      existing.caTTC += orderTotal
+      existing.tickets++
 
-    // Feuille 3: Toutes les commandes
-    const ordersHeaders = ['Date', 'Heure', 'N° Ticket', 'Type', 'Statut', 'Paiement', 'HT', 'TTC', 'Client', 'Source']
-    const ordersRows = orders.filter(o => o.payment_status === 'paid' && o.status !== 'cancelled').map(o => [
-      o.created_at.split('T')[0],
-      formatTime(o.created_at),
-      o.order_number,
-      o.order_type === 'eat_in' ? 'Sur place' : o.order_type === 'delivery' ? 'Livraison' : 'Emporter',
-      o.status,
-      o.payment_method === 'cash' ? 'Espèces' : 'Carte',
-      Number(o.subtotal) || 0,
-      Number(o.total) || 0,
-      o.customer_name || '',
-      o.source || 'kiosk'
-    ])
-    const wsOrders = XLSX.utils.aoa_to_sheet([ordersHeaders, ...ordersRows])
-    XLSX.utils.book_append_sheet(wb, wsOrders, 'Commandes')
+      // Par type
+      if (order.order_type === 'eat_in') existing.caPlace += orderTotal
+      else if (order.order_type === 'delivery') existing.caDelivery += orderTotal
+      else existing.caEmporter += orderTotal
 
-    // Feuille 4: Détail articles (format RestoMax)
-    const itemsHeaders = ['Date', 'Heure', 'N° Ticket', 'Type', 'Article', 'Qté', 'Prix Unit. HT', 'Prix Unit. TTC', 'Total HT', 'Total TTC', 'TVA %', 'TVA €', 'Paiement']
-    const itemsRows: any[][] = []
-    
-    orders.filter(o => o.payment_status === 'paid' && o.status !== 'cancelled').forEach(order => {
-      const date = order.created_at.split('T')[0]
-      const time = formatTime(order.created_at)
-      const orderType = order.order_type === 'eat_in' ? 'Sur place' : order.order_type === 'delivery' ? 'Livraison' : 'Emporter'
-      const payment = order.payment_method === 'cash' ? 'Espèces' : 'Carte'
-      
+      // Par paiement
+      if (order.payment_method === 'cash') existing.cash += orderTotal
+      else existing.card += orderTotal
+
+      // Ventilation TVA par article
       ;(order.order_items || []).forEach((item: OrderItem) => {
         const vatRate = item.vat_rate || (order.order_type === 'eat_in' ? 12 : 6)
-        const unitTTC = item.unit_price + (item.options_total || 0) / item.quantity
-        const unitHT = unitTTC / (1 + vatRate / 100)
-        const totalTTC = item.line_total
-        const totalHT = totalTTC / (1 + vatRate / 100)
-        const tvaAmount = totalTTC - totalHT
+        const lineTTC = item.line_total || 0
+        const lineHT = lineTTC / (1 + vatRate / 100)
+        const lineTVA = lineTTC - lineHT
 
-        itemsRows.push([
-          date, time, order.order_number, orderType,
-          item.product_name, item.quantity,
-          Number(unitHT.toFixed(2)), Number(unitTTC.toFixed(2)),
-          Number(totalHT.toFixed(2)), Number(totalTTC.toFixed(2)),
-          vatRate, Number(tvaAmount.toFixed(2)),
-          payment
-        ])
-
-        // Options si présentes
-        if (item.options_selected) {
-          try {
-            const options = typeof item.options_selected === 'string' ? JSON.parse(item.options_selected) : item.options_selected
-            options.forEach((opt: any) => {
-              if (opt.price > 0) {
-                const optHT = opt.price / (1 + vatRate / 100)
-                const optTVA = opt.price - optHT
-                itemsRows.push([
-                  date, time, order.order_number, orderType,
-                  `  + ${opt.item_name}`, item.quantity,
-                  Number(optHT.toFixed(2)), Number(opt.price.toFixed(2)),
-                  Number((optHT * item.quantity).toFixed(2)), Number((opt.price * item.quantity).toFixed(2)),
-                  vatRate, Number((optTVA * item.quantity).toFixed(2)),
-                  payment
-                ])
-              }
-            })
-          } catch (e) {}
+        if (vatRate === 21) {
+          existing.ttc21 += lineTTC
+          existing.htva21 += lineHT
+          existing.tva21 += lineTVA
+        } else if (vatRate === 12) {
+          existing.ttc12 += lineTTC
+          existing.htva12 += lineHT
+          existing.tva12 += lineTVA
+        } else if (vatRate === 6) {
+          existing.ttc6 += lineTTC
+          existing.htva6 += lineHT
+          existing.tva6 += lineTVA
+        } else {
+          existing.ttc0 += lineTTC
+          existing.htva0 += lineHT
         }
-      })
-    })
-    
-    const wsItems = XLSX.utils.aoa_to_sheet([itemsHeaders, ...itemsRows])
-    XLSX.utils.book_append_sheet(wb, wsItems, 'Articles détaillés')
 
-    // Télécharger
-    const fileName = `rapport_${dateRange.start}_${dateRange.end}.xlsx`
-    XLSX.writeFile(wb, fileName)
+        // Pour DetailSales
+        const itemKey = `${item.product_name}|${item.unit_price}`
+        const itemData = itemsSales.get(itemKey) || { qty: 0, total: 0, category: 'Divers' }
+        itemData.qty += item.quantity
+        itemData.total += lineTTC
+        itemsSales.set(itemKey, itemData)
+
+        // Pour CAByItemLevel (par catégorie)
+        const cat = itemData.category
+        categoryTotals.set(cat, (categoryTotals.get(cat) || 0) + lineTTC)
+      })
+
+      dailyData.set(dateKey, existing)
+    })
+
+    // ============ CA.xlsx - Format RestoMax ============
+    const caHeaders = ['Date', 'CA TTC', 'CA TTC /place', 'CA TTC /emporter', 'CA TTC /delivery', 
+      'TTC 21%', 'TTC 12%', 'TTC 6%', 'TTC 0%', 'HTVA 21%', 'HTVA 12%', 'HTVA 6%', 'HTVA 0%',
+      'TVA 21%', 'TVA 12%', 'TVA 6%', 'Cash', 'Carte banque', 'Virement bancaire', 
+      'Bonsai', 'Mollie', 'Chèque repas', 'Chèque cadeau', 'Chèque culture/sport', 
+      'Ecochèque', 'Chèque transport', 'Arrondi', 'Libre1', 'Libre2', 'Libre3', 
+      'Libre4', 'Libre5', 'Libre6', 'Libre7', 'Tickets']
+
+    const caRows: any[][] = []
+    let totals_ca = { caTTC: 0, caPlace: 0, caEmporter: 0, caDelivery: 0, 
+      ttc21: 0, ttc12: 0, ttc6: 0, ttc0: 0, htva21: 0, htva12: 0, htva6: 0, htva0: 0,
+      tva21: 0, tva12: 0, tva6: 0, cash: 0, card: 0, tickets: 0 }
+
+    Array.from(dailyData.values()).forEach(d => {
+      caRows.push([
+        d.date, r(d.caTTC), r(d.caPlace), r(d.caEmporter), r(d.caDelivery),
+        r(d.ttc21), r(d.ttc12), r(d.ttc6), r(d.ttc0),
+        r(d.htva21), r(d.htva12), r(d.htva6), r(d.htva0),
+        r(d.tva21), r(d.tva12), r(d.tva6),
+        r(d.cash), r(d.card), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, d.tickets
+      ])
+      // Cumul totaux
+      Object.keys(totals_ca).forEach(k => totals_ca[k as keyof typeof totals_ca] += d[k] || 0)
+    })
+
+    // Ligne Total
+    caRows.push([
+      'Total', r(totals_ca.caTTC), r(totals_ca.caPlace), r(totals_ca.caEmporter), r(totals_ca.caDelivery),
+      r(totals_ca.ttc21), r(totals_ca.ttc12), r(totals_ca.ttc6), r(totals_ca.ttc0),
+      r(totals_ca.htva21), r(totals_ca.htva12), r(totals_ca.htva6), r(totals_ca.htva0),
+      r(totals_ca.tva21), r(totals_ca.tva12), r(totals_ca.tva6),
+      r(totals_ca.cash), r(totals_ca.card), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, totals_ca.tickets
+    ])
+
+    const wbCA = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wbCA, XLSX.utils.aoa_to_sheet([caHeaders, ...caRows]), 'CA')
+    XLSX.writeFile(wbCA, `CA_${dateRange.start}_${dateRange.end}.xlsx`)
+
+    // ============ DetailSales.xlsx ============
+    const detailHeaders = ['Article', 'Quantité', 'Prix', 'Nombre remises ', 'Total remises', 'Total', 'Famille (hiérarchie)']
+    const detailRows: any[][] = []
+    
+    Array.from(itemsSales.entries()).forEach(([key, data]) => {
+      const [name, price] = key.split('|')
+      detailRows.push([name, data.qty, Number(price) || 0, 0, 0, r(data.total), data.category])
+    })
+
+    const wbDetail = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wbDetail, XLSX.utils.aoa_to_sheet([detailHeaders, ...detailRows]), 'DetailSales')
+    XLSX.writeFile(wbDetail, `DetailSales_${dateRange.start}_${dateRange.end}.xlsx`)
+
+    // ============ ReportZStats.xlsx ============
+    const zHeaders = ['Rapport Z', "Date d'ouverture", 'Date de fermeture', 'CA TTC', 
+      'TTC 21%', 'TTC 12%', 'TTC 6%', 'TTC 0%', 'HTVA 21%', 'HTVA 12%', 'HTVA 6%', 'HTVA 0%',
+      'TVA 21%', 'TVA 12%', 'TVA 6%', 'Tickets']
+
+    const zRows = zReports.map(z => [
+      z.report_number,
+      formatDateTime(z.period_start),
+      formatDateTime(z.closed_at),
+      r(z.total_ttc),
+      r(getVatValue(z.vat_breakdown, 21, 'total_ttc')),
+      r(getVatValue(z.vat_breakdown, 12, 'total_ttc')),
+      r(getVatValue(z.vat_breakdown, 6, 'total_ttc')),
+      0,
+      r(getVatValue(z.vat_breakdown, 21, 'base_ht')),
+      r(getVatValue(z.vat_breakdown, 12, 'base_ht')),
+      r(getVatValue(z.vat_breakdown, 6, 'base_ht')),
+      0,
+      r(getVatValue(z.vat_breakdown, 21, 'tva_amount')),
+      r(getVatValue(z.vat_breakdown, 12, 'tva_amount')),
+      r(getVatValue(z.vat_breakdown, 6, 'tva_amount')),
+      z.orders_count
+    ])
+
+    const wbZ = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wbZ, XLSX.utils.aoa_to_sheet([zHeaders, ...zRows]), 'ReportZStats')
+    XLSX.writeFile(wbZ, `ReportZStats_${dateRange.start}_${dateRange.end}.xlsx`)
+
+    alert('✅ 3 fichiers Excel exportés (format RestoMax)')
+  }
+
+  // Helpers pour export
+  function r(n: number) { return Math.round((n || 0) * 100) / 100 }
+  function formatDateTime(d: string) { 
+    const date = new Date(d)
+    return `${date.toLocaleDateString('fr-BE')} ${date.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}`
+  }
+  function getVatValue(breakdown: any[], rate: number, field: string): number {
+    const found = (breakdown || []).find((v: any) => v.rate === rate)
+    return found ? found[field] : 0
   }
 
   // Tabs
