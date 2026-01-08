@@ -520,7 +520,7 @@ export default function KitchenPage() {
   }
 
   // ==================== RENDER ORDER ====================
-  function renderOrder(order: Order, column: typeof COLUMNS[number], dragHandleProps?: { listeners: any; attributes: any }) {
+  function renderOrder(order: Order, column: typeof COLUMNS[number], dragHandleProps?: { setNodeRef: any; listeners: any; attributes: any; transform: any }) {
     const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
     const groupedItems = groupAndMergeItems(order.order_items || [])
     const totalItems = groupedItems.reduce((sum, g) => sum + g.items.length, 0)
@@ -529,16 +529,22 @@ export default function KitchenPage() {
     const isCC = isClickAndCollect(order)
     const launchInfo = formatLaunchTime(order)
     const timeSince = getTimeSinceLaunch(order)
+    
+    // Style de transform pour le drag
+    const dragStyle = dragHandleProps?.transform ? {
+      transform: `translate3d(${dragHandleProps.transform.x}px, ${dragHandleProps.transform.y}px, 0)`,
+    } : undefined
 
     return (
-      <div className={`bg-slate-700 rounded-lg overflow-hidden border-l-4 ${colors.border} ${allChecked ? 'ring-2 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-2 ring-red-500 animate-pulse' : ''} shadow-md`}>
+      <div style={dragStyle} className={`bg-slate-700 rounded-lg overflow-hidden border-l-4 ${colors.border} ${allChecked ? 'ring-2 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-2 ring-red-500 animate-pulse' : ''} shadow-md`}>
         {/* Header */}
         <div className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'}`}>
           <div className="flex items-center gap-1.5">
-            {/* DRAG HANDLE - touch-action: none uniquement ici */}
+            {/* DRAG HANDLE - setNodeRef + listeners + touch-action:none UNIQUEMENT ICI */}
             {dragHandleProps && (
               <button
-                className="text-gray-400 cursor-grab active:cursor-grabbing p-1 -m-1 hover:text-gray-200"
+                ref={dragHandleProps.setNodeRef}
+                className="text-gray-400 cursor-grab active:cursor-grabbing p-1 -m-1 hover:text-gray-200 select-none"
                 style={{ touchAction: 'none' }}
                 {...dragHandleProps.listeners}
                 {...dragHandleProps.attributes}
@@ -659,20 +665,19 @@ export default function KitchenPage() {
     )
   }
   
-  // Draggable Order with drag handle
+  // Draggable Order - setNodeRef ONLY on drag handle, not on card
   function DraggableOrder({ order, column }: { order: Order; column: typeof COLUMNS[number] }) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: order.id })
-    const style = transform ? { 
-      transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-    } : undefined
     
+    // Pass drag handle ref and props to renderOrder
     return (
-      <div 
-        ref={setNodeRef} 
-        style={style} 
-        className={`${isDragging ? 'opacity-40' : ''}`}
-      >
-        {renderOrder(order, column, { listeners, attributes })}
+      <div className={`${isDragging ? 'opacity-40 scale-95' : ''} transition-all`}>
+        {renderOrder(order, column, { 
+          setNodeRef,  // Le ref va sur le handle
+          listeners, 
+          attributes,
+          transform 
+        })}
       </div>
     )
   }
