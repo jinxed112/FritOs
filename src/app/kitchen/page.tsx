@@ -585,24 +585,33 @@ export default function KitchenPage() {
     const isCC = isClickAndCollect(order)
     const launchInfo = formatLaunchTime(order)
     const timeSince = getTimeSinceLaunch(order)
-    const prevStatus = getPreviousStatus(column.key)
 
     return (
       <div key={order.id} className={`bg-slate-700 rounded overflow-hidden border-l-2 ${colors.border} ${allChecked ? 'ring-1 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-1 ring-red-500 animate-pulse' : ''}`}>
 
         {/* Header */}
-        <div className={`px-2 py-1 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'}`}>
+        <div className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'}`}>
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-sm">{order.order_number}</span>
             <span>{getOrderTypeEmoji(order.order_type)}</span>
             {order.is_offered && <span title="Offert">🎁</span>}
             {column.key !== 'completed' && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${launchInfo.isPast ? 'bg-red-500 text-white' : launchInfo.isNow ? 'bg-red-500 text-white' : launchInfo.isUpcoming ? 'bg-orange-500 text-white' : isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'}`}>
-                {launchInfo.isNow ? '🔥 MAINTENANT' : launchInfo.isPast ? '⚠️ RETARD' : launchInfo.isUpcoming ? `⏰ ${launchInfo.time}` : isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
+                {launchInfo.isNow ? '🔥' : launchInfo.isPast ? '⚠️' : launchInfo.isUpcoming ? `⏰ ${launchInfo.time}` : isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
               </span>
             )}
           </div>
-          <span className={`text-[10px] font-mono ${getTimeColor(order)}`}>{timeSince.display}</span>
+          <div className="flex items-center gap-2">
+            <span className={`text-[10px] font-mono ${getTimeColor(order)}`}>{timeSince.display}</span>
+            {column.nextStatus && (
+              <button 
+                onClick={() => updateStatus(order.id, column.nextStatus!)}
+                className={`${colors.bg} hover:brightness-110 active:scale-95 text-white w-7 h-7 rounded-lg flex items-center justify-center transition-all text-sm font-bold`}
+              >
+                {column.key === 'pending' ? '▶' : column.key === 'preparing' ? '✓' : '✓'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Client info for delivery */}
@@ -650,28 +659,6 @@ export default function KitchenPage() {
             {(order.order_items || []).reduce((sum, item) => sum + (item.quantity || 0), 0)} article(s)
           </div>
         )}
-
-        {/* Action buttons */}
-        <div className="flex border-t border-slate-600">
-          {prevStatus ? (
-            <div 
-              onClick={() => updateStatus(order.id, prevStatus)}
-              className="flex-1 bg-slate-600 active:bg-slate-500 text-white py-3 text-lg font-bold cursor-pointer flex items-center justify-center select-none"
-              style={{ WebkitTapHighlightColor: 'rgba(255,255,255,0.3)', touchAction: 'manipulation' }}
-            >←</div>
-          ) : (
-            <div className="flex-1 bg-slate-800 py-3" />
-          )}
-          {column.nextStatus ? (
-            <div 
-              onClick={() => updateStatus(order.id, column.nextStatus!)}
-              className={`flex-1 ${colors.bg} active:brightness-110 text-white py-3 text-lg font-bold cursor-pointer flex items-center justify-center select-none`}
-              style={{ WebkitTapHighlightColor: 'rgba(255,255,255,0.3)', touchAction: 'manipulation' }}
-            >→</div>
-          ) : (
-            <div className="flex-1 bg-slate-800 py-3" />
-          )}
-        </div>
       </div>
     )
   }
