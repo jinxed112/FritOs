@@ -512,7 +512,12 @@ export default function KioskDevicePage() {
           setPaymentStatus('success')
           await finalizeOrder(orderId)
           return
-        } else if (data.status === 'failed') {
+        } else if (data.status === 'failed' || data.status === 'cancelled' || data.status === 'aborted') {
+          // Paiement échoué ou annulé sur le terminal
+          await supabase.from('orders').update({ 
+            status: 'cancelled', 
+            payment_status: 'failed' 
+          }).eq('id', orderId)
           setPaymentStatus('failed')
           return
         }
