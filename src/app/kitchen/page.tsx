@@ -633,7 +633,14 @@ export default function KitchenPage() {
                   <span className="font-bold text-xs">{column.label}</span>
                   <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
                 </div>
-                <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
+                <div 
+                  className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0"
+                  style={{ 
+                    WebkitOverflowScrolling: 'touch',
+                    overscrollBehavior: 'contain',
+                    touchAction: 'pan-y'
+                  }}
+                >
                   {columnOrders.length === 0 ? (
                     <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
                   ) : (
