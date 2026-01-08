@@ -548,22 +548,22 @@ export default function KitchenPage() {
           {column.prevStatus ? (
             <button
               onClick={() => updateStatus(order.id, column.prevStatus!)}
-              className="flex-1 bg-slate-600 active:bg-slate-500 text-white py-3 text-lg font-bold flex items-center justify-center"
+              className="flex-1 bg-slate-600 active:bg-slate-500 text-white py-1 text-sm font-bold flex items-center justify-center"
             >
               ←
             </button>
           ) : (
-            <div className="flex-1 bg-slate-800 py-3" />
+            <div className="flex-1 bg-slate-800 py-1" />
           )}
           {column.nextStatus ? (
             <button
               onClick={() => updateStatus(order.id, column.nextStatus!)}
-              className={`flex-1 ${colors.bg} active:brightness-110 text-white py-3 text-lg font-bold flex items-center justify-center`}
+              className={`flex-1 ${colors.bg} active:brightness-110 text-white py-1 text-sm font-bold flex items-center justify-center`}
             >
               →
             </button>
           ) : (
-            <div className="flex-1 bg-slate-800 py-3" />
+            <div className="flex-1 bg-slate-800 py-1" />
           )}
         </div>
       </div>
@@ -620,7 +620,7 @@ export default function KitchenPage() {
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-gray-400">Chargement...</p></div>
       ) : (
-        <div className={`flex-1 grid ${gridCols} gap-1 p-1 overflow-hidden`}>
+        <div className={`flex-1 grid ${gridCols} gap-1 p-1 min-h-0`}>
           {visibleColumns.map(column => {
             const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
             const columnOrders = column.key === 'completed'
@@ -628,12 +628,12 @@ export default function KitchenPage() {
               : allOrders.filter(o => o.status === column.key)
 
             return (
-              <div key={column.key} className="flex flex-col bg-slate-800 rounded overflow-hidden">
+              <div key={column.key} className="flex flex-col bg-slate-800 rounded min-h-0">
                 <div className={`${colors.bg} text-white px-2 py-1 flex items-center justify-between flex-shrink-0`}>
                   <span className="font-bold text-xs">{column.label}</span>
                   <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
                 </div>
-                <div className="flex-1 overflow-y-auto p-2 space-y-3">
+                <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
                   {columnOrders.length === 0 ? (
                     <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
                   ) : (
