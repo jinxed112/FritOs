@@ -271,6 +271,10 @@ export default function KitchenPage() {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, Set<string>>>({})
   const [checkedItems, setCheckedItems] = useState<Record<string, Set<string>>>({})
   const [avgPrepTime, setAvgPrepTime] = useState<number>(DEFAULT_PREP_TIME)
+  
+  // Drag & Drop state
+  const [draggedOrderId, setDraggedOrderId] = useState<string | null>(null)
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -587,7 +591,19 @@ export default function KitchenPage() {
     const timeSince = getTimeSinceLaunch(order)
 
     return (
-      <div key={order.id} className={`bg-slate-700 rounded overflow-hidden border-l-2 ${colors.border} ${allChecked ? 'ring-1 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-1 ring-red-500 animate-pulse' : ''}`}>
+      <div 
+        key={order.id} 
+        draggable
+        onDragStart={(e) => {
+          setDraggedOrderId(order.id)
+          e.dataTransfer.effectAllowed = 'move'
+        }}
+        onDragEnd={() => {
+          setDraggedOrderId(null)
+          setDragOverColumn(null)
+        }}
+        className={`bg-slate-700 rounded overflow-hidden border-l-2 ${colors.border} ${allChecked ? 'ring-1 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-1 ring-red-500 animate-pulse' : ''} ${draggedOrderId === order.id ? 'opacity-50' : ''} cursor-grab active:cursor-grabbing`}
+      >
 
         {/* Header */}
         <div className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'}`}>
@@ -729,7 +745,24 @@ export default function KitchenPage() {
               : allOrders.filter(o => o.status === column.key)
 
             return (
-              <div key={column.key} className="flex flex-col bg-slate-800 rounded overflow-hidden">
+              <div 
+                key={column.key} 
+                className={`flex flex-col bg-slate-800 rounded overflow-hidden transition-all ${dragOverColumn === column.key ? 'ring-2 ring-white/50' : ''}`}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  setDragOverColumn(column.key)
+                }}
+                onDragLeave={() => setDragOverColumn(null)}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (draggedOrderId) {
+                    updateStatus(draggedOrderId, column.key)
+                  }
+                  setDraggedOrderId(null)
+                  setDragOverColumn(null)
+                }}
+              >
                 <div className={`${colors.bg} text-white px-2 py-1 flex items-center justify-between flex-shrink-0`}>
                   <span className="font-bold text-xs">{column.label}</span>
                   <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
