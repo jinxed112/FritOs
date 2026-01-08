@@ -658,7 +658,7 @@ export default function KitchenPage() {
     return (
       <div 
         ref={setNodeRef} 
-        className={`flex flex-col bg-slate-800 rounded overflow-hidden transition-all ${isOver ? 'ring-2 ring-white/50' : ''}`}
+        className={`flex flex-col min-h-0 bg-slate-800 rounded overflow-hidden transition-all ${isOver ? 'ring-2 ring-white/50' : ''}`}
       >
         {children}
       </div>
@@ -713,7 +713,7 @@ export default function KitchenPage() {
           onDragEnd={handleDragEnd}
           autoScroll={false}
         >
-          <div className={`flex-1 grid ${gridCols} gap-1 p-1 overflow-hidden`}>
+          <div className={`flex-1 min-h-0 grid ${gridCols} gap-1 p-1 overflow-hidden`}>
             {visibleColumns.map(column => {
               const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
               const columnOrders = column.key === 'completed'
@@ -726,7 +726,7 @@ export default function KitchenPage() {
                     <span className="font-bold text-xs">{column.label}</span>
                     <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-2">
                     {columnOrders.length === 0 ? (
                       <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
                     ) : (
