@@ -713,27 +713,27 @@ export default function CounterPage() {
     <div className="h-screen bg-gray-100 flex overflow-hidden">
       {/* Zone principale */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header - Plus grand pour tablette */}
-        <header className="bg-slate-800 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-bold flex items-center gap-2">
+        {/* Header - Optimisé tablette 10" */}
+        <header className="bg-slate-800 text-white px-6 py-4 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold flex items-center gap-2">
               📋 Caisse
             </h1>
-            <span className="text-xs text-gray-400">{device?.name}</span>
+            <span className="text-sm text-gray-400">{device?.name}</span>
             <button
               onClick={() => router.push('/device')}
-              className="bg-slate-700 px-2 py-1 rounded text-xs"
+              className="bg-slate-700 px-3 py-2 rounded-lg text-sm hover:bg-slate-600"
             >
               🔄
             </button>
           </div>
           
-          <div className="flex items-center gap-3">
-            {/* Type de commande - Boutons plus grands */}
-            <div className="flex gap-2">
+          <div className="flex items-center gap-4">
+            {/* Type de commande - Boutons tablette */}
+            <div className="flex gap-3">
               <button
                 onClick={() => setOrderType('eat_in')}
-                className={`px-5 py-3 rounded-xl font-semibold text-base transition-all active:scale-95 ${
+                className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
                   orderType === 'eat_in' 
                     ? 'bg-orange-500 text-white shadow-lg' 
                     : 'bg-slate-700 text-gray-300'
@@ -743,7 +743,7 @@ export default function CounterPage() {
               </button>
               <button
                 onClick={() => setOrderType('takeaway')}
-                className={`px-5 py-3 rounded-xl font-semibold text-base transition-all active:scale-95 ${
+                className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
                   orderType === 'takeaway' 
                     ? 'bg-orange-500 text-white shadow-lg' 
                     : 'bg-slate-700 text-gray-300'
@@ -756,7 +756,7 @@ export default function CounterPage() {
             {/* Badge commandes en retard */}
             <button
               onClick={() => setShowLateOrdersModal(true)}
-              className={`relative px-5 py-3 rounded-xl font-semibold transition-all active:scale-95 ${
+              className={`relative px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
                 lateOrders.length > 0 
                   ? 'bg-red-500 text-white animate-pulse' 
                   : 'bg-slate-700 text-gray-400'
@@ -773,24 +773,24 @@ export default function CounterPage() {
             {/* Bouton Backoffice */}
             <Link
               href="/counter/backoffice"
-              className="px-5 py-3 rounded-xl font-semibold transition-all active:scale-95 bg-slate-700 text-gray-300 hover:bg-slate-600"
+              className="px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 bg-slate-700 text-gray-300 hover:bg-slate-600"
             >
               ⚙️ Backoffice
             </Link>
           </div>
         </header>
 
-        {/* Categories - Scrollable horizontal, boutons plus grands */}
-        <div className="bg-white border-b px-3 py-3 flex-shrink-0">
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        {/* Categories - Optimisé tablette */}
+        <div className="bg-white border-b px-4 py-4 flex-shrink-0">
+          <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
             {categories.map(cat => (
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`px-5 py-3 rounded-xl font-semibold whitespace-nowrap transition-all active:scale-95 text-base ${
+                className={`px-6 py-3 rounded-xl font-semibold whitespace-nowrap transition-all active:scale-95 text-lg ${
                   selectedCategory === cat.id
                     ? 'bg-orange-500 text-white shadow-lg'
-                    : 'bg-gray-100 text-gray-700'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
                 {cat.name}
@@ -799,40 +799,40 @@ export default function CounterPage() {
           </div>
         </div>
 
-        {/* Products grid - Optimisé pour 10 pouces */}
-        <div className="flex-1 overflow-y-auto p-3">
+        {/* Products grid - Optimisé tablette 10" FHD */}
+        <div className="flex-1 overflow-y-auto p-4">
           {filteredProducts.length === 0 ? (
-            <div className="text-center text-gray-400 py-12">
-              <span className="text-5xl block mb-3">📦</span>
-              <p className="text-lg">Aucun produit dans cette catégorie</p>
+            <div className="text-center text-gray-400 py-16">
+              <span className="text-6xl block mb-4">📦</span>
+              <p className="text-xl">Aucun produit dans cette catégorie</p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-4">
               {filteredProducts.map(product => {
                 const allergens = getProductAllergens(product)
                 
                 return (
                 <div
                   key={product.id}
-                  className="bg-white rounded-2xl shadow-sm overflow-hidden text-left relative"
+                  className="bg-white rounded-2xl shadow-sm overflow-hidden text-left relative hover:shadow-md transition-shadow"
                 >
                   <button
                     onClick={() => openProductModal(product)}
-                    className="w-full active:scale-95 transition-transform"
+                    className="w-full active:scale-[0.98] transition-transform"
                   >
                     <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center">
                       {product.image_url ? (
                         <img src={product.image_url} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-5xl">🍔</span>
+                        <span className="text-6xl">🍔</span>
                       )}
                     </div>
-                    <div className="p-3">
-                      <h3 className="font-bold text-gray-900 text-sm leading-tight line-clamp-2 min-h-[2.5rem]">
+                    <div className="p-4">
+                      <h3 className="font-bold text-gray-900 text-base leading-tight line-clamp-2 min-h-[3rem]">
                         {product.name}
                       </h3>
-                      <div className="flex items-center justify-between mt-1">
-                        <p className="text-xl font-bold text-orange-500">{product.price.toFixed(2)} €</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-2xl font-bold text-orange-500">{product.price.toFixed(2)} €</p>
                       </div>
                     </div>
                   </button>
@@ -843,18 +843,18 @@ export default function CounterPage() {
                         e.stopPropagation()
                         setAllergenModalProduct(product)
                       }}
-                      className="absolute bottom-3 right-3 flex gap-0.5 bg-gray-100 hover:bg-orange-100 rounded-lg px-2 py-1 transition-colors"
+                      className="absolute bottom-4 right-4 flex gap-1 bg-gray-100 hover:bg-orange-100 rounded-lg px-3 py-2 transition-colors"
                     >
                       {allergens.slice(0, 4).map(a => (
                         <span 
                           key={a.name}
-                          className={`text-xs ${a.is_trace ? 'opacity-50' : ''}`}
+                          className={`text-base ${a.is_trace ? 'opacity-50' : ''}`}
                         >
                           {a.emoji}
                         </span>
                       ))}
                       {allergens.length > 4 && (
-                        <span className="text-xs text-gray-400">+{allergens.length - 4}</span>
+                        <span className="text-sm text-gray-400">+{allergens.length - 4}</span>
                       )}
                     </button>
                   )}
@@ -865,27 +865,27 @@ export default function CounterPage() {
         </div>
       </div>
 
-      {/* Cart sidebar - Plus large pour tablette */}
-      <div className="w-72 bg-white shadow-xl flex flex-col flex-shrink-0 border-l">
-        <div className="p-4 bg-slate-800 text-white flex-shrink-0">
-          <h2 className="text-lg font-bold">🛒 Commande</h2>
+      {/* Cart sidebar - Optimisé tablette */}
+      <div className="w-96 bg-white shadow-xl flex flex-col flex-shrink-0 border-l">
+        <div className="p-5 bg-slate-800 text-white flex-shrink-0">
+          <h2 className="text-xl font-bold">🛒 Commande</h2>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="flex-1 overflow-y-auto p-4">
           {cart.length === 0 ? (
-            <div className="text-center text-gray-400 py-8">
-              <span className="text-5xl block mb-3">🛒</span>
-              <p>Panier vide</p>
+            <div className="text-center text-gray-400 py-12">
+              <span className="text-6xl block mb-4">🛒</span>
+              <p className="text-lg">Panier vide</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {cart.map(item => (
-                <div key={item.id} className="bg-gray-50 rounded-xl p-3">
-                  <div className="flex items-start justify-between mb-2">
+                <div key={item.id} className="bg-gray-50 rounded-xl p-4">
+                  <div className="flex items-start justify-between mb-3">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-sm truncate">{item.name}</h3>
+                      <h3 className="font-bold text-base">{item.name}</h3>
                       {item.options.length > 0 && (
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="text-sm text-gray-500 mt-1">
                           {item.options.slice(0, 2).map(o => (
                             <div key={o.item_id} className="truncate">+ {o.item_name}</div>
                           ))}
@@ -897,29 +897,29 @@ export default function CounterPage() {
                     </div>
                     <button
                       onClick={() => removeFromCart(item.id)}
-                      className="text-gray-400 active:text-red-500 p-1 -mr-1"
+                      className="text-gray-400 active:text-red-500 p-2 -mr-2 text-xl"
                     >
                       ✕
                     </button>
                   </div>
                   
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => updateQuantity(item.id, -1)}
-                        className="w-9 h-9 rounded-full bg-gray-200 font-bold text-lg active:bg-gray-300"
+                        className="w-11 h-11 rounded-full bg-gray-200 font-bold text-xl active:bg-gray-300"
                       >
                         -
                       </button>
-                      <span className="font-bold w-8 text-center text-lg">{item.quantity}</span>
+                      <span className="font-bold w-10 text-center text-xl">{item.quantity}</span>
                       <button
                         onClick={() => updateQuantity(item.id, 1)}
-                        className="w-9 h-9 rounded-full bg-gray-200 font-bold text-lg active:bg-gray-300"
+                        className="w-11 h-11 rounded-full bg-gray-200 font-bold text-xl active:bg-gray-300"
                       >
                         +
                       </button>
                     </div>
-                    <span className="font-bold text-orange-500">
+                    <span className="font-bold text-orange-500 text-xl">
                       {((item.price + item.options_total) * item.quantity).toFixed(2)} €
                     </span>
                   </div>
@@ -930,51 +930,51 @@ export default function CounterPage() {
         </div>
         
         {/* Cart footer */}
-        <div className="border-t p-4 bg-gray-50 flex-shrink-0">
-          <div className="flex justify-between mb-1 text-sm">
+        <div className="border-t p-5 bg-gray-50 flex-shrink-0">
+          <div className="flex justify-between mb-2 text-base">
             <span className="text-gray-600">Sous-total</span>
             <span className="font-semibold">{getCartSubtotal().toFixed(2)} €</span>
           </div>
           {orderType === 'eat_in' && (
-            <div className="flex justify-between mb-1 text-xs text-gray-500">
+            <div className="flex justify-between mb-2 text-sm text-gray-500">
               <span>Sur place (+6%)</span>
               <span>+{(getCartSubtotal() * 0.06).toFixed(2)} €</span>
             </div>
           )}
-          <div className="flex justify-between mb-4 text-lg">
+          <div className="flex justify-between mb-5 text-xl">
             <span className="font-bold">Total</span>
-            <span className="font-bold text-orange-500 text-xl">{getCartTotal().toFixed(2)} €</span>
+            <span className="font-bold text-orange-500 text-2xl">{getCartTotal().toFixed(2)} €</span>
           </div>
           
           <button
             onClick={() => setShowPaymentModal(true)}
             disabled={cart.length === 0}
-            className="w-full bg-green-500 text-white font-bold py-4 rounded-xl disabled:opacity-50 active:scale-95 transition-transform text-lg"
+            className="w-full bg-green-500 text-white font-bold py-5 rounded-xl disabled:opacity-50 active:scale-[0.98] transition-transform text-xl"
           >
             💶 Encaisser
           </button>
         </div>
       </div>
 
-      {/* Modal Produit - Optimisé tactile */}
+      {/* Modal Produit - Optimisé tablette */}
       {selectedProduct && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden max-h-[85vh] flex flex-col">
-            <div className="p-4 border-b flex items-center gap-4 flex-shrink-0">
-              <div className="w-20 h-20 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b flex items-center gap-5 flex-shrink-0">
+              <div className="w-24 h-24 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0">
                 {selectedProduct.image_url ? (
                   <img src={selectedProduct.image_url} alt="" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-4xl">🍔</span>
+                  <span className="text-5xl">🍔</span>
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <h2 className="text-lg font-bold truncate">{selectedProduct.name}</h2>
-                <p className="text-2xl font-bold text-orange-500">{selectedProduct.price.toFixed(2)} €</p>
+                <h2 className="text-xl font-bold">{selectedProduct.name}</h2>
+                <p className="text-3xl font-bold text-orange-500">{selectedProduct.price.toFixed(2)} €</p>
               </div>
               <button 
                 onClick={closeProductModal} 
-                className="text-gray-400 active:text-gray-600 text-3xl p-2"
+                className="text-gray-400 active:text-gray-600 text-4xl p-2"
               >
                 ✕
               </button>
@@ -1047,22 +1047,22 @@ export default function CounterPage() {
             </div>
             
             {currentPropositions.length > 0 && (
-              <div className="p-4 border-t flex items-center justify-between flex-shrink-0 bg-gray-50">
+              <div className="p-5 border-t flex items-center justify-between flex-shrink-0 bg-gray-50">
                 <button
                   onClick={currentPropositionIndex === 0 ? closeProductModal : prevProposition}
-                  className="px-5 py-3 rounded-xl border border-gray-300 font-semibold active:bg-gray-100"
+                  className="px-6 py-4 rounded-xl border border-gray-300 font-semibold text-lg active:bg-gray-100"
                 >
                   {currentPropositionIndex === 0 ? 'Annuler' : '← Retour'}
                 </button>
                 
-                <p className="text-xl font-bold text-orange-500">
+                <p className="text-2xl font-bold text-orange-500">
                   {(selectedProduct.price + selectedOptions.reduce((sum, o) => sum + o.price, 0)).toFixed(2)} €
                 </p>
                 
                 <button
                   onClick={nextProposition}
                   disabled={!canProceed()}
-                  className="px-5 py-3 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50 active:scale-95 transition-transform"
+                  className="px-6 py-4 rounded-xl bg-orange-500 text-white font-semibold text-lg disabled:opacity-50 active:scale-95 transition-transform"
                 >
                   {currentPropositionIndex === currentPropositions.length - 1 ? 'Ajouter' : 'Suivant →'}
                 </button>
@@ -1072,75 +1072,75 @@ export default function CounterPage() {
         </div>
       )}
 
-      {/* Modal Paiement - Optimisé tactile */}
+      {/* Modal Paiement - Optimisé tablette */}
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="p-5 bg-slate-800 text-white flex-shrink-0">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 bg-slate-800 text-white flex-shrink-0">
               <h2 className="text-2xl font-bold">💶 Encaissement</h2>
-              <p className="text-4xl font-bold text-orange-400 mt-2">{getTotalWithVat().toFixed(2)} €</p>
+              <p className="text-5xl font-bold text-orange-400 mt-3">{getTotalWithVat().toFixed(2)} €</p>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-5">
+            <div className="flex-1 overflow-y-auto p-6">
               {/* Payment method */}
-              <p className="font-semibold text-gray-700 mb-3">Mode de paiement</p>
-              <div className="grid grid-cols-3 gap-3 mb-6">
+              <p className="font-semibold text-gray-700 mb-4 text-lg">Mode de paiement</p>
+              <div className="grid grid-cols-3 gap-4 mb-8">
                 <button
                   onClick={() => setPaymentMethod('cash')}
-                  className={`p-4 rounded-xl border-2 text-center transition-all active:scale-95 ${
+                  className={`p-5 rounded-xl border-2 text-center transition-all active:scale-95 ${
                     paymentMethod === 'cash'
                       ? 'border-green-500 bg-green-50'
                       : 'border-gray-200'
                   }`}
                 >
-                  <span className="text-4xl block mb-1">💵</span>
-                  <span className="font-semibold">Espèces</span>
+                  <span className="text-5xl block mb-2">💵</span>
+                  <span className="font-semibold text-lg">Espèces</span>
                 </button>
                 <button
                   onClick={() => setPaymentMethod('card')}
-                  className={`p-4 rounded-xl border-2 text-center transition-all active:scale-95 ${
+                  className={`p-5 rounded-xl border-2 text-center transition-all active:scale-95 ${
                     paymentMethod === 'card'
                       ? 'border-blue-500 bg-blue-50'
                       : 'border-gray-200'
                   }`}
                 >
-                  <span className="text-4xl block mb-1">💳</span>
-                  <span className="font-semibold">Carte</span>
+                  <span className="text-5xl block mb-2">💳</span>
+                  <span className="font-semibold text-lg">Carte</span>
                 </button>
                 <button
                   onClick={() => setPaymentMethod('offered')}
-                  className={`p-4 rounded-xl border-2 text-center transition-all active:scale-95 ${
+                  className={`p-5 rounded-xl border-2 text-center transition-all active:scale-95 ${
                     paymentMethod === 'offered'
                       ? 'border-purple-500 bg-purple-50'
                       : 'border-gray-200'
                   }`}
                 >
-                  <span className="text-4xl block mb-1">🎁</span>
-                  <span className="font-semibold">Offert</span>
+                  <span className="text-5xl block mb-2">🎁</span>
+                  <span className="font-semibold text-lg">Offert</span>
                 </button>
               </div>
               
               {/* Cash received */}
               {paymentMethod === 'cash' && (
-                <div className="mb-6">
-                  <label className="font-semibold text-gray-700 block mb-2">Montant reçu</label>
+                <div className="mb-8">
+                  <label className="font-semibold text-gray-700 block mb-3 text-lg">Montant reçu</label>
                   <input
                     type="number"
                     inputMode="decimal"
                     step="0.01"
                     value={cashReceived || ''}
                     onChange={(e) => setCashReceived(parseFloat(e.target.value) || 0)}
-                    className="w-full px-4 py-4 rounded-xl border border-gray-200 text-3xl font-bold text-center"
+                    className="w-full px-5 py-5 rounded-xl border border-gray-200 text-4xl font-bold text-center"
                     placeholder="0.00"
                   />
                   
                   {/* Quick amounts */}
-                  <div className="grid grid-cols-4 gap-2 mt-3">
+                  <div className="grid grid-cols-4 gap-3 mt-4">
                     {[5, 10, 20, 50].map(amount => (
                       <button
                         key={amount}
                         onClick={() => setCashReceived(amount)}
-                        className="py-3 rounded-xl bg-gray-100 font-semibold text-lg active:bg-gray-200"
+                        className="py-4 rounded-xl bg-gray-100 font-semibold text-xl active:bg-gray-200"
                       >
                         {amount}€
                       </button>
@@ -1164,16 +1164,16 @@ export default function CounterPage() {
               
               {/* Offered reason */}
               {paymentMethod === 'offered' && (
-                <div className="mb-6">
-                  <label className="font-semibold text-gray-700 block mb-2">Raison (optionnel)</label>
+                <div className="mb-8">
+                  <label className="font-semibold text-gray-700 block mb-3 text-lg">Raison (optionnel)</label>
                   <input
                     type="text"
                     value={offeredReason}
                     onChange={(e) => setOfferedReason(e.target.value)}
-                    className="w-full px-4 py-4 rounded-xl border border-gray-200 text-lg"
+                    className="w-full px-5 py-5 rounded-xl border border-gray-200 text-xl"
                     placeholder="Ex: Amis, erreur cuisine..."
                   />
-                  <p className="text-sm text-purple-600 mt-2">
+                  <p className="text-base text-purple-600 mt-3">
                     ⚠️ Commande non comptabilisée dans le CA
                   </p>
                 </div>
@@ -1181,17 +1181,17 @@ export default function CounterPage() {
             </div>
             
             {/* Buttons */}
-            <div className="p-5 border-t flex gap-3 flex-shrink-0 bg-gray-50">
+            <div className="p-6 border-t flex gap-4 flex-shrink-0 bg-gray-50">
               <button
                 onClick={() => setShowPaymentModal(false)}
-                className="flex-1 px-6 py-4 rounded-xl border border-gray-300 font-semibold text-lg active:bg-gray-100"
+                className="flex-1 px-6 py-5 rounded-xl border border-gray-300 font-semibold text-xl active:bg-gray-100"
               >
                 Annuler
               </button>
               <button
                 onClick={submitOrder}
                 disabled={isSubmitting || (paymentMethod === 'cash' && cashReceived < getTotalWithVat())}
-                className="flex-1 px-6 py-4 rounded-xl bg-green-500 text-white font-semibold text-lg disabled:opacity-50 active:scale-95 transition-transform"
+                className="flex-1 px-6 py-5 rounded-xl bg-green-500 text-white font-semibold text-xl disabled:opacity-50 active:scale-95 transition-transform"
               >
                 {isSubmitting ? 'Envoi...' : '✓ Valider'}
               </button>
@@ -1200,24 +1200,24 @@ export default function CounterPage() {
         </div>
       )}
 
-      {/* Modal Commandes en retard */}
+      {/* Modal Commandes en retard - Optimisé tablette */}
       {showLateOrdersModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-xl overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="p-5 bg-red-500 text-white flex items-center justify-between flex-shrink-0">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 bg-red-500 text-white flex items-center justify-between flex-shrink-0">
               <div>
                 <h2 className="text-2xl font-bold">⚠️ Commandes en retard</h2>
-                <p className="text-red-100">{lateOrders.length} commande(s) depuis +30 min</p>
+                <p className="text-red-100 text-lg">{lateOrders.length} commande(s) depuis +30 min</p>
               </div>
               <button
                 onClick={() => setShowLateOrdersModal(false)}
-                className="text-white/70 active:text-white text-3xl p-2"
+                className="text-white/70 active:text-white text-4xl p-2"
               >
                 ✕
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-5">
               {lateOrders.length === 0 ? (
                 <div className="text-center py-12 text-gray-400">
                   <span className="text-6xl block mb-4">✅</span>
