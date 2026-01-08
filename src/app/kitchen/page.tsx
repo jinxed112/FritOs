@@ -237,7 +237,12 @@ function formatTime(isoString: string | null | undefined): string {
 }
 
 // ==================== DRAGGABLE ORDER CARD ====================
-function DraggableOrderCard({ order, column, children }: { order: Order; column: typeof COLUMNS[number]; children: React.ReactNode }) {
+function DraggableOrderCard({ order, column, children, renderOrder }: { 
+  order: Order
+  column: typeof COLUMNS[number]
+  children?: React.ReactNode
+  renderOrder: (order: Order, column: typeof COLUMNS[number], isDragging: boolean, dragHandleProps: any) => React.ReactNode
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: order.id,
     data: { order, fromColumn: column.key }
@@ -248,15 +253,16 @@ function DraggableOrderCard({ order, column, children }: { order: Order; column:
     zIndex: isDragging ? 1000 : undefined,
   } : undefined
 
+  // Pass listeners to the drag handle only
+  const dragHandleProps = { ...listeners, ...attributes }
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
-      className={`touch-none ${isDragging ? 'opacity-50 scale-105' : ''}`}
+      className={`${isDragging ? 'opacity-50 scale-105' : ''}`}
     >
-      {children}
+      {renderOrder(order, column, isDragging, dragHandleProps)}
     </div>
   )
 }
@@ -375,12 +381,15 @@ export default function KitchenPage() {
   async function loadOrders(estId: string) {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
+    
+    // Charger : toutes les commandes non-terminées + commandes du jour
     const { data } = await supabase
       .from('orders')
       .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, delivery_notes, metadata, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
       .eq('establishment_id', estId)
       .neq('status', 'cancelled')
-      .gte('created_at', today.toISOString())
+      .neq('status', 'awaiting_payment')
+      .or(`status.neq.completed,created_at.gte.${today.toISOString()}`)
       .order('created_at', { ascending: true })
     if (data) {
       setOrders(data.map(order => ({
@@ -553,7 +562,7 @@ export default function KitchenPage() {
   }
 
   // ==================== RENDER ORDER ====================
-  function renderOrder(order: Order, column: typeof COLUMNS[number], isDragOverlay: boolean = false) {
+  function renderOrder(order: Order, column: typeof COLUMNS[number], isDragOverlay: boolean = false, dragHandleProps: any = null) {
     const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
     const groupedItems = groupAndMergeItems(order.order_items || [])
     const totalItems = groupedItems.reduce((sum, g) => sum + g.items.length, 0)
@@ -565,9 +574,13 @@ export default function KitchenPage() {
 
     const cardContent = (
       <div className={`bg-slate-700 rounded overflow-hidden border-l-2 ${colors.border} ${allChecked ? 'ring-1 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-1 ring-red-500 animate-pulse' : ''} ${isDragOverlay ? 'shadow-2xl scale-105' : ''}`}>
-        {/* Header */}
-        <div className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'}`}>
+        {/* Header - Zone de drag */}
+        <div 
+          className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'} ${dragHandleProps ? 'cursor-grab active:cursor-grabbing touch-none' : ''}`}
+          {...(dragHandleProps || {})}
+        >
           <div className="flex items-center gap-1.5">
+            {dragHandleProps && <span className="text-gray-400 text-xs">⋮⋮</span>}
             <span className="font-bold text-sm">{order.order_number}</span>
             <span>{getOrderTypeEmoji(order.order_type)}</span>
             {order.is_offered && <span title="Offert">🎁</span>}
@@ -719,9 +732,12 @@ export default function KitchenPage() {
                       <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
                     ) : (
                       columnOrders.map(order => (
-                        <DraggableOrderCard key={order.id} order={order} column={column}>
-                          {renderOrder(order, column)}
-                        </DraggableOrderCard>
+                        <DraggableOrderCard 
+                          key={order.id} 
+                          order={order} 
+                          column={column}
+                          renderOrder={(o, c, isDragging, dragHandleProps) => renderOrder(o, c, isDragging, dragHandleProps)}
+                        />
                       ))
                     )}
                   </DroppableColumn>
