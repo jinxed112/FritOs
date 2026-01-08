@@ -3,18 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import {
-  DndContext,
-  DragOverlay,
-  closestCenter,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  DragStartEvent,
-  DragEndEvent,
-} from '@dnd-kit/core'
-import { useDraggable, useDroppable } from '@dnd-kit/core'
 
 // ==================== TYPES ====================
 type OrderItem = {
@@ -77,10 +65,10 @@ const ORDER_TYPE_EMOJI: Record<string, string> = {
 }
 
 const COLUMNS = [
-  { key: 'pending', label: 'À préparer', color: 'orange', nextStatus: 'preparing' },
-  { key: 'preparing', label: 'En cours', color: 'blue', nextStatus: 'ready' },
-  { key: 'ready', label: 'Prêt', color: 'green', nextStatus: 'completed' },
-  { key: 'completed', label: 'Clôturé', color: 'gray', nextStatus: null },
+  { key: 'pending', label: 'À préparer', color: 'orange', nextStatus: 'preparing', prevStatus: null },
+  { key: 'preparing', label: 'En cours', color: 'blue', nextStatus: 'ready', prevStatus: 'pending' },
+  { key: 'ready', label: 'Prêt', color: 'green', nextStatus: 'completed', prevStatus: 'preparing' },
+  { key: 'completed', label: 'Clôturé', color: 'gray', nextStatus: null, prevStatus: 'ready' },
 ] as const
 
 const DEFAULT_COLLAPSED_CATEGORIES = ['boissons', 'bières', 'biere', 'softs', 'drinks']
@@ -236,51 +224,6 @@ function formatTime(isoString: string | null | undefined): string {
   } catch { return '--:--' }
 }
 
-// ==================== DRAGGABLE ORDER CARD ====================
-function DraggableOrderCard({ order, column, children, renderOrder }: { 
-  order: Order
-  column: typeof COLUMNS[number]
-  children?: React.ReactNode
-  renderOrder: (order: Order, column: typeof COLUMNS[number], isDragging: boolean, dragHandleProps: any) => React.ReactNode
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: order.id,
-    data: { order, fromColumn: column.key }
-  })
-
-  const style = transform ? {
-    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-    zIndex: isDragging ? 1000 : undefined,
-  } : undefined
-
-  // Pass listeners to the drag handle only
-  const dragHandleProps = { ...listeners, ...attributes }
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`${isDragging ? 'opacity-50 scale-105' : ''}`}
-    >
-      {renderOrder(order, column, isDragging, dragHandleProps)}
-    </div>
-  )
-}
-
-// ==================== DROPPABLE COLUMN ====================
-function DroppableColumn({ columnKey, children, isOver }: { columnKey: string; children: React.ReactNode; isOver: boolean }) {
-  const { setNodeRef } = useDroppable({ id: columnKey })
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={`flex-1 overflow-y-auto p-2 space-y-3 transition-colors ${isOver ? 'bg-white/10' : ''}`}
-    >
-      {children}
-    </div>
-  )
-}
-
 // ==================== MAIN COMPONENT ====================
 export default function KitchenPage() {
   const router = useRouter()
@@ -301,23 +244,8 @@ export default function KitchenPage() {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, Set<string>>>({})
   const [checkedItems, setCheckedItems] = useState<Record<string, Set<string>>>({})
   const [avgPrepTime, setAvgPrepTime] = useState<number>(DEFAULT_PREP_TIME)
-  
-  // Drag state
-  const [activeId, setActiveId] = useState<string | null>(null)
-  const [overId, setOverId] = useState<string | null>(null)
 
   const supabase = createClient()
-
-  // DnD sensors - support both mouse and touch
-  // Touch: long press (500ms) pour activer le drag, sinon scroll normal
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 10 }
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 500, tolerance: 8 }
-    })
-  )
 
   // ==================== EFFECTS ====================
   useEffect(() => {
@@ -425,28 +353,6 @@ export default function KitchenPage() {
     const columns = Object.entries(config).filter(([_, v]) => v).map(([k]) => k)
     if (columns.length === 0) return
     await supabase.from('devices').update({ config: { columns, displayMode: mode } }).eq('id', device.id)
-  }
-
-  // ==================== DRAG HANDLERS ====================
-  function handleDragStart(event: DragStartEvent) {
-    setActiveId(event.active.id as string)
-  }
-
-  function handleDragOver(event: any) {
-    setOverId(event.over?.id || null)
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    setActiveId(null)
-    setOverId(null)
-    
-    if (over && active.id !== over.id) {
-      const newStatus = over.id as string
-      if (['pending', 'preparing', 'ready', 'completed'].includes(newStatus)) {
-        updateStatus(active.id as string, newStatus)
-      }
-    }
   }
 
   // ==================== HELPERS ====================
@@ -563,7 +469,7 @@ export default function KitchenPage() {
   }
 
   // ==================== RENDER ORDER ====================
-  function renderOrder(order: Order, column: typeof COLUMNS[number], isDragOverlay: boolean = false, dragHandleProps: any = null) {
+  function renderOrder(order: Order, column: typeof COLUMNS[number]) {
     const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
     const groupedItems = groupAndMergeItems(order.order_items || [])
     const totalItems = groupedItems.reduce((sum, g) => sum + g.items.length, 0)
@@ -573,15 +479,11 @@ export default function KitchenPage() {
     const launchInfo = formatLaunchTime(order)
     const timeSince = getTimeSinceLaunch(order)
 
-    const cardContent = (
-      <div className={`bg-slate-700 rounded-lg overflow-hidden border-l-4 ${colors.border} ${allChecked ? 'ring-2 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-2 ring-red-500 animate-pulse' : ''} ${isDragOverlay ? 'shadow-2xl scale-105' : ''} shadow-md mb-2`}>
-        {/* Header - Zone de drag (long press sur tablette) */}
-        <div 
-          className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'} ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}
-          {...(dragHandleProps || {})}
-        >
+    return (
+      <div key={order.id} className={`bg-slate-700 rounded-lg overflow-hidden border-l-4 ${colors.border} ${allChecked ? 'ring-2 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-2 ring-red-500 animate-pulse' : ''} shadow-md`}>
+        {/* Header */}
+        <div className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'}`}>
           <div className="flex items-center gap-1.5">
-            {dragHandleProps && <span className="text-gray-400 text-xs">⋮⋮</span>}
             <span className="font-bold text-sm">{order.order_number}</span>
             <span>{getOrderTypeEmoji(order.order_type)}</span>
             {order.is_offered && <span title="Offert">🎁</span>}
@@ -591,17 +493,7 @@ export default function KitchenPage() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`text-[10px] font-mono ${getTimeColor(order)}`}>{timeSince.display}</span>
-            {column.nextStatus && !isDragOverlay && (
-              <button
-                onClick={(e) => { e.stopPropagation(); updateStatus(order.id, column.nextStatus!) }}
-                className={`${colors.bg} hover:brightness-110 active:scale-95 text-white w-7 h-7 rounded-lg flex items-center justify-center transition-all text-sm font-bold`}
-              >
-                {column.key === 'pending' ? '▶' : '✓'}
-              </button>
-            )}
-          </div>
+          <span className={`text-[10px] font-mono ${getTimeColor(order)}`}>{timeSince.display}</span>
         </div>
 
         {/* Client info for delivery */}
@@ -650,10 +542,32 @@ export default function KitchenPage() {
             {(order.order_items || []).reduce((sum, item) => sum + (item.quantity || 0), 0)} article(s)
           </div>
         )}
+
+        {/* Action buttons ← → */}
+        <div className="flex border-t border-slate-600">
+          {column.prevStatus ? (
+            <button
+              onClick={() => updateStatus(order.id, column.prevStatus!)}
+              className="flex-1 bg-slate-600 active:bg-slate-500 text-white py-3 text-lg font-bold flex items-center justify-center"
+            >
+              ←
+            </button>
+          ) : (
+            <div className="flex-1 bg-slate-800 py-3" />
+          )}
+          {column.nextStatus ? (
+            <button
+              onClick={() => updateStatus(order.id, column.nextStatus!)}
+              className={`flex-1 ${colors.bg} active:brightness-110 text-white py-3 text-lg font-bold flex items-center justify-center`}
+            >
+              →
+            </button>
+          ) : (
+            <div className="flex-1 bg-slate-800 py-3" />
+          )}
+        </div>
       </div>
     )
-
-    return cardContent
   }
 
   // ==================== MAIN RENDER ====================
@@ -685,8 +599,6 @@ export default function KitchenPage() {
 
   const visibleColumns = COLUMNS.filter(col => columnConfig[col.key as keyof ColumnConfig])
   const gridCols = visibleColumns.length <= 2 ? `grid-cols-${visibleColumns.length}` : visibleColumns.length === 3 ? 'grid-cols-3' : 'grid-cols-4'
-  const activeOrder = activeId ? allOrders.find(o => o.id === activeId) : null
-  const activeColumn = activeOrder ? COLUMNS.find(c => c.key === activeOrder.status) : null
 
   return (
     <div className="h-screen bg-slate-900 text-white flex flex-col overflow-hidden">
@@ -704,54 +616,34 @@ export default function KitchenPage() {
         <div className="text-xl font-mono font-bold">{currentTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
 
-      {/* Columns with DnD */}
+      {/* Columns */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-gray-400">Chargement...</p></div>
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-        >
-          <div className={`flex-1 grid ${gridCols} gap-1 p-1 overflow-hidden`}>
-            {visibleColumns.map(column => {
-              const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
-              const columnOrders = column.key === 'completed'
-                ? allOrders.filter(o => o.status === column.key).slice(-10)
-                : allOrders.filter(o => o.status === column.key)
+        <div className={`flex-1 grid ${gridCols} gap-1 p-1 overflow-hidden`}>
+          {visibleColumns.map(column => {
+            const colors = COLOR_CLASSES[column.color as keyof typeof COLOR_CLASSES] || COLOR_CLASSES.gray
+            const columnOrders = column.key === 'completed'
+              ? allOrders.filter(o => o.status === column.key).slice(-10)
+              : allOrders.filter(o => o.status === column.key)
 
-              return (
-                <div key={column.key} className="flex flex-col bg-slate-800 rounded overflow-hidden">
-                  <div className={`${colors.bg} text-white px-2 py-1 flex items-center justify-between flex-shrink-0`}>
-                    <span className="font-bold text-xs">{column.label}</span>
-                    <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
-                  </div>
-                  <DroppableColumn columnKey={column.key} isOver={overId === column.key}>
-                    {columnOrders.length === 0 ? (
-                      <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
-                    ) : (
-                      columnOrders.map(order => (
-                        <DraggableOrderCard 
-                          key={order.id} 
-                          order={order} 
-                          column={column}
-                          renderOrder={(o, c, isDragging, dragHandleProps) => renderOrder(o, c, isDragging, dragHandleProps)}
-                        />
-                      ))
-                    )}
-                  </DroppableColumn>
+            return (
+              <div key={column.key} className="flex flex-col bg-slate-800 rounded overflow-hidden">
+                <div className={`${colors.bg} text-white px-2 py-1 flex items-center justify-between flex-shrink-0`}>
+                  <span className="font-bold text-xs">{column.label}</span>
+                  <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
                 </div>
-              )
-            })}
-          </div>
-
-          {/* Drag overlay */}
-          <DragOverlay>
-            {activeOrder && activeColumn ? renderOrder(activeOrder, activeColumn, true) : null}
-          </DragOverlay>
-        </DndContext>
+                <div className="flex-1 overflow-y-auto p-2 space-y-3">
+                  {columnOrders.length === 0 ? (
+                    <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
+                  ) : (
+                    columnOrders.map(order => renderOrder(order, column))
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
 
       {/* Config modal */}
