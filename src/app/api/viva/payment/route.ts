@@ -205,16 +205,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Check various success indicators
+    // Check various success/failure indicators
     if (statusResponse.ok) {
+      const message = statusData.message?.toLowerCase() || ''
+      
+      // Check if FAILED/CANCELLED/ABORTED first (before success check)
+      if (
+        statusData.success === false ||
+        statusData.status === 'Failed' ||
+        statusData.status === 'Cancelled' ||
+        statusData.status === 'Rejected' ||
+        statusData.status === 'Aborted' ||
+        message.includes('aborted') ||
+        message.includes('cancelled') ||
+        message.includes('canceled') ||
+        message.includes('declined') ||
+        message.includes('rejected')
+      ) {
+        console.log('Payment failed/cancelled:', statusData)
+        return NextResponse.json({ status: 'failed', data: statusData })
+      }
+      
       // Check if we have a completed transaction
       if (
         statusData.success === true || 
         statusData.status === 'Completed' ||
         statusData.status === 'Success' ||
         statusData.transactionId ||
-        statusData.message?.toLowerCase().includes('approved') ||
-        statusData.message?.toLowerCase().includes('success')
+        message.includes('approved') ||
+        message.includes('success')
       ) {
         // ========== UPDATE ORDER IN DATABASE ==========
         const orderIdToUpdate = orderId || statusData.merchantReference
@@ -250,15 +269,6 @@ export async function GET(request: NextRequest) {
         // ================================================
         
         return NextResponse.json({ status: 'success', data: statusData })
-      }
-
-      // Check if failed
-      if (
-        statusData.status === 'Failed' ||
-        statusData.status === 'Cancelled' ||
-        statusData.status === 'Rejected'
-      ) {
-        return NextResponse.json({ status: 'failed', data: statusData })
       }
     }
 
