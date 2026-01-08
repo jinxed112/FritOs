@@ -274,7 +274,7 @@ function DroppableColumn({ columnKey, children, isOver }: { columnKey: string; c
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 overflow-y-auto p-1 space-y-1 transition-colors ${isOver ? 'bg-white/10' : ''}`}
+      className={`flex-1 overflow-y-auto p-2 space-y-3 transition-colors ${isOver ? 'bg-white/10' : ''}`}
     >
       {children}
     </div>
@@ -309,12 +309,13 @@ export default function KitchenPage() {
   const supabase = createClient()
 
   // DnD sensors - support both mouse and touch
+  // Touch: long press (500ms) pour activer le drag, sinon scroll normal
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 }
+      activationConstraint: { distance: 10 }
     }),
     useSensor(TouchSensor, {
-      activationConstraint: { delay: 200, tolerance: 5 }
+      activationConstraint: { delay: 500, tolerance: 8 }
     })
   )
 
@@ -573,10 +574,10 @@ export default function KitchenPage() {
     const timeSince = getTimeSinceLaunch(order)
 
     const cardContent = (
-      <div className={`bg-slate-700 rounded overflow-hidden border-l-2 ${colors.border} ${allChecked ? 'ring-1 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-1 ring-red-500 animate-pulse' : ''} ${isDragOverlay ? 'shadow-2xl scale-105' : ''}`}>
-        {/* Header - Zone de drag */}
+      <div className={`bg-slate-700 rounded-lg overflow-hidden border-l-4 ${colors.border} ${allChecked ? 'ring-2 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-2 ring-red-500 animate-pulse' : ''} ${isDragOverlay ? 'shadow-2xl scale-105' : ''} shadow-md mb-2`}>
+        {/* Header - Zone de drag (long press sur tablette) */}
         <div 
-          className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'} ${dragHandleProps ? 'cursor-grab active:cursor-grabbing touch-none' : ''}`}
+          className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'} ${dragHandleProps ? 'cursor-grab active:cursor-grabbing' : ''}`}
           {...(dragHandleProps || {})}
         >
           <div className="flex items-center gap-1.5">
