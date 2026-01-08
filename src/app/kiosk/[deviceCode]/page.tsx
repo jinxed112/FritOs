@@ -912,9 +912,9 @@ export default function KioskDevicePage() {
                     <span className="text-6xl">🍔</span>
                   )}
                 </div>
-                <div className="p-4">
-                  <h3 className="font-bold text-[#3D2314] text-lg mb-1 line-clamp-1">{product.name}</h3>
-                  <p className="text-2xl font-black text-[#E63329]">{product.price.toFixed(2)} €</p>
+                <div className="p-3">
+                  <h3 className="font-bold text-[#3D2314] text-sm leading-tight line-clamp-2 min-h-[2.5rem]">{product.name}</h3>
+                  <p className="text-xl font-black text-[#E63329] mt-1">{product.price.toFixed(2)} €</p>
                 </div>
               </button>
             ))}
