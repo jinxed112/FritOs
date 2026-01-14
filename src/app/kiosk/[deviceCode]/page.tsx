@@ -459,8 +459,9 @@ export default function KioskDevicePage() {
   }
 
   function getCartTotal(): number {
-    const subtotal = getCartSubtotal()
-    return orderType === 'eat_in' ? subtotal * 1.06 : subtotal
+    // Prix TTC identique pour le client (sur place ou emporter)
+    // La différence de TVA (12% vs 6%) est absorbée par le commerçant
+    return getCartSubtotal()
   }
 
   function getVatRate(): number {
