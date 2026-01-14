@@ -454,11 +454,9 @@ export default function CounterPage() {
   }
 
   function getCartTotal(): number {
-    const subtotal = getCartSubtotal()
-    if (orderType === 'eat_in') {
-      return subtotal * 1.06
-    }
-    return subtotal
+    // Prix TTC identique pour le client (sur place ou emporter)
+    // La différence de TVA (12% vs 6%) est absorbée par le commerçant
+    return getCartSubtotal()
   }
 
   function getTotalWithVat(): number {
@@ -935,12 +933,6 @@ export default function CounterPage() {
             <span className="text-gray-600">Sous-total</span>
             <span className="font-semibold">{getCartSubtotal().toFixed(2)} €</span>
           </div>
-          {orderType === 'eat_in' && (
-            <div className="flex justify-between mb-2 text-sm text-gray-500">
-              <span>Sur place (+6%)</span>
-              <span>+{(getCartSubtotal() * 0.06).toFixed(2)} €</span>
-            </div>
-          )}
           <div className="flex justify-between mb-5 text-xl">
             <span className="font-bold">Total</span>
             <span className="font-bold text-orange-500 text-2xl">{getCartTotal().toFixed(2)} €</span>
