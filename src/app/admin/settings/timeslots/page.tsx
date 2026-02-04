@@ -20,6 +20,7 @@ type WeeklySchedule = {
 type TimeSlotsConfig = {
   id: string
   establishment_id: string
+  slot_type: 'pickup' | 'delivery'
   slot_duration_minutes: number
   min_preparation_minutes: number
   max_orders_per_slot: number
@@ -51,20 +52,39 @@ const DAYS = [
   { key: '0', label: 'Dimanche', short: 'Dim' },
 ]
 
-const DEFAULT_SCHEDULE: WeeklySchedule = {
-  '0': { enabled: false, slots: [] },
-  '1': { enabled: true, slots: [{ open: '11:30', close: '14:00' }, { open: '17:30', close: '21:00' }] },
-  '2': { enabled: true, slots: [{ open: '11:30', close: '14:00' }, { open: '17:30', close: '21:00' }] },
-  '3': { enabled: true, slots: [{ open: '11:30', close: '14:00' }, { open: '17:30', close: '21:00' }] },
-  '4': { enabled: true, slots: [{ open: '11:30', close: '14:00' }, { open: '17:30', close: '21:00' }] },
-  '5': { enabled: true, slots: [{ open: '11:30', close: '14:00' }, { open: '17:30', close: '22:00' }] },
-  '6': { enabled: true, slots: [{ open: '11:30', close: '14:00' }, { open: '17:30', close: '22:00' }] },
+const DEFAULT_PICKUP_SCHEDULE: WeeklySchedule = {
+  '0': { enabled: true, slots: [{ open: '18:00', close: '21:30' }] },
+  '1': { enabled: true, slots: [{ open: '17:30', close: '21:00' }] },
+  '2': { enabled: true, slots: [{ open: '17:30', close: '21:00' }] },
+  '3': { enabled: true, slots: [{ open: '17:30', close: '21:00' }] },
+  '4': { enabled: true, slots: [{ open: '17:30', close: '21:00' }] },
+  '5': { enabled: true, slots: [{ open: '17:30', close: '22:00' }] },
+  '6': { enabled: true, slots: [{ open: '17:30', close: '22:00' }] },
 }
+
+const DEFAULT_DELIVERY_SCHEDULE: WeeklySchedule = {
+  '0': { enabled: true, slots: [{ open: '18:00', close: '21:00' }] },
+  '1': { enabled: true, slots: [{ open: '18:00', close: '20:30' }] },
+  '2': { enabled: true, slots: [{ open: '18:00', close: '20:30' }] },
+  '3': { enabled: true, slots: [{ open: '18:00', close: '20:30' }] },
+  '4': { enabled: true, slots: [{ open: '18:00', close: '20:30' }] },
+  '5': { enabled: true, slots: [{ open: '18:00', close: '21:30' }] },
+  '6': { enabled: true, slots: [{ open: '18:00', close: '21:30' }] },
+}
+
+const SLOT_TYPES = [
+  { key: 'pickup', label: '🛒 Click & Collect', description: 'Retrait sur place' },
+  { key: 'delivery', label: '🚗 Livraison', description: 'Livraison à domicile' },
+] as const
 
 export default function TimeSlotsPage() {
   const [establishments, setEstablishments] = useState<Establishment[]>([])
   const [selectedEstablishment, setSelectedEstablishment] = useState<string>('')
-  const [config, setConfig] = useState<TimeSlotsConfig | null>(null)
+  const [selectedSlotType, setSelectedSlotType] = useState<'pickup' | 'delivery'>('pickup')
+  const [configs, setConfigs] = useState<{ pickup: TimeSlotsConfig | null; delivery: TimeSlotsConfig | null }>({
+    pickup: null,
+    delivery: null,
+  })
   const [overrides, setOverrides] = useState<Override[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -82,13 +102,16 @@ export default function TimeSlotsPage() {
 
   const supabase = createClient()
 
+  // Config active selon le type sélectionné
+  const config = configs[selectedSlotType]
+
   useEffect(() => {
     loadEstablishments()
   }, [])
 
   useEffect(() => {
     if (selectedEstablishment) {
-      loadConfig()
+      loadAllConfigs()
       loadOverrides()
     }
   }, [selectedEstablishment])
@@ -107,40 +130,65 @@ export default function TimeSlotsPage() {
     setLoading(false)
   }
 
-  async function loadConfig() {
-    // Chercher une config avec weekly_schedule (nouvelle structure)
+  async function loadAllConfigs() {
+    // Charger les configs pour pickup ET delivery
     const { data, error } = await supabase
       .from('time_slots_config')
       .select('*')
       .eq('establishment_id', selectedEstablishment)
       .not('weekly_schedule', 'is', null)
-      .limit(1)
 
-    if (data && data.length > 0) {
-      // Config trouvée avec weekly_schedule
-      const row = data[0]
-      setConfig({
-        id: row.id,
-        establishment_id: row.establishment_id,
-        slot_duration_minutes: row.slot_duration_minutes || row.slot_duration || 15,
-        min_preparation_minutes: row.min_preparation_minutes || 30,
-        max_orders_per_slot: row.max_orders_per_slot || 5,
-        weekly_schedule: row.weekly_schedule || DEFAULT_SCHEDULE,
-        is_active: row.is_active !== false,
-      })
-    } else {
-      // Pas de config avec weekly_schedule, créer une config par défaut en mémoire
-      // L'ID sera créé lors du premier save
-      setConfig({
+    const newConfigs: { pickup: TimeSlotsConfig | null; delivery: TimeSlotsConfig | null } = {
+      pickup: null,
+      delivery: null,
+    }
+
+    if (data) {
+      for (const row of data) {
+        const slotType = row.slot_type as 'pickup' | 'delivery'
+        if (slotType === 'pickup' || slotType === 'delivery') {
+          newConfigs[slotType] = {
+            id: row.id,
+            establishment_id: row.establishment_id,
+            slot_type: slotType,
+            slot_duration_minutes: row.slot_duration_minutes || row.slot_duration || 15,
+            min_preparation_minutes: row.min_preparation_minutes || 30,
+            max_orders_per_slot: row.max_orders_per_slot || 5,
+            weekly_schedule: row.weekly_schedule,
+            is_active: row.is_active !== false,
+          }
+        }
+      }
+    }
+
+    // Créer des configs par défaut si manquantes
+    if (!newConfigs.pickup) {
+      newConfigs.pickup = {
         id: '',
         establishment_id: selectedEstablishment,
+        slot_type: 'pickup',
         slot_duration_minutes: 15,
         min_preparation_minutes: 30,
         max_orders_per_slot: 5,
-        weekly_schedule: DEFAULT_SCHEDULE,
+        weekly_schedule: DEFAULT_PICKUP_SCHEDULE,
         is_active: true,
-      })
+      }
     }
+
+    if (!newConfigs.delivery) {
+      newConfigs.delivery = {
+        id: '',
+        establishment_id: selectedEstablishment,
+        slot_type: 'delivery',
+        slot_duration_minutes: 15,
+        min_preparation_minutes: 45,
+        max_orders_per_slot: 3,
+        weekly_schedule: DEFAULT_DELIVERY_SCHEDULE,
+        is_active: true,
+      }
+    }
+
+    setConfigs(newConfigs)
   }
 
   async function loadOverrides() {
@@ -191,7 +239,7 @@ export default function TimeSlotsPage() {
           .from('time_slots_config')
           .insert({
             establishment_id: selectedEstablishment,
-            slot_type: 'pickup',
+            slot_type: selectedSlotType,
             day_of_week: 0,
             start_time: '00:00:00',
             end_time: '23:59:00',
@@ -206,7 +254,12 @@ export default function TimeSlotsPage() {
           .single()
 
         if (error) throw error
-        setConfig({ ...config, id: data.id })
+        
+        // Mettre à jour l'ID dans le state
+        setConfigs(prev => ({
+          ...prev,
+          [selectedSlotType]: { ...config, id: data.id }
+        }))
       }
 
       setSaved(true)
@@ -219,45 +272,53 @@ export default function TimeSlotsPage() {
     setSaving(false)
   }
 
+  function updateConfig(updates: Partial<TimeSlotsConfig>) {
+    if (!config) return
+
+    setConfigs(prev => ({
+      ...prev,
+      [selectedSlotType]: { ...config, ...updates }
+    }))
+  }
+
   function updateDaySchedule(dayKey: string, updates: Partial<DaySchedule>) {
     if (!config) return
 
-    setConfig({
-      ...config,
-      weekly_schedule: {
-        ...config.weekly_schedule,
-        [dayKey]: {
-          ...config.weekly_schedule[dayKey],
-          ...updates,
-        },
+    const newSchedule = {
+      ...config.weekly_schedule,
+      [dayKey]: {
+        ...config.weekly_schedule[dayKey],
+        ...updates,
       },
-    })
+    }
+
+    updateConfig({ weekly_schedule: newSchedule })
   }
 
   function addSlot(dayKey: string) {
     if (!config) return
 
-    const currentSlots = config.weekly_schedule[dayKey]?.slots || []
-    updateDaySchedule(dayKey, {
-      slots: [...currentSlots, { open: '12:00', close: '14:00' }],
-    })
+    const daySchedule = config.weekly_schedule[dayKey]
+    const newSlots = [...(daySchedule?.slots || []), { open: '17:30', close: '21:00' }]
+    updateDaySchedule(dayKey, { slots: newSlots })
   }
 
   function removeSlot(dayKey: string, index: number) {
     if (!config) return
 
-    const currentSlots = config.weekly_schedule[dayKey]?.slots || []
-    updateDaySchedule(dayKey, {
-      slots: currentSlots.filter((_, i) => i !== index),
-    })
+    const daySchedule = config.weekly_schedule[dayKey]
+    const newSlots = daySchedule.slots.filter((_, i) => i !== index)
+    updateDaySchedule(dayKey, { slots: newSlots })
   }
 
-  function updateSlot(dayKey: string, index: number, field: 'open' | 'close', value: string) {
+  function updateSlot(dayKey: string, index: number, updates: Partial<TimeSlot>) {
     if (!config) return
 
-    const currentSlots = [...(config.weekly_schedule[dayKey]?.slots || [])]
-    currentSlots[index] = { ...currentSlots[index], [field]: value }
-    updateDaySchedule(dayKey, { slots: currentSlots })
+    const daySchedule = config.weekly_schedule[dayKey]
+    const newSlots = daySchedule.slots.map((slot, i) =>
+      i === index ? { ...slot, ...updates } : slot
+    )
+    updateDaySchedule(dayKey, { slots: newSlots })
   }
 
   async function addOverride(e: React.FormEvent) {
@@ -267,32 +328,35 @@ export default function TimeSlotsPage() {
       establishment_id: selectedEstablishment,
       date: overrideForm.date,
       override_type: overrideForm.type,
-      reason: overrideForm.reason || null,
-      max_orders: overrideForm.type === 'reduced' ? overrideForm.maxOrders : null,
       custom_slots: overrideForm.type === 'custom' ? overrideForm.slots : null,
+      max_orders: overrideForm.type === 'reduced' ? overrideForm.maxOrders : null,
+      reason: overrideForm.reason || null,
     })
 
-    if (!error) {
-      setShowOverrideModal(false)
-      loadOverrides()
-      setOverrideForm({
-        date: '',
-        type: 'closed',
-        reason: '',
-        maxOrders: 3,
-        slots: [{ open: '11:30', close: '21:00' }],
-      })
-    } else {
+    if (error) {
       alert('Erreur: ' + error.message)
+      return
     }
+
+    setShowOverrideModal(false)
+    setOverrideForm({
+      date: '',
+      type: 'closed',
+      reason: '',
+      maxOrders: 3,
+      slots: [{ open: '11:30', close: '21:00' }],
+    })
+    loadOverrides()
   }
 
   async function deleteOverride(id: string) {
+    if (!confirm('Supprimer cette exception ?')) return
+
     await supabase.from('time_slot_overrides').delete().eq('id', id)
     loadOverrides()
   }
 
-  function formatDate(dateStr: string): string {
+  function formatDate(dateStr: string) {
     const date = new Date(dateStr)
     return date.toLocaleDateString('fr-BE', {
       weekday: 'long',
@@ -301,30 +365,48 @@ export default function TimeSlotsPage() {
     })
   }
 
+  // Copier la config pickup vers delivery (ou inverse)
+  function copyFromOther() {
+    const otherType = selectedSlotType === 'pickup' ? 'delivery' : 'pickup'
+    const otherConfig = configs[otherType]
+    
+    if (otherConfig && config) {
+      updateConfig({
+        weekly_schedule: { ...otherConfig.weekly_schedule },
+        slot_duration_minutes: otherConfig.slot_duration_minutes,
+      })
+    }
+  }
+
   if (loading) {
     return (
-      <div className="p-8">
-        <div className="bg-white rounded-2xl p-12 text-center text-gray-400">
-          Chargement...
-        </div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     )
   }
 
   return (
-    <div className="p-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Créneaux horaires</h1>
-          <p className="text-gray-500">Configurez les horaires de commande en ligne</p>
+          <h1 className="text-3xl font-bold text-gray-900">⏰ Configuration des créneaux</h1>
+          <p className="text-gray-500 mt-1">
+            Configurez les horaires et créneaux de commande séparément pour le retrait et la livraison
+          </p>
         </div>
+      </div>
 
-        {establishments.length > 1 && (
+      {/* Sélecteur d'établissement */}
+      {establishments.length > 1 && (
+        <div className="bg-white rounded-2xl p-4 border border-gray-100">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Établissement
+          </label>
           <select
             value={selectedEstablishment}
             onChange={(e) => setSelectedEstablishment(e.target.value)}
-            className="px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="w-full md:w-64 px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
           >
             {establishments.map((est) => (
               <option key={est.id} value={est.id}>
@@ -332,18 +414,72 @@ export default function TimeSlotsPage() {
               </option>
             ))}
           </select>
-        )}
-      </div>
+        </div>
+      )}
 
       {config && (
         <div className="space-y-6">
-          {/* Config générale */}
-          <div className="bg-white rounded-2xl p-6 border border-gray-100">
-            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-              <span>⚙️</span> Configuration générale
-            </h2>
+          {/* Onglets Pickup / Delivery */}
+          <div className="bg-white rounded-2xl p-2 border border-gray-100 flex gap-2">
+            {SLOT_TYPES.map((type) => (
+              <button
+                key={type.key}
+                onClick={() => setSelectedSlotType(type.key)}
+                className={`flex-1 px-6 py-4 rounded-xl font-semibold transition-all ${
+                  selectedSlotType === type.key
+                    ? 'bg-orange-500 text-white shadow-lg'
+                    : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <span className="block text-lg">{type.label}</span>
+                <span className={`block text-sm mt-1 ${
+                  selectedSlotType === type.key ? 'text-orange-100' : 'text-gray-400'
+                }`}>
+                  {type.description}
+                </span>
+              </button>
+            ))}
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Status actif/inactif */}
+          <div className="bg-white rounded-2xl p-6 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  {selectedSlotType === 'pickup' ? '🛒 Click & Collect' : '🚗 Livraison'}
+                </h2>
+                <p className="text-gray-500 text-sm">
+                  {config.is_active ? 'Les commandes sont acceptées' : 'Les commandes sont désactivées'}
+                </p>
+              </div>
+              <button
+                onClick={() => updateConfig({ is_active: !config.is_active })}
+                className={`px-6 py-3 rounded-xl font-semibold transition-all ${
+                  config.is_active
+                    ? 'bg-green-500 text-white'
+                    : 'bg-gray-200 text-gray-600'
+                }`}
+              >
+                {config.is_active ? '✓ Actif' : 'Inactif'}
+              </button>
+            </div>
+          </div>
+
+          {/* Paramètres généraux */}
+          <div className="bg-white rounded-2xl p-6 border border-gray-100">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <span>⚙️</span> Paramètres {selectedSlotType === 'pickup' ? 'Click & Collect' : 'Livraison'}
+              </h2>
+              <button
+                onClick={copyFromOther}
+                className="text-sm text-orange-500 hover:text-orange-600 font-medium"
+              >
+                📋 Copier depuis {selectedSlotType === 'pickup' ? 'Livraison' : 'Click & Collect'}
+              </button>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Durée d'un créneau (minutes)
@@ -352,8 +488,7 @@ export default function TimeSlotsPage() {
                   type="number"
                   value={config.slot_duration_minutes}
                   onChange={(e) =>
-                    setConfig({
-                      ...config,
+                    updateConfig({
                       slot_duration_minutes: parseInt(e.target.value) || 15,
                     })
                   }
@@ -372,8 +507,7 @@ export default function TimeSlotsPage() {
                   type="number"
                   value={config.min_preparation_minutes}
                   onChange={(e) =>
-                    setConfig({
-                      ...config,
+                    updateConfig({
                       min_preparation_minutes: parseInt(e.target.value) || 30,
                     })
                   }
@@ -383,7 +517,7 @@ export default function TimeSlotsPage() {
                   step="5"
                 />
                 <p className="text-xs text-gray-400 mt-1">
-                  Premier créneau disponible = maintenant + ce temps
+                  Premier créneau = maintenant + ce temps
                 </p>
               </div>
 
@@ -395,8 +529,7 @@ export default function TimeSlotsPage() {
                   type="number"
                   value={config.max_orders_per_slot}
                   onChange={(e) =>
-                    setConfig({
-                      ...config,
+                    updateConfig({
                       max_orders_per_slot: parseInt(e.target.value) || 5,
                     })
                   }
@@ -404,6 +537,11 @@ export default function TimeSlotsPage() {
                   min="1"
                   max="50"
                 />
+                <p className="text-xs text-gray-400 mt-1">
+                  {selectedSlotType === 'delivery' 
+                    ? 'Limité par le nombre de livreurs' 
+                    : 'Capacité de préparation'}
+                </p>
               </div>
             </div>
           </div>
@@ -426,71 +564,78 @@ export default function TimeSlotsPage() {
                     key={day.key}
                     className={`p-4 rounded-xl border-2 transition-colors ${
                       daySchedule.enabled
-                        ? 'border-green-200 bg-green-50'
-                        : 'border-gray-200 bg-gray-50'
+                        ? 'border-orange-200 bg-orange-50/50'
+                        : 'border-gray-100 bg-gray-50'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={daySchedule.enabled}
-                          onChange={(e) =>
-                            updateDaySchedule(day.key, { enabled: e.target.checked })
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <button
+                          onClick={() =>
+                            updateDaySchedule(day.key, {
+                              enabled: !daySchedule.enabled,
+                            })
                           }
-                          className="w-5 h-5 rounded text-green-500"
-                        />
-                        <span className="font-bold text-gray-900">{day.label}</span>
-                      </label>
+                          className={`w-12 h-7 rounded-full transition-colors relative ${
+                            daySchedule.enabled ? 'bg-orange-500' : 'bg-gray-300'
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow transition-all ${
+                              daySchedule.enabled ? 'right-1' : 'left-1'
+                            }`}
+                          />
+                        </button>
+                        <span
+                          className={`font-semibold ${
+                            daySchedule.enabled ? 'text-gray-900' : 'text-gray-400'
+                          }`}
+                        >
+                          {day.label}
+                        </span>
+                      </div>
 
                       {daySchedule.enabled && (
                         <button
                           onClick={() => addSlot(day.key)}
-                          className="text-sm bg-green-100 text-green-700 px-3 py-1 rounded-lg hover:bg-green-200"
+                          className="text-orange-500 hover:text-orange-600 text-sm font-medium"
                         >
-                          + Ajouter un créneau
+                          + Ajouter une plage
                         </button>
                       )}
                     </div>
 
-                    {daySchedule.enabled && (
-                      <div className="space-y-2">
-                        {daySchedule.slots.length === 0 ? (
-                          <p className="text-gray-400 text-sm">
-                            Aucun créneau - cliquez sur "+ Ajouter un créneau"
-                          </p>
-                        ) : (
-                          daySchedule.slots.map((slot, index) => (
-                            <div
-                              key={index}
-                              className="flex items-center gap-3 bg-white p-3 rounded-lg"
-                            >
-                              <input
-                                type="time"
-                                value={slot.open}
-                                onChange={(e) =>
-                                  updateSlot(day.key, index, 'open', e.target.value)
-                                }
-                                className="px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                              />
-                              <span className="text-gray-400">→</span>
-                              <input
-                                type="time"
-                                value={slot.close}
-                                onChange={(e) =>
-                                  updateSlot(day.key, index, 'close', e.target.value)
-                                }
-                                className="px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                              />
+                    {daySchedule.enabled && daySchedule.slots.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        {daySchedule.slots.map((slot, index) => (
+                          <div key={index} className="flex items-center gap-3">
+                            <input
+                              type="time"
+                              value={slot.open}
+                              onChange={(e) =>
+                                updateSlot(day.key, index, { open: e.target.value })
+                              }
+                              className="px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            />
+                            <span className="text-gray-400">→</span>
+                            <input
+                              type="time"
+                              value={slot.close}
+                              onChange={(e) =>
+                                updateSlot(day.key, index, { close: e.target.value })
+                              }
+                              className="px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            />
+                            {daySchedule.slots.length > 1 && (
                               <button
                                 onClick={() => removeSlot(day.key, index)}
-                                className="text-red-400 hover:text-red-600 p-2"
+                                className="text-gray-400 hover:text-red-500"
                               >
                                 🗑️
                               </button>
-                            </div>
-                          ))
-                        )}
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -499,12 +644,12 @@ export default function TimeSlotsPage() {
             </div>
           </div>
 
-          {/* Save button */}
+          {/* Bouton Sauvegarder */}
           <div className="flex items-center gap-4">
             <button
               onClick={saveConfig}
               disabled={saving}
-              className="bg-orange-500 text-white font-semibold px-8 py-3 rounded-xl hover:bg-orange-600 disabled:opacity-50 flex items-center gap-2"
+              className="bg-orange-500 text-white font-bold px-8 py-4 rounded-xl hover:bg-orange-600 disabled:opacity-50 shadow-lg"
             >
               {saving ? '⏳ Sauvegarde...' : '💾 Enregistrer les modifications'}
             </button>
