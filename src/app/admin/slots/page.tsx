@@ -28,6 +28,27 @@ type TimeSlotsConfig = {
   is_active: boolean
 }
 
+type DeliveryConfig = {
+  id: string
+  establishment_id: string
+  is_enabled: boolean
+  min_order_amount: number
+  free_delivery_threshold: number | null
+  max_delivery_minutes: number
+  additional_time_minutes: number
+}
+
+type DeliveryZone = {
+  id: string
+  establishment_id: string
+  name: string
+  min_minutes: number
+  max_minutes: number
+  delivery_fee: number
+  is_active: boolean
+  display_order: number
+}
+
 type Override = {
   id: string
   date: string
@@ -85,6 +106,19 @@ export default function TimeSlotsPage() {
     pickup: null,
     delivery: null,
   })
+
+  // Delivery config & zones
+  const [deliveryConfig, setDeliveryConfig] = useState<DeliveryConfig | null>(null)
+  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([])
+  const [showZoneModal, setShowZoneModal] = useState(false)
+  const [editingZone, setEditingZone] = useState<DeliveryZone | null>(null)
+  const [zoneForm, setZoneForm] = useState({
+    name: '',
+    min_minutes: 0,
+    max_minutes: 10,
+    delivery_fee: 2.50,
+  })
+
   const [overrides, setOverrides] = useState<Override[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -112,6 +146,8 @@ export default function TimeSlotsPage() {
   useEffect(() => {
     if (selectedEstablishment) {
       loadAllConfigs()
+      loadDeliveryConfig()
+      loadDeliveryZones()
       loadOverrides()
     }
   }, [selectedEstablishment])
@@ -131,8 +167,7 @@ export default function TimeSlotsPage() {
   }
 
   async function loadAllConfigs() {
-    // Charger les configs pour pickup ET delivery
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('time_slots_config')
       .select('*')
       .eq('establishment_id', selectedEstablishment)
@@ -161,7 +196,6 @@ export default function TimeSlotsPage() {
       }
     }
 
-    // Créer des configs par défaut si manquantes
     if (!newConfigs.pickup) {
       newConfigs.pickup = {
         id: '',
@@ -191,6 +225,47 @@ export default function TimeSlotsPage() {
     setConfigs(newConfigs)
   }
 
+  async function loadDeliveryConfig() {
+    const { data } = await supabase
+      .from('delivery_config')
+      .select('*')
+      .eq('establishment_id', selectedEstablishment)
+      .limit(1)
+      .single()
+
+    if (data) {
+      setDeliveryConfig({
+        id: data.id,
+        establishment_id: data.establishment_id,
+        is_enabled: data.is_enabled ?? false,
+        min_order_amount: parseFloat(data.min_order_amount) || 15,
+        free_delivery_threshold: data.free_delivery_threshold ? parseFloat(data.free_delivery_threshold) : null,
+        max_delivery_minutes: data.max_delivery_minutes || 15,
+        additional_time_minutes: data.additional_time_minutes || 15,
+      })
+    } else {
+      setDeliveryConfig({
+        id: '',
+        establishment_id: selectedEstablishment,
+        is_enabled: false,
+        min_order_amount: 15,
+        free_delivery_threshold: null,
+        max_delivery_minutes: 15,
+        additional_time_minutes: 15,
+      })
+    }
+  }
+
+  async function loadDeliveryZones() {
+    const { data } = await supabase
+      .from('delivery_zones')
+      .select('*')
+      .eq('establishment_id', selectedEstablishment)
+      .order('display_order')
+
+    setDeliveryZones(data || [])
+  }
+
   async function loadOverrides() {
     const today = new Date().toISOString().split('T')[0]
     const { data } = await supabase
@@ -210,6 +285,8 @@ export default function TimeSlotsPage() {
     })))
   }
 
+  // ===================== SAVE =====================
+
   async function saveConfig() {
     if (!config) return
 
@@ -218,7 +295,6 @@ export default function TimeSlotsPage() {
 
     try {
       if (config.id) {
-        // Update existing
         const { error } = await supabase
           .from('time_slots_config')
           .update({
@@ -234,7 +310,6 @@ export default function TimeSlotsPage() {
 
         if (error) throw error
       } else {
-        // Insert new
         const { data, error } = await supabase
           .from('time_slots_config')
           .insert({
@@ -254,12 +329,16 @@ export default function TimeSlotsPage() {
           .single()
 
         if (error) throw error
-        
-        // Mettre à jour l'ID dans le state
+
         setConfigs(prev => ({
           ...prev,
           [selectedSlotType]: { ...config, id: data.id }
         }))
+      }
+
+      // Si on est sur l'onglet delivery, sauvegarder aussi la config livraison
+      if (selectedSlotType === 'delivery' && deliveryConfig) {
+        await saveDeliveryConfig()
       }
 
       setSaved(true)
@@ -271,6 +350,129 @@ export default function TimeSlotsPage() {
 
     setSaving(false)
   }
+
+  async function saveDeliveryConfig() {
+    if (!deliveryConfig) return
+
+    try {
+      if (deliveryConfig.id) {
+        const { error } = await supabase
+          .from('delivery_config')
+          .update({
+            is_enabled: deliveryConfig.is_enabled,
+            min_order_amount: deliveryConfig.min_order_amount,
+            free_delivery_threshold: deliveryConfig.free_delivery_threshold,
+            max_delivery_minutes: deliveryConfig.max_delivery_minutes,
+            additional_time_minutes: deliveryConfig.additional_time_minutes,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', deliveryConfig.id)
+
+        if (error) throw error
+      } else {
+        const { data, error } = await supabase
+          .from('delivery_config')
+          .insert({
+            establishment_id: selectedEstablishment,
+            is_enabled: deliveryConfig.is_enabled,
+            min_order_amount: deliveryConfig.min_order_amount,
+            free_delivery_threshold: deliveryConfig.free_delivery_threshold,
+            max_delivery_minutes: deliveryConfig.max_delivery_minutes,
+            additional_time_minutes: deliveryConfig.additional_time_minutes,
+          })
+          .select()
+          .single()
+
+        if (error) throw error
+        setDeliveryConfig({ ...deliveryConfig, id: data.id })
+      }
+    } catch (error: any) {
+      console.error('Erreur sauvegarde config livraison:', error)
+      throw error
+    }
+  }
+
+  // ===================== ZONES =====================
+
+  function openAddZone() {
+    setEditingZone(null)
+    // Auto-calculer min_minutes basé sur la dernière zone
+    const lastZone = deliveryZones[deliveryZones.length - 1]
+    setZoneForm({
+      name: `Zone ${deliveryZones.length + 1}`,
+      min_minutes: lastZone ? lastZone.max_minutes : 0,
+      max_minutes: lastZone ? lastZone.max_minutes + 5 : 10,
+      delivery_fee: lastZone ? parseFloat((lastZone.delivery_fee + 0.50).toFixed(2)) : 2.50,
+    })
+    setShowZoneModal(true)
+  }
+
+  function openEditZone(zone: DeliveryZone) {
+    setEditingZone(zone)
+    setZoneForm({
+      name: zone.name,
+      min_minutes: zone.min_minutes,
+      max_minutes: zone.max_minutes,
+      delivery_fee: zone.delivery_fee,
+    })
+    setShowZoneModal(true)
+  }
+
+  async function saveZone(e: React.FormEvent) {
+    e.preventDefault()
+
+    try {
+      if (editingZone) {
+        const { error } = await supabase
+          .from('delivery_zones')
+          .update({
+            name: zoneForm.name,
+            min_minutes: zoneForm.min_minutes,
+            max_minutes: zoneForm.max_minutes,
+            delivery_fee: zoneForm.delivery_fee,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingZone.id)
+
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('delivery_zones')
+          .insert({
+            establishment_id: selectedEstablishment,
+            name: zoneForm.name,
+            min_minutes: zoneForm.min_minutes,
+            max_minutes: zoneForm.max_minutes,
+            delivery_fee: zoneForm.delivery_fee,
+            display_order: deliveryZones.length,
+          })
+
+        if (error) throw error
+      }
+
+      setShowZoneModal(false)
+      loadDeliveryZones()
+    } catch (error: any) {
+      alert('Erreur: ' + error.message)
+    }
+  }
+
+  async function deleteZone(id: string) {
+    if (!confirm('Supprimer cette zone ?')) return
+
+    await supabase.from('delivery_zones').delete().eq('id', id)
+    loadDeliveryZones()
+  }
+
+  async function toggleZone(zone: DeliveryZone) {
+    await supabase
+      .from('delivery_zones')
+      .update({ is_active: !zone.is_active })
+      .eq('id', zone.id)
+    loadDeliveryZones()
+  }
+
+  // ===================== CONFIG HELPERS =====================
 
   function updateConfig(updates: Partial<TimeSlotsConfig>) {
     if (!config) return
@@ -297,7 +499,6 @@ export default function TimeSlotsPage() {
 
   function addSlot(dayKey: string) {
     if (!config) return
-
     const daySchedule = config.weekly_schedule[dayKey]
     const newSlots = [...(daySchedule?.slots || []), { open: '17:30', close: '21:00' }]
     updateDaySchedule(dayKey, { slots: newSlots })
@@ -305,7 +506,6 @@ export default function TimeSlotsPage() {
 
   function removeSlot(dayKey: string, index: number) {
     if (!config) return
-
     const daySchedule = config.weekly_schedule[dayKey]
     const newSlots = daySchedule.slots.filter((_, i) => i !== index)
     updateDaySchedule(dayKey, { slots: newSlots })
@@ -313,13 +513,26 @@ export default function TimeSlotsPage() {
 
   function updateSlot(dayKey: string, index: number, updates: Partial<TimeSlot>) {
     if (!config) return
-
     const daySchedule = config.weekly_schedule[dayKey]
     const newSlots = daySchedule.slots.map((slot, i) =>
       i === index ? { ...slot, ...updates } : slot
     )
     updateDaySchedule(dayKey, { slots: newSlots })
   }
+
+  function copyFromOther() {
+    const otherType = selectedSlotType === 'pickup' ? 'delivery' : 'pickup'
+    const otherConfig = configs[otherType]
+
+    if (otherConfig && config) {
+      updateConfig({
+        weekly_schedule: { ...otherConfig.weekly_schedule },
+        slot_duration_minutes: otherConfig.slot_duration_minutes,
+      })
+    }
+  }
+
+  // ===================== OVERRIDES =====================
 
   async function addOverride(e: React.FormEvent) {
     e.preventDefault()
@@ -351,7 +564,6 @@ export default function TimeSlotsPage() {
 
   async function deleteOverride(id: string) {
     if (!confirm('Supprimer cette exception ?')) return
-
     await supabase.from('time_slot_overrides').delete().eq('id', id)
     loadOverrides()
   }
@@ -365,18 +577,7 @@ export default function TimeSlotsPage() {
     })
   }
 
-  // Copier la config pickup vers delivery (ou inverse)
-  function copyFromOther() {
-    const otherType = selectedSlotType === 'pickup' ? 'delivery' : 'pickup'
-    const otherConfig = configs[otherType]
-    
-    if (otherConfig && config) {
-      updateConfig({
-        weekly_schedule: { ...otherConfig.weekly_schedule },
-        slot_duration_minutes: otherConfig.slot_duration_minutes,
-      })
-    }
-  }
+  // ===================== RENDER =====================
 
   if (loading) {
     return (
@@ -392,7 +593,7 @@ export default function TimeSlotsPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">⏰ Configuration des créneaux</h1>
           <p className="text-gray-500 mt-1">
-            Configurez les horaires et créneaux de commande séparément pour le retrait et la livraison
+            Paramétrez les créneaux Click & Collect et Livraison
           </p>
         </div>
       </div>
@@ -421,24 +622,37 @@ export default function TimeSlotsPage() {
         <div className="space-y-6">
           {/* Onglets Pickup / Delivery */}
           <div className="bg-white rounded-2xl p-2 border border-gray-100 flex gap-2">
-            {SLOT_TYPES.map((type) => (
-              <button
-                key={type.key}
-                onClick={() => setSelectedSlotType(type.key)}
-                className={`flex-1 px-6 py-4 rounded-xl font-semibold transition-all ${
-                  selectedSlotType === type.key
-                    ? 'bg-orange-500 text-white shadow-lg'
-                    : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <span className="block text-lg">{type.label}</span>
-                <span className={`block text-sm mt-1 ${
-                  selectedSlotType === type.key ? 'text-orange-100' : 'text-gray-400'
-                }`}>
-                  {type.description}
-                </span>
-              </button>
-            ))}
+            {SLOT_TYPES.map((type) => {
+              const typeConfig = configs[type.key]
+              return (
+                <button
+                  key={type.key}
+                  onClick={() => setSelectedSlotType(type.key)}
+                  className={`flex-1 px-6 py-4 rounded-xl font-semibold transition-all relative ${
+                    selectedSlotType === type.key
+                      ? 'bg-orange-500 text-white shadow-lg'
+                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <span className="block text-lg">{type.label}</span>
+                  <span className={`block text-sm mt-1 ${
+                    selectedSlotType === type.key ? 'text-orange-100' : 'text-gray-400'
+                  }`}>
+                    {type.description}
+                  </span>
+                  {/* Badge actif/inactif */}
+                  {typeConfig && (
+                    <span className={`absolute top-2 right-3 text-xs px-2 py-0.5 rounded-full ${
+                      typeConfig.is_active
+                        ? selectedSlotType === type.key ? 'bg-green-400 text-white' : 'bg-green-100 text-green-700'
+                        : selectedSlotType === type.key ? 'bg-red-400 text-white' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {typeConfig.is_active ? 'Actif' : 'Inactif'}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
 
           {/* Status actif/inactif */}
@@ -465,11 +679,205 @@ export default function TimeSlotsPage() {
             </div>
           </div>
 
-          {/* Paramètres généraux */}
+          {/* ============ DELIVERY CONFIG SECTION ============ */}
+          {selectedSlotType === 'delivery' && deliveryConfig && (
+            <>
+              {/* Config livraison */}
+              <div className="bg-white rounded-2xl p-6 border border-gray-100">
+                <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                  <span>💰</span> Paramètres livraison
+                </h2>
+
+                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Commande minimum (€)
+                    </label>
+                    <input
+                      type="number"
+                      value={deliveryConfig.min_order_amount}
+                      onChange={(e) =>
+                        setDeliveryConfig({
+                          ...deliveryConfig,
+                          min_order_amount: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      min="0"
+                      step="0.50"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      Montant minimum pour pouvoir se faire livrer
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Livraison gratuite dès (€)
+                    </label>
+                    <input
+                      type="number"
+                      value={deliveryConfig.free_delivery_threshold ?? ''}
+                      onChange={(e) =>
+                        setDeliveryConfig({
+                          ...deliveryConfig,
+                          free_delivery_threshold: e.target.value ? parseFloat(e.target.value) : null,
+                        })
+                      }
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      min="0"
+                      step="1"
+                      placeholder="Laisser vide pour désactiver"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      Frais de livraison offerts au-dessus de ce montant
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Rayon max (minutes)
+                    </label>
+                    <input
+                      type="number"
+                      value={deliveryConfig.max_delivery_minutes}
+                      onChange={(e) =>
+                        setDeliveryConfig({
+                          ...deliveryConfig,
+                          max_delivery_minutes: parseInt(e.target.value) || 15,
+                        })
+                      }
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      min="5"
+                      max="60"
+                      step="5"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      Temps de trajet max accepté
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Temps additionnel (min)
+                    </label>
+                    <input
+                      type="number"
+                      value={deliveryConfig.additional_time_minutes}
+                      onChange={(e) =>
+                        setDeliveryConfig({
+                          ...deliveryConfig,
+                          additional_time_minutes: parseInt(e.target.value) || 15,
+                        })
+                      }
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      min="0"
+                      max="60"
+                      step="5"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      Temps ajouté au créneau pour la livraison
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Zones de livraison */}
+              <div className="bg-white rounded-2xl p-6 border border-gray-100">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <span>📍</span> Zones de livraison
+                  </h2>
+                  <button
+                    onClick={openAddZone}
+                    className="bg-orange-500 text-white font-medium px-4 py-2 rounded-xl hover:bg-orange-600"
+                  >
+                    + Ajouter une zone
+                  </button>
+                </div>
+
+                {deliveryZones.length === 0 ? (
+                  <p className="text-gray-400 text-center py-8">
+                    Aucune zone de livraison configurée
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {deliveryZones.map((zone) => (
+                      <div
+                        key={zone.id}
+                        className={`p-4 rounded-xl border-2 flex items-center justify-between transition-colors ${
+                          zone.is_active
+                            ? 'border-green-200 bg-green-50/50'
+                            : 'border-gray-200 bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-6">
+                          <button
+                            onClick={() => toggleZone(zone)}
+                            className={`w-12 h-7 rounded-full transition-colors relative ${
+                              zone.is_active ? 'bg-green-500' : 'bg-gray-300'
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow transition-all ${
+                                zone.is_active ? 'right-1' : 'left-1'
+                              }`}
+                            />
+                          </button>
+                          <div>
+                            <p className="font-semibold text-gray-900">{zone.name}</p>
+                            <p className="text-sm text-gray-500">
+                              {zone.min_minutes} - {zone.max_minutes} min de trajet
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-xl font-bold text-orange-500">
+                            {zone.delivery_fee.toFixed(2)}€
+                          </span>
+                          <button
+                            onClick={() => openEditZone(zone)}
+                            className="text-gray-400 hover:text-blue-500 p-2"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => deleteZone(zone.id)}
+                            className="text-gray-400 hover:text-red-500 p-2"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Résumé des zones */}
+                {deliveryZones.length > 0 && (
+                  <div className="mt-4 p-4 bg-blue-50 rounded-xl">
+                    <p className="text-sm text-blue-700">
+                      <strong>💡 Résumé :</strong>{' '}
+                      {deliveryZones.filter(z => z.is_active).length} zone(s) active(s),{' '}
+                      frais de{' '}
+                      {Math.min(...deliveryZones.filter(z => z.is_active).map(z => z.delivery_fee)).toFixed(2)}€{' '}
+                      à{' '}
+                      {Math.max(...deliveryZones.filter(z => z.is_active).map(z => z.delivery_fee)).toFixed(2)}€
+                      {deliveryConfig.free_delivery_threshold && (
+                        <> — Gratuit dès {deliveryConfig.free_delivery_threshold}€ de commande</>
+                      )}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* ============ CRENEAUX CONFIG ============ */}
           <div className="bg-white rounded-2xl p-6 border border-gray-100">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                <span>⚙️</span> Paramètres {selectedSlotType === 'pickup' ? 'Click & Collect' : 'Livraison'}
+                <span>⚙️</span> Paramètres des créneaux {selectedSlotType === 'pickup' ? 'Click & Collect' : 'Livraison'}
               </h2>
               <button
                 onClick={copyFromOther}
@@ -538,8 +946,8 @@ export default function TimeSlotsPage() {
                   max="50"
                 />
                 <p className="text-xs text-gray-400 mt-1">
-                  {selectedSlotType === 'delivery' 
-                    ? 'Limité par le nombre de livreurs' 
+                  {selectedSlotType === 'delivery'
+                    ? 'Limité par le nombre de livreurs'
                     : 'Capacité de préparation'}
                 </p>
               </div>
@@ -712,6 +1120,100 @@ export default function TimeSlotsPage() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Zone de livraison */}
+      {showZoneModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md">
+            <div className="p-6 border-b border-gray-100">
+              <h2 className="text-2xl font-bold">
+                {editingZone ? 'Modifier la zone' : 'Ajouter une zone de livraison'}
+              </h2>
+            </div>
+
+            <form onSubmit={saveZone} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nom de la zone *
+                </label>
+                <input
+                  type="text"
+                  value={zoneForm.name}
+                  onChange={(e) =>
+                    setZoneForm({ ...zoneForm, name: e.target.value })
+                  }
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  required
+                  placeholder="Ex: Zone 1 (proche)"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Temps min (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    value={zoneForm.min_minutes}
+                    onChange={(e) =>
+                      setZoneForm({ ...zoneForm, min_minutes: parseInt(e.target.value) || 0 })
+                    }
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Temps max (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    value={zoneForm.max_minutes}
+                    onChange={(e) =>
+                      setZoneForm({ ...zoneForm, max_minutes: parseInt(e.target.value) || 10 })
+                    }
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    min="1"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Frais de livraison (€)
+                </label>
+                <input
+                  type="number"
+                  value={zoneForm.delivery_fee}
+                  onChange={(e) =>
+                    setZoneForm({ ...zoneForm, delivery_fee: parseFloat(e.target.value) || 0 })
+                  }
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  min="0"
+                  step="0.50"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowZoneModal(false)}
+                  className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-6 py-3 rounded-xl bg-orange-500 text-white font-semibold hover:bg-orange-600"
+                >
+                  {editingZone ? 'Modifier' : 'Ajouter'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
