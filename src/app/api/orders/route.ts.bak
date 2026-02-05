@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
         options_selected: optionsData.length > 0 ? JSON.stringify(optionsData) : null,
         options_total: optionsTotal,
         line_total: lineTotal,
-        vat_rate: product.vat_takeaway || 6, // Click & Collect = à emporter, taux par produit
+        vat_rate: 6, // Click & Collect = toujours à emporter
         notes: item.notes || null,
       })
     }
@@ -125,14 +125,8 @@ export async function POST(request: NextRequest) {
     const total = subtotal + totalDeliveryFee
 
     // TVA (6% pour emporter)
-    // Calcul TVA par produit (Click & Collect = toujours à emporter)
-    let taxAmount = 0
-    for (const item of orderItems) {
-      const itemTotal = item.line_total || (item.unit_price * item.quantity)
-      const rate = item.vat_rate || 6
-      taxAmount += itemTotal * rate / (100 + rate)
-    }
-    taxAmount = Math.round(taxAmount * 100) / 100
+    const vatRate = 6
+    const taxAmount = total * vatRate / (100 + vatRate)
 
     // Créer le créneau prévu avec le bon timezone (Europe/Brussels)
     const brusselsOffset = getBrusselsOffset(slotDate)

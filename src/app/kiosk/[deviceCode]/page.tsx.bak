@@ -75,8 +75,6 @@ type CartItem = {
   quantity: number
   options: SelectedOption[]
   options_total: number
-  vat_eat_in: number
-  vat_takeaway: number
 }
 
 type OrderType = 'eat_in' | 'takeaway'
@@ -232,7 +230,7 @@ export default function KioskDevicePage() {
     const { data: productsData } = await supabase
       .from('products')
       .select(`
-        id, name, description, price, image_url, category_id, is_available, vat_eat_in, vat_takeaway,
+        id, name, description, price, image_url, category_id, is_available,
         product_option_groups (
           option_group_id, display_order,
           option_group:option_groups (
@@ -433,8 +431,6 @@ export default function KioskDevicePage() {
       quantity: 1,
       options: [...selectedOptions],
       options_total: optionsTotal,
-      vat_eat_in: selectedProduct.vat_eat_in || 12,
-      vat_takeaway: selectedProduct.vat_takeaway || 6,
     }
     setCart([...cart, cartItem])
     closeProductModal()
@@ -567,15 +563,9 @@ export default function KioskDevicePage() {
     setIsSubmitting(true)
     
     try {
+      const vatRate = getVatRate()
       const totalTTC = getCartTotal()
-      // Calcul TVA par produit (chaque produit a son propre taux)
-      let totalTax = 0
-      cart.forEach(item => {
-        const rate = orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway
-        const itemTTC = (item.price + item.options_total) * item.quantity
-        totalTax += itemTTC * rate / (100 + rate)
-      })
-      const taxAmount = Math.round(totalTax * 100) / 100
+      const taxAmount = totalTTC * vatRate / (100 + vatRate)
       const subtotalHT = totalTTC - taxAmount
       
       const { data: order, error: orderError } = await supabase
@@ -604,7 +594,7 @@ export default function KioskDevicePage() {
         product_name: item.name,
         quantity: item.quantity,
         unit_price: item.price,
-        vat_rate: orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway,
+        vat_rate: vatRate,
         options_selected: item.options.length > 0 ? JSON.stringify(item.options) : null,
         options_total: item.options_total,
         line_total: (item.price + item.options_total) * item.quantity,
