@@ -25,8 +25,10 @@ type Order = {
   customer_name?: string | null
   customer_phone?: string | null
   scheduled_time?: string | null
+  scheduled_slot_start?: string | null
+  source?: string | null
   delivery_notes?: string | null
-  metadata?: { source?: string; slot_date?: string; slot_time?: string; delivery_duration?: number } | null
+  metadata?: { source?: string; slot_date?: string; slot_time?: string; delivery_duration?: number; delivery_address?: string; delivery_lat?: number; delivery_lng?: number } | null
 }
 
 type ParsedOption = { item_name: string; price: number }
@@ -214,7 +216,7 @@ function getOrderTypeEmoji(orderType: string | undefined | null): string {
 }
 
 function isClickAndCollect(order: Order): boolean {
-  return order.metadata?.source === 'click_and_collect' || order.order_type === 'pickup' || order.order_type === 'delivery'
+  return order.source === 'online' || order.order_type === 'pickup' || order.order_type === 'delivery'
 }
 
 function formatTime(isoString: string | null | undefined): string {
@@ -314,7 +316,7 @@ export default function KitchenPage() {
     // Charger : toutes les commandes non-terminées + commandes du jour
     const { data } = await supabase
       .from('orders')
-      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, delivery_notes, metadata, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
+      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, metadata, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
       .eq('establishment_id', estId)
       .neq('status', 'cancelled')
       .neq('status', 'awaiting_payment')
@@ -415,13 +417,14 @@ export default function KitchenPage() {
   }
 
   function formatLaunchTime(order: Order): { time: string; isNow: boolean; isPast: boolean; isUpcoming: boolean } {
-    if (!order.scheduled_time || order.metadata?.source !== 'click_and_collect') {
+    const slotTime = order.scheduled_slot_start || order.scheduled_time
+    if (!slotTime || !isClickAndCollect(order)) {
       return { time: 'MAINTENANT', isNow: true, isPast: false, isUpcoming: false }
     }
-    const scheduled = new Date(order.scheduled_time).getTime()
+    const scheduled = new Date(slotTime).getTime()
     const now = currentTime.getTime()
     const diffMinutes = (scheduled - now) / (60 * 1000)
-    const timeStr = formatTime(order.scheduled_time)
+    const timeStr = formatTime(slotTime)
     return {
       time: timeStr,
       isNow: diffMinutes <= 0 && diffMinutes > -10,
@@ -444,26 +447,26 @@ export default function KitchenPage() {
       <div
         key={item.key}
         onClick={(e) => { e.stopPropagation(); toggleItemChecked(orderId, item.key) }}
-        className={`flex items-start gap-1.5 p-1 rounded cursor-pointer transition-all ${isChecked ? 'bg-green-500/20 opacity-60' : isVeryHigh ? 'bg-red-500/20' : ''}`}
+        className={`flex items-start gap-2 p-1.5 rounded cursor-pointer transition-all ${isChecked ? 'bg-green-500/20 opacity-60' : isVeryHigh ? 'bg-red-500/20' : ''}`}
       >
-        <div className={`${qtyClass} text-white min-w-[20px] h-5 rounded flex items-center justify-center text-xs font-bold flex-shrink-0`}>
+        <div className={`${qtyClass} text-white min-w-[24px] h-6 rounded flex items-center justify-center text-sm font-bold flex-shrink-0`}>
           {item.totalQuantity}
         </div>
         <div className="flex-1 min-w-0">
-          <span className={`text-xs ${isChecked ? 'line-through text-gray-500' : ''} ${isHigh ? 'font-bold' : ''}`}>
+          <span className={`text-sm ${isChecked ? 'line-through text-gray-500' : ''} ${isHigh ? 'font-bold' : ''}`}>
             {item.product_name}
             {isVeryHigh && !isChecked && ' ⚠️'}
           </span>
           {item.options.length > 0 && (
-            <div className={`flex flex-wrap gap-0.5 mt-0.5 ${isChecked ? 'opacity-50' : ''}`}>
+            <div className={`flex flex-wrap gap-1 mt-0.5 ${isChecked ? 'opacity-50' : ''}`}>
               {item.options.map((opt, idx) => {
                 const iconData = getOptionIcon(opt.item_name)
                 const excluded = isExclusion(opt.item_name)
                 if (displayMode === 'compact' && iconData) {
-                  return <span key={idx} className={`text-sm ${excluded ? 'opacity-50' : ''}`} title={opt.item_name}>{excluded && '🚫'}{iconData.icon}</span>
+                  return <span key={idx} className={`text-base ${excluded ? 'opacity-50' : ''}`} title={opt.item_name}>{excluded && '🚫'}{iconData.icon}</span>
                 }
                 return (
-                  <span key={idx} className={`text-[10px] px-1 rounded ${excluded ? 'bg-gray-600 line-through' : 'bg-slate-600'}`}>
+                  <span key={idx} className={`text-xs px-1.5 py-0.5 rounded ${excluded ? 'bg-gray-600 line-through' : 'bg-slate-600'}`}>
                     {excluded && '🚫'}{iconData && <span className={iconData.color}>{iconData.icon}</span>} {opt.item_name}
                   </span>
                 )
@@ -471,7 +474,7 @@ export default function KitchenPage() {
             </div>
           )}
           {item.notes.filter(n => n).map((note, idx) => (
-            <p key={idx} className="text-yellow-400 text-[10px] mt-0.5">📝 {note}</p>
+            <p key={idx} className="text-yellow-400 text-xs mt-0.5">📝 {note}</p>
           ))}
         </div>
       </div>
@@ -492,32 +495,32 @@ export default function KitchenPage() {
     return (
       <div key={order.id} className={`bg-slate-700 rounded-lg overflow-hidden border-l-4 ${colors.border} ${allChecked ? 'ring-2 ring-green-500' : ''} ${launchInfo.isPast && column.key === 'pending' ? 'ring-2 ring-red-500 animate-pulse' : ''} shadow-md`}>
         {/* Header */}
-        <div className={`px-2 py-1.5 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'}`}>
+        <div className={`px-3 py-2 flex items-center justify-between ${launchInfo.isPast ? 'bg-red-500/30' : launchInfo.isNow ? 'bg-red-500/20' : 'bg-slate-600'}`}>
           <div className="flex items-center gap-1.5">
             {/* Bouton retour discret */}
             {column.prevStatus && (
               <button
                 onClick={() => updateStatus(order.id, column.prevStatus!)}
-                className="text-gray-400 hover:text-white active:scale-95 text-xs px-1 transition-all"
+                className="text-gray-400 hover:text-white active:scale-95 text-sm px-2 py-1 transition-all"
               >
                 ◀
               </button>
             )}
-            <span className="font-bold text-sm">{order.order_number}</span>
-            <span>{getOrderTypeEmoji(order.order_type)}</span>
-            {order.is_offered && <span title="Offert">🎁</span>}
+            <span className="font-bold text-lg">{order.order_number}</span>
+            <span className="text-base">{getOrderTypeEmoji(order.order_type)}</span>
+            {order.is_offered && <span title="Offert" className="text-base">🎁</span>}
             {column.key !== 'completed' && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${launchInfo.isPast ? 'bg-red-500 text-white' : launchInfo.isNow ? 'bg-red-500 text-white' : launchInfo.isUpcoming ? 'bg-orange-500 text-white' : isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'}`}>
+              <span className={`text-xs px-2 py-1 rounded font-bold ${launchInfo.isPast ? 'bg-red-500 text-white' : launchInfo.isNow ? 'bg-red-500 text-white' : launchInfo.isUpcoming ? 'bg-orange-500 text-white' : isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'}`}>
                 {launchInfo.isNow ? '🔥' : launchInfo.isPast ? '⚠️' : launchInfo.isUpcoming ? `⏰ ${launchInfo.time}` : isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-[10px] font-mono ${getTimeColor(order)}`}>{timeSince.display}</span>
+            <span className={`text-xs font-mono font-bold ${getTimeColor(order)}`}>{timeSince.display}</span>
             {column.nextStatus && (
               <button
                 onClick={() => updateStatus(order.id, column.nextStatus!)}
-                className={`${colors.bg} hover:brightness-110 active:scale-95 text-white text-xs px-2 py-1 rounded font-bold transition-all`}
+                className={`${colors.bg} hover:brightness-110 active:scale-95 text-white text-sm px-3 py-1.5 rounded font-bold transition-all`}
               >
                 ▶
               </button>
@@ -525,16 +528,18 @@ export default function KitchenPage() {
           </div>
         </div>
 
-        {/* Client info for delivery */}
-        {order.order_type === 'delivery' && order.customer_name && column.key !== 'completed' && (
-          <div className="px-2 py-0.5 bg-slate-600/50 text-[10px] text-gray-300">
-            📍 {order.customer_name} {order.delivery_notes && `- ${order.delivery_notes}`}
+        {/* Client info for delivery/pickup */}
+        {(order.order_type === 'delivery' || order.order_type === 'pickup') && order.customer_name && column.key !== 'completed' && (
+          <div className="px-2 py-1 bg-slate-600/50 text-xs text-gray-300">
+            {order.order_type === 'delivery' ? '📍' : '🛍️'} {order.customer_name}
+            {order.order_type === 'delivery' && order.delivery_notes && ` - ${order.delivery_notes}`}
+            {order.customer_phone && ` • ${order.customer_phone}`}
           </div>
         )}
 
         {/* Items grouped by category */}
         {column.key !== 'completed' && (
-          <div className="p-1.5 space-y-1">
+          <div className="p-2 space-y-1.5">
             {groupedItems.map((group, idx) => {
               const isCollapsed = isSectionCollapsed(order.id, group.categoryName)
               const catCheckedCount = group.items.filter(item => isItemChecked(order.id, item.key)).length
@@ -543,16 +548,16 @@ export default function KitchenPage() {
                 <div key={idx}>
                   <div
                     onClick={(e) => { e.stopPropagation(); toggleSection(order.id, group.categoryName) }}
-                    className={`flex items-center gap-1 cursor-pointer ${isCollapsed ? 'opacity-70' : ''}`}
+                    className={`flex items-center gap-1.5 cursor-pointer py-0.5 ${isCollapsed ? 'opacity-70' : ''}`}
                   >
-                    <span className="text-xs">{group.categoryIcon}</span>
-                    <span className={`text-[10px] font-semibold uppercase ${group.textClass} ${catAllChecked ? 'line-through opacity-50' : ''}`}>
+                    <span className="text-sm">{group.categoryIcon}</span>
+                    <span className={`text-xs font-semibold uppercase ${group.textClass} ${catAllChecked ? 'line-through opacity-50' : ''}`}>
                       {group.categoryName}
                     </span>
-                    <span className={`text-[10px] px-1 rounded ${catAllChecked ? 'bg-green-500/30 text-green-400' : group.bgClass}`}>
+                    <span className={`text-xs px-1.5 rounded font-bold ${catAllChecked ? 'bg-green-500/30 text-green-400' : group.bgClass}`}>
                       {catAllChecked ? '✓' : group.totalCount}
                     </span>
-                    <span className="text-gray-500 text-[10px] ml-auto">{isCollapsed ? '▶' : '▼'}</span>
+                    <span className="text-gray-500 text-xs ml-auto">{isCollapsed ? '▶' : '▼'}</span>
                   </div>
                   {!isCollapsed && (
                     <div className="space-y-0.5 ml-1">
@@ -567,7 +572,7 @@ export default function KitchenPage() {
 
         {/* Compact for completed */}
         {column.key === 'completed' && (
-          <div className="px-2 py-1 text-[10px] text-gray-400">
+          <div className="px-2 py-1.5 text-xs text-gray-400">
             {(order.order_items || []).reduce((sum, item) => sum + (item.quantity || 0), 0)} article(s)
           </div>
         )}
@@ -608,17 +613,17 @@ export default function KitchenPage() {
   return (
     <div className="h-screen bg-slate-900 text-white flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-2 py-1 bg-slate-800 border-b border-slate-700 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold">🍳 KDS</span>
-          <span className="text-[10px] text-gray-400">{device?.name || 'Cuisine'}</span>
-          <button onClick={() => setDisplayMode(displayMode === 'compact' ? 'detailed' : 'compact')} className="bg-slate-700 px-2 py-0.5 rounded text-xs">
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-800 border-b border-slate-700 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="text-base font-bold">🍳 KDS</span>
+          <span className="text-xs text-gray-400">{device?.name || 'Cuisine'}</span>
+          <button onClick={() => setDisplayMode(displayMode === 'compact' ? 'detailed' : 'compact')} className="bg-slate-700 px-3 py-1 rounded text-sm">
             {displayMode === 'compact' ? '📖' : '📋'}
           </button>
-          <button onClick={() => setShowConfig(true)} className="bg-slate-700 px-2 py-0.5 rounded text-xs">⚙️</button>
-          <button onClick={() => router.push('/device')} className="bg-slate-700 px-2 py-0.5 rounded text-xs">🔄</button>
+          <button onClick={() => setShowConfig(true)} className="bg-slate-700 px-3 py-1 rounded text-sm">⚙️</button>
+          <button onClick={() => router.push('/device')} className="bg-slate-700 px-3 py-1 rounded text-sm">🔄</button>
         </div>
-        <div className="text-xl font-mono font-bold">{currentTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="text-2xl font-mono font-bold">{currentTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
 
       {/* Columns */}
@@ -634,13 +639,13 @@ export default function KitchenPage() {
 
             return (
               <div key={column.key} className="flex flex-col min-h-0 bg-slate-800 rounded overflow-hidden">
-                <div className={`${colors.bg} text-white px-2 py-1 flex items-center justify-between flex-shrink-0`}>
-                  <span className="font-bold text-xs">{column.label}</span>
-                  <span className="bg-white/20 px-1.5 rounded text-xs">{columnOrders.length}</span>
+                <div className={`${colors.bg} text-white px-3 py-1.5 flex items-center justify-between flex-shrink-0`}>
+                  <span className="font-bold text-sm">{column.label}</span>
+                  <span className="bg-white/20 px-2 rounded text-sm font-bold">{columnOrders.length}</span>
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-3 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-4 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                   {columnOrders.length === 0 ? (
-                    <p className="text-gray-500 text-center py-4 text-xs">Aucune commande</p>
+                    <p className="text-gray-500 text-center py-4 text-sm">Aucune commande</p>
                   ) : (
                     columnOrders.map(order => renderOrder(order, column))
                   )}
