@@ -48,6 +48,8 @@ type Product = {
   image_url: string | null
   category_id: string
   is_available: boolean
+  vat_eat_in: number
+  vat_takeaway: number
   product_option_groups: ProductOptionGroup[]
   product_ingredients?: any[]
 }
