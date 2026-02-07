@@ -14,6 +14,7 @@ type Order = {
   payment_status: string
   subtotal: number
   total: number
+  total_amount: number
   customer_name?: string
   customer_phone?: string
   source: string
@@ -127,7 +128,7 @@ export default function ReportsPage() {
       }
 
       existing.orders_count++
-      const ttc = Number(order.total) || 0
+      const ttc = Number(order.total_amount) || 0
       const ht = Number(order.subtotal) || 0
       existing.total_ttc += ttc
       existing.total_ht += ht
@@ -728,11 +729,11 @@ export default function ReportsPage() {
                 </div>
                 <div className="flex justify-between mb-2">
                   <span className="text-gray-600">TVA</span>
-                  <span>{formatCurrency((Number(selectedOrder.total) || 0) - (Number(selectedOrder.subtotal) || 0))}</span>
+                  <span>{formatCurrency((Number(selectedOrder.total_amount) || 0) - (Number(selectedOrder.subtotal) || 0))}</span>
                 </div>
                 <div className="flex justify-between text-xl font-bold">
                   <span>Total TTC</span>
-                  <span className="text-orange-500">{formatCurrency(Number(selectedOrder.total) || 0)}</span>
+                  <span className="text-orange-500">{formatCurrency(Number(selectedOrder.total_amount) || 0)}</span>
                 </div>
               </div>
             </div>
