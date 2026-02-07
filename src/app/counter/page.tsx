@@ -508,6 +508,7 @@ export default function CounterPage() {
           subtotal: subtotalHT,
           tax_amount: taxAmount,
           total: totalTTC,
+          total_amount: totalTTC, // FIX: Remplir total_amount pour éviter TVA négatives dans rapports
           source: 'counter',
           payment_method: paymentMethod === 'offered' ? 'cash' : paymentMethod,
           payment_status: 'paid',
