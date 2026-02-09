@@ -339,7 +339,13 @@ export default function ReportsPage() {
       'TTC 21%', 'TTC 12%', 'TTC 6%', 'TTC 0%', 'HTVA 21%', 'HTVA 12%', 'HTVA 6%', 'HTVA 0%',
       'TVA 21%', 'TVA 12%', 'TVA 6%', 'Tickets']
 
-    const zRows = zReports.map(z => [
+    // FIX: Filtrer les rapports Z selon la plage de dates sélectionnée
+    const filteredZReports = zReports.filter(z => {
+      const zDate = z.period_start.split('T')[0]
+      return zDate >= dateRange.start && zDate <= dateRange.end
+    })
+
+    const zRows = filteredZReports.map(z => [
       z.report_number,
       formatDateTime(z.period_start),
       formatDateTime(z.closed_at),
