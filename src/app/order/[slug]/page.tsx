@@ -694,6 +694,7 @@ export default function OrderPage() {
           deliveryLat: orderType === 'delivery' ? deliveryLat : null,
           deliveryLng: orderType === 'delivery' ? deliveryLng : null,
           deliveryFee: orderType === 'delivery' ? deliveryFee : 0,
+          travelMinutes: orderType === 'delivery' ? deliveryInfo?.duration || null : null,
           notes: null,
           loyaltyPointsUsed: 0,
         }),
