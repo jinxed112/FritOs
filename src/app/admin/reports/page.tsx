@@ -231,7 +231,7 @@ export default function ReportsPage() {
         tickets: 0
       }
 
-      const orderTotal = Number(order.total) || 0
+      const orderTotal = Number(order.total_amount) || 0
       existing.caTTC += orderTotal
       existing.tickets++
 
@@ -605,7 +605,7 @@ export default function ReportsPage() {
                           {order.payment_method === 'cash' ? '💵 Espèces' : '💳 Carte'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right font-semibold">{formatCurrency(Number(order.total) || 0)}</td>
+                      <td className="px-6 py-4 text-right font-semibold">{formatCurrency(Number(order.total_amount) || 0)}</td>
                       <td className="px-6 py-4 text-center">
                         <button
                           onClick={() => setSelectedOrder(order)}
