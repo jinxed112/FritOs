@@ -23,6 +23,7 @@ type Category = {
   display_order: number
   is_active: boolean
   visible_on_kiosk: boolean
+  visible_online: boolean
   image_url: string | null
   _count?: number
   category_option_groups?: CategoryOptionGroup[]
@@ -43,6 +44,7 @@ export default function CategoriesPage() {
     display_order: 0,
     is_active: true,
     visible_on_kiosk: true,
+    visible_online: true,
   })
   
   // Propositions assignées
@@ -156,6 +158,7 @@ export default function CategoriesPage() {
         display_order: category.display_order,
         is_active: category.is_active,
         visible_on_kiosk: category.visible_on_kiosk ?? true,
+        visible_online: category.visible_online ?? true,
       })
       // Charger les propositions assignées
       const assigned = (category.category_option_groups || [])
@@ -174,6 +177,7 @@ export default function CategoriesPage() {
         display_order: categories.length,
         is_active: true,
         visible_on_kiosk: true,
+        visible_online: true,
       })
       setAssignedPropositions([])
     }
@@ -212,6 +216,7 @@ export default function CategoriesPage() {
             display_order: form.display_order,
             is_active: form.is_active,
             visible_on_kiosk: form.visible_on_kiosk,
+            visible_online: form.visible_online,
           } as any)
           .eq('id', editingCategory.id)
         
@@ -227,6 +232,7 @@ export default function CategoriesPage() {
             display_order: form.display_order,
             is_active: form.is_active,
             visible_on_kiosk: form.visible_on_kiosk,
+            visible_online: form.visible_online,
           } as any)
           .select()
           .single()
@@ -305,6 +311,15 @@ export default function CategoriesPage() {
     if (!error) loadData()
   }
 
+  async function toggleVisibleOnline(category: Category) {
+    const { error } = await supabase
+      .from('categories')
+      .update({ visible_online: !category.visible_online } as any)
+      .eq('id', category.id)
+    
+    if (!error) loadData()
+  }
+
   async function deleteCategory(category: Category) {
     if (category._count && category._count > 0) {
       alert(`Impossible de supprimer "${category.name}" car elle contient ${category._count} produit(s)`)
@@ -360,6 +375,7 @@ export default function CategoriesPage() {
                 <th className="text-left px-6 py-4 font-semibold text-gray-600">Produits</th>
                 <th className="text-left px-6 py-4 font-semibold text-gray-600">Propositions</th>
                 <th className="text-center px-6 py-4 font-semibold text-gray-600">Borne</th>
+                <th className="text-center px-6 py-4 font-semibold text-gray-600">En ligne</th>
                 <th className="text-center px-6 py-4 font-semibold text-gray-600">Statut</th>
                 <th className="text-right px-6 py-4 font-semibold text-gray-600">Actions</th>
               </tr>
@@ -438,6 +454,17 @@ export default function CategoriesPage() {
                       </button>
                     </td>
                     <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={() => toggleVisibleOnline(category)}
+                        className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                          category.visible_online
+                            ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        }`}
+                      >
+                        {category.visible_online ? '🌐' : '🚫'}
+                      </button>
+                    </td>
                       <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                         category.is_active
                           ? 'bg-green-100 text-green-700'
@@ -549,6 +576,19 @@ export default function CategoriesPage() {
                       <div>
                         <span className="font-medium">👁️ Visible sur la borne</span>
                         <p className="text-xs text-gray-500">Afficher cette catégorie sur la borne de commande</p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100">
+                      <input
+                        type="checkbox"
+                        checked={form.visible_online}
+                        onChange={e => setForm({ ...form, visible_online: e.target.checked })}
+                        className="w-5 h-5 rounded text-blue-500"
+                      />
+                      <div>
+                        <span className="font-medium">🌐 Visible en ligne</span>
+                        <p className="text-xs text-gray-500">Afficher cette catégorie sur le portail de commande en ligne</p>
                       </div>
                     </label>
                     
