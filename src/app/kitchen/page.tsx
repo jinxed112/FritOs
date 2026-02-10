@@ -293,6 +293,7 @@ export default function KitchenPage() {
       .eq('establishment_id', estId)
       .eq('status', 'completed')
       .not('completed_at', 'is', null)
+      .in('source', ['kiosk', 'counter'])
       .order('completed_at', { ascending: false })
       .limit(10)
 
