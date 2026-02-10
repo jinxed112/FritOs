@@ -28,7 +28,7 @@ type Order = {
   scheduled_slot_start?: string | null
   source?: string | null
   delivery_notes?: string | null
-  metadata?: { source?: string; slot_date?: string; slot_time?: string; delivery_duration?: number; delivery_address?: string; delivery_lat?: number; delivery_lng?: number } | null
+  metadata?: { source?: string; slot_date?: string; slot_time?: string; delivery_duration?: number; delivery_address?: string; delivery_lat?: number; delivery_lng?: number; travel_minutes?: number } | null
 }
 
 type ParsedOption = { item_name: string; price: number }
@@ -282,7 +282,32 @@ export default function KitchenPage() {
   function loadAllData(estId: string) {
     loadOrders(estId)
     loadTempOrders(estId)
+    loadAvgPrepTime(estId)
     setupRealtime(estId)
+  }
+
+  async function loadAvgPrepTime(estId: string) {
+    const { data } = await supabase
+      .from('orders')
+      .select('created_at, completed_at')
+      .eq('establishment_id', estId)
+      .eq('status', 'completed')
+      .not('completed_at', 'is', null)
+      .order('completed_at', { ascending: false })
+      .limit(10)
+
+    if (data && data.length > 0) {
+      const prepTimes = data.map(o => {
+        const created = new Date(o.created_at).getTime()
+        const completed = new Date(o.completed_at).getTime()
+        return (completed - created) / 60000
+      }).filter(t => t > 0 && t < 120) // filtrer les aberrations
+
+      if (prepTimes.length > 0) {
+        const avg = Math.round(prepTimes.reduce((a, b) => a + b, 0) / prepTimes.length)
+        setAvgPrepTime(Math.max(DEFAULT_PREP_TIME, avg))
+      }
+    }
   }
 
   async function loadTempOrders(estId: string) {
@@ -416,20 +441,32 @@ export default function KitchenPage() {
     return 'text-red-400'
   }
 
-  function formatLaunchTime(order: Order): { time: string; isNow: boolean; isPast: boolean; isUpcoming: boolean } {
+  function formatLaunchTime(order: Order): { time: string; launchTime: string | null; isNow: boolean; isPast: boolean; isUpcoming: boolean; travelMin: number } {
     const slotTime = order.scheduled_slot_start || order.scheduled_time
     if (!slotTime || !isClickAndCollect(order)) {
-      return { time: 'MAINTENANT', isNow: true, isPast: false, isUpcoming: false }
+      return { time: 'MAINTENANT', launchTime: null, isNow: true, isPast: false, isUpcoming: false, travelMin: 0 }
     }
     const scheduled = new Date(slotTime).getTime()
     const now = currentTime.getTime()
-    const diffMinutes = (scheduled - now) / (60 * 1000)
     const timeStr = formatTime(slotTime)
+
+    // Pour les livraisons : soustraire temps de trajet + temps de prépa
+    const travelMin = order.metadata?.travel_minutes || 0
+    const isDelivery = order.order_type === 'delivery'
+    const offset = isDelivery ? (travelMin + avgPrepTime) : avgPrepTime
+    const launchTimestamp = scheduled - offset * 60 * 1000
+    const diffFromLaunch = (launchTimestamp - now) / (60 * 1000)
+
+    const launchDate = new Date(launchTimestamp)
+    const launchStr = launchDate.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })
+
     return {
       time: timeStr,
-      isNow: diffMinutes <= 0 && diffMinutes > -10,
-      isPast: diffMinutes <= -10,
-      isUpcoming: diffMinutes > 0 && diffMinutes <= 15
+      launchTime: launchStr,
+      isNow: diffFromLaunch <= 0 && diffFromLaunch > -10,
+      isPast: diffFromLaunch <= -10,
+      isUpcoming: diffFromLaunch > 0 && diffFromLaunch <= 15,
+      travelMin,
     }
   }
 
@@ -510,9 +547,16 @@ export default function KitchenPage() {
             <span className="text-base">{getOrderTypeEmoji(order.order_type)}</span>
             {order.is_offered && <span title="Offert" className="text-base">🎁</span>}
             {column.key !== 'completed' && (
-              <span className={`text-xs px-2 py-1 rounded font-bold ${launchInfo.isPast ? 'bg-red-500 text-white' : launchInfo.isNow ? 'bg-red-500 text-white' : launchInfo.isUpcoming ? 'bg-orange-500 text-white' : isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'}`}>
-                {launchInfo.isNow ? '🔥' : launchInfo.isPast ? '⚠️' : launchInfo.isUpcoming ? `⏰ ${launchInfo.time}` : isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
-              </span>
+              <>
+                <span className={`text-xs px-2 py-1 rounded font-bold ${launchInfo.isPast ? 'bg-red-500 text-white' : launchInfo.isNow ? 'bg-red-500 text-white' : launchInfo.isUpcoming ? 'bg-orange-500 text-white' : isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'}`}>
+                  {launchInfo.isNow ? '🔥 GO!' : launchInfo.isPast ? '⚠️ RETARD' : isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
+                </span>
+                {isCC && launchInfo.launchTime && column.key === 'pending' && (
+                  <span className={`text-xs px-2 py-1 rounded font-bold ${launchInfo.isPast ? 'bg-red-500/80 text-white' : launchInfo.isNow ? 'bg-red-500/80 text-white' : launchInfo.isUpcoming ? 'bg-orange-500/80 text-white' : 'bg-blue-500/30 text-blue-300'}`}>
+                    🔧 {launchInfo.launchTime}
+                  </span>
+                )}
+              </>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -531,9 +575,16 @@ export default function KitchenPage() {
         {/* Client info for delivery/pickup */}
         {(order.order_type === 'delivery' || order.order_type === 'pickup') && order.customer_name && column.key !== 'completed' && (
           <div className="px-2 py-1 bg-slate-600/50 text-xs text-gray-300">
-            {order.order_type === 'delivery' ? '📍' : '🛍️'} {order.customer_name}
-            {order.order_type === 'delivery' && order.delivery_notes && ` - ${order.delivery_notes}`}
-            {order.customer_phone && ` • ${order.customer_phone}`}
+            <div>
+              {order.order_type === 'delivery' ? '📍' : '🛍️'} {order.customer_name}
+              {order.order_type === 'delivery' && order.delivery_notes && ` - ${order.delivery_notes}`}
+              {order.customer_phone && ` • ${order.customer_phone}`}
+            </div>
+            {order.order_type === 'delivery' && launchInfo.travelMin > 0 && column.key === 'pending' && (
+              <div className="mt-0.5 text-blue-300">
+                🚗 {launchInfo.travelMin}min trajet • ⏱️ ~{avgPrepTime}min prépa • 🔧 Lancer à {launchInfo.launchTime}
+              </div>
+            )}
           </div>
         )}
 
