@@ -18,7 +18,7 @@ type Order = {
   id: string
   order_number: string
   order_type: string
-  status: 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled'
+  status: 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled' | 'scheduled'
   created_at: string
   order_items: OrderItem[]
   is_offered?: boolean
@@ -374,10 +374,17 @@ export default function KitchenPage() {
     
     // Sync serveur en background
     try {
+      const now = new Date().toISOString()
       const response = await fetch('/api/kitchen/update-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, newStatus, isOffered })
+        body: JSON.stringify({ 
+          orderId, 
+          newStatus, 
+          isOffered,
+          ...(newStatus === 'completed' && { completed_at: now }),
+          ...(newStatus === 'preparing' && { preparation_started_at: now }),
+        })
       })
       if (!response.ok) console.error('Update status error')
     } catch (error) {
@@ -706,6 +713,29 @@ export default function KitchenPage() {
           })}
         </div>
       )}
+
+      {/* Scheduled orders banner */}
+      {(() => {
+        const scheduledOrders = allOrders.filter(o => o.status === 'scheduled').sort((a, b) => {
+          const aTime = new Date(a.scheduled_slot_start || a.created_at).getTime()
+          const bTime = new Date(b.scheduled_slot_start || b.created_at).getTime()
+          return aTime - bTime
+        })
+        if (scheduledOrders.length === 0) return null
+        return (
+          <div className="flex-shrink-0 bg-slate-800/80 border-t border-slate-600 px-3 py-1.5">
+            <div className="flex items-center gap-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+              <span className="text-xs font-bold text-gray-500 uppercase flex-shrink-0">⏳ {scheduledOrders.length} programmée{scheduledOrders.length > 1 ? 's' : ''}</span>
+              {scheduledOrders.map(order => (
+                <span key={order.id} className="flex-shrink-0 text-xs text-gray-400 bg-slate-700/50 px-2 py-1 rounded">
+                  {order.order_number} {getOrderTypeEmoji(order.order_type)} ⏰ {formatTime(order.scheduled_slot_start || order.scheduled_time)}
+                  {order.order_type === 'delivery' && order.customer_name ? ` • ${order.customer_name}` : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Config modal */}
       {showConfig && (
