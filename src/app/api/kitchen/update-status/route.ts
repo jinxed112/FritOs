@@ -108,6 +108,10 @@ export async function POST(request: NextRequest) {
         updateData.preparation_started_at = new Date().toISOString()
       }
 
+      if (newStatus === 'completed') {
+        updateData.completed_at = new Date().toISOString()
+      }
+
       const { error } = await supabase
         .from('orders')
         .update(updateData)
