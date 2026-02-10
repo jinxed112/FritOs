@@ -281,6 +281,29 @@ export default function TimeSlotsPage() {
     }))
   }
 
+  // Toggle is_active avec sauvegarde immédiate en DB
+  async function toggleActive() {
+    if (!config) return
+    const newValue = !config.is_active
+
+    // Update state immédiatement
+    updateConfig({ is_active: newValue })
+
+    // Sauvegarder en DB directement
+    if (config.id) {
+      const { error } = await supabase
+        .from('time_slots_config')
+        .update({ is_active: newValue, updated_at: new Date().toISOString() })
+        .eq('id', config.id)
+
+      if (error) {
+        console.error('Erreur toggle active:', error)
+        // Rollback
+        updateConfig({ is_active: !newValue })
+      }
+    }
+  }
+
   function updateDaySchedule(dayKey: string, updates: Partial<DaySchedule>) {
     if (!config) return
 
@@ -453,7 +476,7 @@ export default function TimeSlotsPage() {
                 </p>
               </div>
               <button
-                onClick={() => updateConfig({ is_active: !config.is_active })}
+                onClick={toggleActive}
                 className={`px-6 py-3 rounded-xl font-semibold transition-all ${
                   config.is_active
                     ? 'bg-green-500 text-white'

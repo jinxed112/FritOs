@@ -333,23 +333,6 @@ export default function DeliverySettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Temps de trajet maximum
-                </label>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="number" 
-                    value={config.max_delivery_minutes} 
-                    onChange={e => setConfig({ ...config, max_delivery_minutes: parseInt(e.target.value) || 20 })} 
-                    className="w-24 px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500" 
-                    min="5"
-                    max="60"
-                  />
-                  <span className="text-gray-500">minutes</span>
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Commande minimum
                 </label>
                 <div className="flex items-center gap-2">
