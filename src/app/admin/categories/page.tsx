@@ -465,6 +465,7 @@ export default function CategoriesPage() {
                         {category.visible_online ? '🌐' : '🚫'}
                       </button>
                     </td>
+                    <td className="px-6 py-4 text-center">
                       <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                         category.is_active
                           ? 'bg-green-100 text-green-700'
