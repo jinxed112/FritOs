@@ -363,7 +363,7 @@ export default function CounterPage() {
     setLoadingDeliverySlots(true)
     try {
       const response = await fetch(
-        `/api/timeslots?establishmentId=${device.establishmentId}&orderType=delivery&days=3&_t=${Date.now()}`,
+        `/api/timeslots?establishmentId=${device.establishmentId}&orderType=delivery&days=3&source=counter&_t=${Date.now()}`,
         { cache: 'no-store' }
       )
       const data = await response.json()
