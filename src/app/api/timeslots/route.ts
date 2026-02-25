@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     const establishmentId = searchParams.get('establishmentId')
     const orderType = searchParams.get('orderType') || 'pickup' // pickup ou delivery
     const days = parseInt(searchParams.get('days') || '7')
+    const source = searchParams.get('source') // 'counter' pour bypass is_active
 
     if (!establishmentId) {
       return NextResponse.json(
@@ -33,18 +34,27 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Charger la config des créneaux
-    const { data: config, error: configError } = await supabase
+    // Charger la config des créneaux — filtrer par slot_type !
+    let query = supabase
       .from('time_slots_config')
       .select('*')
       .eq('establishment_id', establishmentId)
-      .single()
+      .eq('slot_type', orderType)
+
+    // Si ce n'est pas la caisse, vérifier que la config est active
+    if (source !== 'counter') {
+      query = query.eq('is_active', true)
+    }
+
+    const { data: config, error: configError } = await query.single()
 
     if (configError || !config) {
-      return NextResponse.json(
-        { error: 'Configuration des créneaux non trouvée' },
-        { status: 404 }
-      )
+      return NextResponse.json({
+        slots: [],
+        error: source !== 'counter' 
+          ? 'Ce type de commande est actuellement indisponible'
+          : 'Configuration des créneaux non trouvée',
+      })
     }
 
     // Charger la config de livraison si nécessaire
@@ -116,11 +126,6 @@ export async function GET(request: NextRequest) {
       // Récupérer le planning du jour
       const daySchedule = weeklySchedule[dayOfWeek.toString()]
       if (!daySchedule?.enabled && !override) {
-        result.push({
-          date: dateStr,
-          dayLabel: formatDayLabel(date),
-          slots: [],
-        })
         continue
       }
 
@@ -169,7 +174,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       slots: result,
       config: {
         slotDuration,
@@ -177,6 +182,8 @@ export async function GET(request: NextRequest) {
         maxOrdersPerSlot,
       },
     })
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+    return response
 
   } catch (error: any) {
     console.error('Erreur timeslots:', error)
