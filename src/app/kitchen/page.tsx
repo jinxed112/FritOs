@@ -28,6 +28,7 @@ type Order = {
   scheduled_slot_start?: string | null
   source?: string | null
   delivery_notes?: string | null
+  payment_status?: string | null
   metadata?: { source?: string; slot_date?: string; slot_time?: string; delivery_duration?: number; delivery_address?: string; delivery_lat?: number; delivery_lng?: number; travel_minutes?: number } | null
 }
 
@@ -347,7 +348,7 @@ export default function KitchenPage() {
     // Charger : toutes les commandes non-terminées + commandes du jour
     const { data } = await supabase
       .from('orders')
-      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, metadata, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
+      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, payment_status, metadata, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
       .eq('establishment_id', estId)
       .neq('status', 'cancelled')
       .neq('status', 'awaiting_payment')
@@ -598,6 +599,9 @@ export default function KitchenPage() {
               {order.order_type === 'delivery' ? '📍' : '🛍️'} {order.customer_name}
               {order.order_type === 'delivery' && order.delivery_notes && ` - ${order.delivery_notes}`}
               {order.customer_phone && ` • ${order.customer_phone}`}
+              {order.order_type === 'delivery' && order.payment_status !== 'paid' && (
+                <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white font-bold rounded text-xs animate-pulse">💵 CASH</span>
+              )}
             </div>
             {order.order_type === 'delivery' && launchInfo.travelMin > 0 && column.key === 'pending' && (
               <div className="mt-0.5 text-blue-300">
