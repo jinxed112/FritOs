@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import AddressInput from '@/components/AddressInput'
 import Link from 'next/link'
 
 // ==================== TYPES ====================
@@ -83,7 +84,7 @@ type CartItem = {
   vat_takeaway: number
 }
 
-type OrderType = 'eat_in' | 'takeaway'
+type OrderType = 'eat_in' | 'takeaway' | 'delivery'
 type PaymentMethod = 'card' | 'cash' | 'offered'
 
 type LateOrder = {
@@ -151,6 +152,21 @@ export default function CounterPage() {
   
   // Allergen modal state
   const [allergenModalProduct, setAllergenModalProduct] = useState<Product | null>(null)
+
+  // Delivery phone order state
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false)
+  const [deliveryCustomerName, setDeliveryCustomerName] = useState('')
+  const [deliveryCustomerPhone, setDeliveryCustomerPhone] = useState('')
+  const [deliveryAddress, setDeliveryAddress] = useState('')
+  const [deliveryLat, setDeliveryLat] = useState<number | null>(null)
+  const [deliveryLng, setDeliveryLng] = useState<number | null>(null)
+  const [deliveryFee, setDeliveryFee] = useState(0)
+  const [deliveryInfo, setDeliveryInfo] = useState<any>(null)
+  const [deliveryValidated, setDeliveryValidated] = useState(false)
+  const [deliveryTimeSlots, setDeliveryTimeSlots] = useState<{ date: string; dayLabel: string; slots: { time: string; label: string; available: boolean }[] }[]>([])
+  const [deliverySelectedDate, setDeliverySelectedDate] = useState<string | null>(null)
+  const [deliverySelectedTime, setDeliverySelectedTime] = useState<string | null>(null)
+  const [loadingDeliverySlots, setLoadingDeliverySlots] = useState(false)
 
   const supabase = createClient()
 
@@ -311,6 +327,70 @@ export default function CounterPage() {
     }
   }
 
+  // ==================== DELIVERY PHONE ORDER ====================
+
+  function startDeliveryOrder() {
+    setOrderType('delivery')
+    setShowDeliveryModal(true)
+    setDeliveryCustomerName('')
+    setDeliveryCustomerPhone('')
+    setDeliveryAddress('')
+    setDeliveryLat(null)
+    setDeliveryLng(null)
+    setDeliveryFee(0)
+    setDeliveryInfo(null)
+    setDeliveryValidated(false)
+    setDeliveryTimeSlots([])
+    setDeliverySelectedDate(null)
+    setDeliverySelectedTime(null)
+    loadDeliveryTimeSlots()
+  }
+
+  function cancelDeliveryOrder() {
+    setShowDeliveryModal(false)
+    setOrderType('takeaway')
+    setDeliveryCustomerName('')
+    setDeliveryCustomerPhone('')
+    setDeliveryAddress('')
+    setDeliveryValidated(false)
+    setDeliveryFee(0)
+    setDeliverySelectedDate(null)
+    setDeliverySelectedTime(null)
+  }
+
+  async function loadDeliveryTimeSlots() {
+    if (!device) return
+    setLoadingDeliverySlots(true)
+    try {
+      const response = await fetch(
+        `/api/timeslots?establishmentId=${device.establishmentId}&orderType=delivery&days=3&_t=${Date.now()}`,
+        { cache: 'no-store' }
+      )
+      const data = await response.json()
+      if (data.slots) {
+        setDeliveryTimeSlots(data.slots)
+        const firstAvailable = data.slots.find(
+          (day: any) => day.slots.some((s: any) => s.available)
+        )
+        if (firstAvailable) {
+          setDeliverySelectedDate(firstAvailable.date)
+        }
+      }
+    } catch (e) {
+      console.error('Erreur chargement créneaux delivery:', e)
+    } finally {
+      setLoadingDeliverySlots(false)
+    }
+  }
+
+  function confirmDeliveryInfo() {
+    if (!deliveryCustomerName || !deliveryCustomerPhone || !deliveryValidated || !deliverySelectedDate || !deliverySelectedTime) {
+      alert('Veuillez remplir tous les champs')
+      return
+    }
+    setShowDeliveryModal(false)
+  }
+
   // ==================== PRODUCT MODAL ====================
 
   function openProductModal(product: Product) {
@@ -462,7 +542,7 @@ export default function CounterPage() {
   function getCartTotal(): number {
     // Prix TTC identique pour le client (sur place ou emporter)
     // La différence de TVA (12% vs 6%) est absorbée par le commerçant
-    return getCartSubtotal()
+    return getCartSubtotal() + (orderType === 'delivery' ? deliveryFee : 0)
   }
 
   function getTotalWithVat(): number {
@@ -471,6 +551,10 @@ export default function CounterPage() {
 
   function getVatRate(): number {
     return orderType === 'eat_in' ? 12 : 6
+  }
+
+  function getDeliverySelectedDaySlots() {
+    return deliveryTimeSlots.find(d => d.date === deliverySelectedDate)?.slots || []
   }
 
   function getChange(): number {
@@ -482,11 +566,20 @@ export default function CounterPage() {
   async function submitOrder() {
     if (!orderType || cart.length === 0) return
     
+    // Validation delivery
+    if (orderType === 'delivery') {
+      if (!deliveryCustomerName || !deliveryCustomerPhone || !deliveryValidated || !deliverySelectedDate || !deliverySelectedTime) {
+        alert('Informations de livraison incomplètes')
+        return
+      }
+    }
+    
     setIsSubmitting(true)
     
     try {
       const totalTTC = getCartTotal()
       // Calcul TVA par produit (chaque produit a son propre taux)
+      const vatType = orderType === 'eat_in' ? 'vat_eat_in' : 'vat_takeaway'
       let totalTax = 0
       cart.forEach(item => {
         const rate = orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway
@@ -497,25 +590,55 @@ export default function CounterPage() {
       const subtotalHT = totalTTC - taxAmount
       
       const isOffered = paymentMethod === 'offered'
+
+      // Convertir le créneau delivery en UTC si nécessaire
+      let scheduledSlotUTC = null
+      if (orderType === 'delivery' && deliverySelectedDate && deliverySelectedTime) {
+        const utcGuess = new Date(`${deliverySelectedDate}T${deliverySelectedTime}:00Z`)
+        const utcFormatted = utcGuess.toLocaleString('en-US', { timeZone: 'UTC' })
+        const brusselsFormatted = utcGuess.toLocaleString('en-US', { timeZone: 'Europe/Brussels' })
+        const offsetMs = new Date(brusselsFormatted).getTime() - new Date(utcFormatted).getTime()
+        scheduledSlotUTC = new Date(utcGuess.getTime() - offsetMs).toISOString()
+      }
       
-      // Créer la commande avec les bons noms de colonnes
+      // Créer la commande
+      const orderData: any = {
+        establishment_id: device!.establishmentId,
+        order_type: orderType,
+        status: 'pending',
+        subtotal: subtotalHT,
+        tax_amount: taxAmount,
+        total: totalTTC,
+        total_amount: totalTTC,
+        source: 'counter',
+        payment_method: orderType === 'delivery' ? 'cash' : (paymentMethod === 'offered' ? 'cash' : paymentMethod),
+        payment_status: orderType === 'delivery' ? 'pending' : 'paid',
+        is_offered: isOffered,
+        device_id: device!.id,
+        metadata: orderType === 'delivery' 
+          ? JSON.stringify({
+              delivery_address: deliveryAddress,
+              delivery_lat: deliveryLat,
+              delivery_lng: deliveryLng,
+              travel_minutes: deliveryInfo?.duration || null,
+              phone_order: true,
+            })
+          : (isOffered && offeredReason ? JSON.stringify({ offered_reason: offeredReason }) : null),
+      }
+
+      // Champs spécifiques delivery
+      if (orderType === 'delivery') {
+        orderData.customer_name = deliveryCustomerName
+        orderData.customer_phone = deliveryCustomerPhone
+        orderData.delivery_notes = deliveryAddress
+        orderData.delivery_fee = deliveryFee
+        orderData.scheduled_slot_start = scheduledSlotUTC
+        orderData.eat_in = false
+      }
+
       const { data: order, error: orderError } = await supabase
         .from('orders')
-        .insert({
-          establishment_id: device!.establishmentId,
-          order_type: orderType,
-          status: 'pending',
-          subtotal: subtotalHT,
-          tax_amount: taxAmount,
-          total: totalTTC,
-          total_amount: totalTTC, // FIX: Remplir total_amount pour éviter TVA négatives dans rapports
-          source: 'counter',
-          payment_method: paymentMethod === 'offered' ? 'cash' : paymentMethod,
-          payment_status: 'paid',
-          is_offered: isOffered,
-          device_id: device!.id,
-          metadata: isOffered && offeredReason ? JSON.stringify({ offered_reason: offeredReason }) : null,
-        })
+        .insert(orderData)
         .select()
         .single()
       
@@ -553,6 +676,18 @@ export default function CounterPage() {
       setPaymentMethod('cash')
       setCashReceived(0)
       setOfferedReason('')
+      
+      // Reset delivery
+      if (orderType === 'delivery') {
+        setDeliveryCustomerName('')
+        setDeliveryCustomerPhone('')
+        setDeliveryAddress('')
+        setDeliveryValidated(false)
+        setDeliveryFee(0)
+        setDeliverySelectedDate(null)
+        setDeliverySelectedTime(null)
+        setOrderType('takeaway')
+      }
       
     } catch (error) {
       console.error('Erreur:', error)
@@ -710,7 +845,10 @@ export default function CounterPage() {
             <p className="text-7xl font-bold">#{orderNumber}</p>
           </div>
           <button
-            onClick={() => setOrderNumber(null)}
+            onClick={() => {
+              setOrderNumber(null)
+              setOrderType('takeaway')
+            }}
             className="bg-white text-green-600 font-bold px-12 py-5 rounded-2xl text-2xl active:scale-95 transition-transform"
           >
             Nouvelle commande
@@ -761,6 +899,16 @@ export default function CounterPage() {
                 }`}
               >
                 🥡 Emporter
+              </button>
+              <button
+                onClick={startDeliveryOrder}
+                className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
+                  orderType === 'delivery' 
+                    ? 'bg-blue-500 text-white shadow-lg' 
+                    : 'bg-slate-700 text-gray-300'
+                }`}
+              >
+                📞 Livraison
               </button>
             </div>
             
@@ -879,7 +1027,9 @@ export default function CounterPage() {
       {/* Cart sidebar - Optimisé tablette */}
       <div className="w-96 bg-white shadow-xl flex flex-col flex-shrink-0 border-l">
         <div className="p-5 bg-slate-800 text-white flex-shrink-0">
-          <h2 className="text-xl font-bold">🛒 Commande</h2>
+          <h2 className="text-xl font-bold">
+            {orderType === 'delivery' ? '📞 Livraison' : '🛒 Commande'}
+          </h2>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4">
@@ -942,22 +1092,68 @@ export default function CounterPage() {
         
         {/* Cart footer */}
         <div className="border-t p-5 bg-gray-50 flex-shrink-0">
+          {/* Delivery info banner */}
+          {orderType === 'delivery' && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-blue-700 font-bold text-sm">📞 Commande téléphone</span>
+                <button
+                  onClick={startDeliveryOrder}
+                  className="text-blue-500 text-xs underline"
+                >
+                  Modifier
+                </button>
+              </div>
+              {deliveryCustomerName && (
+                <p className="text-sm text-blue-800">{deliveryCustomerName} • {deliveryCustomerPhone}</p>
+              )}
+              {deliveryAddress && (
+                <p className="text-xs text-blue-600 truncate">{deliveryAddress}</p>
+              )}
+              {deliverySelectedTime && (
+                <p className="text-xs text-blue-600">🕐 {deliveryTimeSlots.find(d => d.date === deliverySelectedDate)?.dayLabel} à {deliverySelectedTime}</p>
+              )}
+              <button
+                onClick={cancelDeliveryOrder}
+                className="mt-2 text-xs text-red-500 underline"
+              >
+                Annuler la livraison
+              </button>
+            </div>
+          )}
+
           <div className="flex justify-between mb-2 text-base">
             <span className="text-gray-600">Sous-total</span>
             <span className="font-semibold">{getCartSubtotal().toFixed(2)} €</span>
           </div>
+          {orderType === 'delivery' && deliveryFee > 0 && (
+            <div className="flex justify-between mb-2 text-base">
+              <span className="text-gray-600">Livraison</span>
+              <span className="font-semibold">{deliveryFee.toFixed(2)} €</span>
+            </div>
+          )}
           <div className="flex justify-between mb-5 text-xl">
             <span className="font-bold">Total</span>
             <span className="font-bold text-orange-500 text-2xl">{getCartTotal().toFixed(2)} €</span>
           </div>
           
-          <button
-            onClick={() => setShowPaymentModal(true)}
-            disabled={cart.length === 0}
-            className="w-full bg-green-500 text-white font-bold py-5 rounded-xl disabled:opacity-50 active:scale-[0.98] transition-transform text-xl"
-          >
-            💶 Encaisser
-          </button>
+          {orderType === 'delivery' ? (
+            <button
+              onClick={submitOrder}
+              disabled={cart.length === 0 || !deliveryValidated || !deliverySelectedTime || isSubmitting}
+              className="w-full bg-blue-500 text-white font-bold py-5 rounded-xl disabled:opacity-50 active:scale-[0.98] transition-transform text-xl"
+            >
+              {isSubmitting ? 'Envoi...' : '📞 Valider livraison (cash)'}
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowPaymentModal(true)}
+              disabled={cart.length === 0}
+              className="w-full bg-green-500 text-white font-bold py-5 rounded-xl disabled:opacity-50 active:scale-[0.98] transition-transform text-xl"
+            >
+              💶 Encaisser
+            </button>
+          )}
         </div>
       </div>
 
@@ -1199,6 +1395,180 @@ export default function CounterPage() {
                 className="flex-1 px-6 py-5 rounded-xl bg-green-500 text-white font-semibold text-xl disabled:opacity-50 active:scale-95 transition-transform"
               >
                 {isSubmitting ? 'Envoi...' : '✓ Valider'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Livraison Téléphone */}
+      {showDeliveryModal && device && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 bg-blue-500 text-white flex items-center justify-between flex-shrink-0">
+              <div>
+                <h2 className="text-2xl font-bold">📞 Commande téléphone</h2>
+                <p className="text-blue-100 text-lg">Livraison — paiement cash</p>
+              </div>
+              <button
+                onClick={cancelDeliveryOrder}
+                className="text-white/70 active:text-white text-4xl p-2"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {/* Nom + téléphone */}
+              <div>
+                <label className="font-semibold text-gray-700 block mb-2">Nom du client *</label>
+                <input
+                  type="text"
+                  value={deliveryCustomerName}
+                  onChange={e => setDeliveryCustomerName(e.target.value)}
+                  className="w-full px-4 py-4 rounded-xl border border-gray-200 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nom Prénom"
+                  autoFocus
+                />
+              </div>
+              
+              <div>
+                <label className="font-semibold text-gray-700 block mb-2">Téléphone *</label>
+                <input
+                  type="tel"
+                  value={deliveryCustomerPhone}
+                  onChange={e => setDeliveryCustomerPhone(e.target.value)}
+                  className="w-full px-4 py-4 rounded-xl border border-gray-200 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="+32 470 00 00 00"
+                />
+              </div>
+              
+              {/* Adresse de livraison */}
+              <div>
+                <label className="font-semibold text-gray-700 block mb-2">Adresse de livraison *</label>
+                <AddressInput
+                  establishmentId={device.establishmentId}
+                  value={deliveryAddress}
+                  onChange={(value) => {
+                    setDeliveryAddress(value)
+                    if (deliveryValidated) {
+                      setDeliveryValidated(false)
+                      setDeliveryInfo(null)
+                    }
+                  }}
+                  onAddressValidated={(data) => {
+                    setDeliveryAddress(data.address)
+                    setDeliveryLat(data.lat)
+                    setDeliveryLng(data.lng)
+                    setDeliveryValidated(true)
+                    setDeliveryInfo({
+                      deliverable: true,
+                      distance: data.travelMinutes,
+                      duration: data.travelMinutes,
+                    })
+                    setDeliveryFee(data.deliveryFee)
+                  }}
+                  onClear={() => {
+                    setDeliveryValidated(false)
+                    setDeliveryInfo(null)
+                    setDeliveryLat(null)
+                    setDeliveryLng(null)
+                    setDeliveryFee(0)
+                  }}
+                />
+                {deliveryValidated && (
+                  <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-xl">
+                    <p className="text-green-700 text-sm font-medium">
+                      ✅ Adresse validée — Frais: {deliveryFee.toFixed(2)}€
+                      {deliveryInfo?.duration && ` — ~${deliveryInfo.duration} min`}
+                    </p>
+                  </div>
+                )}
+              </div>
+              
+              {/* Créneaux horaires */}
+              <div>
+                <label className="font-semibold text-gray-700 block mb-2">Créneau de livraison *</label>
+                {loadingDeliverySlots ? (
+                  <p className="text-gray-400 text-center py-4">Chargement des créneaux...</p>
+                ) : deliveryTimeSlots.length === 0 ? (
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+                    <p className="text-red-600 font-medium">Aucun créneau de livraison disponible</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Sélection du jour */}
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {deliveryTimeSlots.map(day => {
+                        const hasAvailable = day.slots.some(s => s.available)
+                        return (
+                          <button
+                            key={day.date}
+                            onClick={() => {
+                              setDeliverySelectedDate(day.date)
+                              setDeliverySelectedTime(null)
+                            }}
+                            disabled={!hasAvailable}
+                            className={`px-4 py-2 rounded-xl whitespace-nowrap font-medium transition-colors ${
+                              deliverySelectedDate === day.date
+                                ? 'bg-blue-500 text-white'
+                                : hasAvailable
+                                ? 'bg-gray-100 text-gray-700'
+                                : 'bg-gray-100 text-gray-400'
+                            }`}
+                          >
+                            {day.dayLabel}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    
+                    {/* Créneaux du jour */}
+                    <div className="grid grid-cols-4 gap-2">
+                      {getDeliverySelectedDaySlots().map(slot => (
+                        <button
+                          key={slot.time}
+                          onClick={() => slot.available && setDeliverySelectedTime(slot.time)}
+                          disabled={!slot.available}
+                          className={`py-3 rounded-xl text-sm font-medium transition-colors ${
+                            deliverySelectedTime === slot.time
+                              ? 'bg-blue-500 text-white'
+                              : slot.available
+                              ? 'bg-gray-100 text-gray-700 active:bg-gray-200'
+                              : 'bg-gray-50 text-gray-300'
+                          }`}
+                        >
+                          {slot.label}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {deliverySelectedTime && (
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                        <p className="text-blue-700 font-medium text-sm">
+                          🕐 Livraison le {deliveryTimeSlots.find(d => d.date === deliverySelectedDate)?.dayLabel} à {deliverySelectedTime}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="p-6 border-t flex gap-4 flex-shrink-0 bg-gray-50">
+              <button
+                onClick={cancelDeliveryOrder}
+                className="flex-1 px-6 py-5 rounded-xl border border-gray-300 font-semibold text-xl active:bg-gray-100"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmDeliveryInfo}
+                disabled={!deliveryCustomerName || !deliveryCustomerPhone || !deliveryValidated || !deliverySelectedTime}
+                className="flex-1 px-6 py-5 rounded-xl bg-blue-500 text-white font-semibold text-xl disabled:opacity-50 active:scale-95 transition-transform"
+              >
+                ✓ Confirmer
               </button>
             </div>
           </div>
