@@ -287,28 +287,33 @@ export default function KitchenPage() {
   }
 
   async function loadAvgPrepTime(estId: string) {
+    // Temps de prépa = dernière commande borne/caisse (pas delivery/online) passée en "prêt" aujourd'hui
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
     const { data } = await supabase
       .from('orders')
-      .select('created_at, completed_at')
+      .select('created_at, ready_at')
       .eq('establishment_id', estId)
-      .eq('status', 'completed')
-      .not('completed_at', 'is', null)
+      .in('status', ['ready', 'completed'])
+      .not('ready_at', 'is', null)
       .in('source', ['kiosk', 'counter'])
-      .order('completed_at', { ascending: false })
-      .limit(10)
+      .neq('order_type', 'delivery')
+      .gte('created_at', today.toISOString())
+      .order('ready_at', { ascending: false })
+      .limit(1)
 
     if (data && data.length > 0) {
-      const prepTimes = data.map(o => {
-        const created = new Date(o.created_at).getTime()
-        const completed = new Date(o.completed_at).getTime()
-        return (completed - created) / 60000
-      }).filter(t => t > 0 && t < 120) // filtrer les aberrations
-
-      if (prepTimes.length > 0) {
-        const avg = Math.round(prepTimes.reduce((a, b) => a + b, 0) / prepTimes.length)
-        setAvgPrepTime(Math.max(DEFAULT_PREP_TIME, avg))
+      const created = new Date(data[0].created_at).getTime()
+      const ready = new Date(data[0].ready_at).getTime()
+      const prepMin = Math.round((ready - created) / 60000)
+      if (prepMin > 0 && prepMin < 60) {
+        setAvgPrepTime(prepMin)
+        return
       }
     }
+    // Début de journée ou pas de donnée → 10 min par défaut
+    setAvgPrepTime(DEFAULT_PREP_TIME)
   }
 
   async function loadTempOrders(estId: string) {
@@ -385,9 +390,15 @@ export default function KitchenPage() {
           isOffered,
           ...(newStatus === 'completed' && { completed_at: now }),
           ...(newStatus === 'preparing' && { preparation_started_at: now }),
+          ...(newStatus === 'ready' && { ready_at: now }),
         })
       })
       if (!response.ok) console.error('Update status error')
+      
+      // Recharger le temps de prépa quand une commande passe en "prêt"
+      if (newStatus === 'ready' && device) {
+        loadAvgPrepTime(device.establishmentId)
+      }
     } catch (error) {
       console.error('Update status error:', error)
     }
@@ -590,7 +601,7 @@ export default function KitchenPage() {
             </div>
             {order.order_type === 'delivery' && launchInfo.travelMin > 0 && column.key === 'pending' && (
               <div className="mt-0.5 text-blue-300">
-                🚗 {launchInfo.travelMin}min trajet • ⏱️ ~{avgPrepTime}min prépa • 🔧 Lancer à {launchInfo.launchTime}
+                🚗 {launchInfo.travelMin}min trajet • ⏱️ ~{avgPrepTime}min prépa{avgPrepTime === DEFAULT_PREP_TIME ? ' (défaut)' : ''} • 🔧 Lancer à {launchInfo.launchTime}
               </div>
             )}
           </div>

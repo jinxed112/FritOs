@@ -108,6 +108,10 @@ export async function POST(request: NextRequest) {
         updateData.preparation_started_at = new Date().toISOString()
       }
 
+      if (newStatus === 'ready') {
+        updateData.ready_at = new Date().toISOString()
+      }
+
       if (newStatus === 'completed') {
         updateData.completed_at = new Date().toISOString()
       }
