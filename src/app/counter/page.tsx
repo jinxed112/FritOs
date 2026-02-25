@@ -1456,18 +1456,21 @@ export default function CounterPage() {
                       setDeliveryInfo(null)
                     }
                   }}
-                  onAddressValidated={(data) => {
+                  onAddressValidated={(data: any) => {
                     setDeliveryAddress(data.address)
                     setDeliveryLat(data.lat)
                     setDeliveryLng(data.lng)
                     setDeliveryValidated(true)
+                    // Support both AddressInput formats
+                    const travelMin = data.travelMinutes ?? data.deliveryCheck?.duration ?? null
+                    const fee = data.deliveryFee ?? data.deliveryCheck?.fee ?? 0
                     setDeliveryInfo({
                       deliverable: true,
-                      distance: data.travelMinutes,
-                      duration: data.travelMinutes,
+                      distance: travelMin,
+                      duration: travelMin,
                     })
-                    setDeliveryFee(data.deliveryFee)
-                  }}
+                    setDeliveryFee(fee)
+                  }}}
                   onClear={() => {
                     setDeliveryValidated(false)
                     setDeliveryInfo(null)
