@@ -1470,7 +1470,7 @@ export default function CounterPage() {
                       duration: travelMin,
                     })
                     setDeliveryFee(fee)
-                  }}}
+                  }}
                   onClear={() => {
                     setDeliveryValidated(false)
                     setDeliveryInfo(null)
