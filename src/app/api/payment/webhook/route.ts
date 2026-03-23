@@ -1,109 +1,153 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+function getServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
+
+// SÉCURITÉ : Vérifier la transaction auprès de Viva avant de valider la commande
+// Sans ça, n'importe qui peut envoyer un faux webhook et marquer une commande comme payée
+async function verifyVivaTransaction(transactionId: string): Promise<boolean> {
+  try {
+    const merchantId = process.env.VIVA_MERCHANT_ID
+    const apiKey = process.env.VIVA_API_KEY
+    if (!merchantId || !apiKey) {
+      console.error('Missing VIVA_MERCHANT_ID or VIVA_API_KEY')
+      return false
+    }
+    const credentials = Buffer.from(`${merchantId}:${apiKey}`).toString('base64')
+    const response = await fetch(
+      `https://www.vivapayments.com/api/transactions/${transactionId}`,
+      { headers: { Authorization: `Basic ${credentials}` } }
+    )
+    if (!response.ok) {
+      console.error(`Viva verification failed: ${response.status}`)
+      return false
+    }
+    const data = await response.json()
+    console.log(`Viva verification: statusId=${data.StatusId}`)
+    return true
+  } catch (error) {
+    console.error('Viva verification error:', error)
+    return false
+  }
+}
 
 // POST: Webhook Viva Wallet
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-
     console.log('Viva Webhook received:', JSON.stringify(body, null, 2))
 
-    // Viva envoie différents types d'événements
     const eventType = body.EventTypeId
-
-    // EventTypeId 1796 = Transaction Payment Created (paiement réussi)
-    // EventTypeId 1797 = Transaction Failed
-    // EventTypeId 1798 = Transaction Reversed (remboursement)
+    const supabase = getServiceClient()
 
     if (eventType === 1796) {
       // Paiement réussi
       const transactionId = body.EventData?.TransactionId
-      const orderCode = body.EventData?.OrderCode
-      const merchantTrns = body.EventData?.MerchantTrns // Notre orderId
-
-      if (merchantTrns) {
-        // Mettre à jour la commande
-        const { error } = await supabase
-          .from('orders')
-          .update({
-            payment_status: 'paid',
-            viva_transaction_id: transactionId,
-            status: 'confirmed',
-          })
-          .eq('id', merchantTrns)
-
-        if (error) {
-          console.error('Erreur mise à jour commande:', error)
-        } else {
-          console.log(`Commande ${merchantTrns} marquée comme payée`)
-
-          // Envoyer email de confirmation
-          await sendConfirmationEmail(merchantTrns)
-        }
-      }
-    } else if (eventType === 1797) {
-      // Paiement échoué
       const merchantTrns = body.EventData?.MerchantTrns
 
+      if (!merchantTrns || !transactionId) {
+        console.error('Missing merchantTrns or transactionId')
+        return NextResponse.json({ success: true })
+      }
+
+      // SÉCURITÉ : Vérifier la transaction auprès de Viva
+      const isVerified = await verifyVivaTransaction(transactionId)
+      if (!isVerified) {
+        console.error(`Transaction ${transactionId} NOT verified - ignoring`)
+        return NextResponse.json({ success: true })
+      }
+
+      // Vérifier que la commande n'est pas déjà traitée
+      const { data: order } = await supabase
+        .from('orders')
+        .select('id, status')
+        .eq('id', merchantTrns)
+        .single()
+
+      if (!order) {
+        console.error(`Order ${merchantTrns} not found`)
+        return NextResponse.json({ success: true })
+      }
+
+      if (order.status !== 'awaiting_payment') {
+        console.log(`Order ${merchantTrns} already processed (status: ${order.status})`)
+        return NextResponse.json({ success: true })
+      }
+
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          payment_status: 'paid',
+          viva_transaction_id: transactionId,
+          status: 'confirmed',
+        })
+        .eq('id', merchantTrns)
+
+      if (error) {
+        console.error('Erreur mise à jour commande:', error)
+      } else {
+        console.log(`Commande ${merchantTrns} marquée comme payée`)
+        await sendConfirmationEmail(merchantTrns, supabase)
+      }
+
+    } else if (eventType === 1797) {
+      const merchantTrns = body.EventData?.MerchantTrns
       if (merchantTrns) {
         await supabase
           .from('orders')
-          .update({
-            payment_status: 'failed',
-          })
+          .update({ payment_status: 'failed' })
           .eq('id', merchantTrns)
       }
     } else if (eventType === 1798) {
-      // Remboursement
       const merchantTrns = body.EventData?.MerchantTrns
-
       if (merchantTrns) {
         await supabase
           .from('orders')
-          .update({
-            payment_status: 'refunded',
-            refund_status: 'completed',
-          })
+          .update({ payment_status: 'refunded', status: 'cancelled' })
           .eq('id', merchantTrns)
       }
     }
 
-    // Viva attend un 200 OK
     return NextResponse.json({ success: true })
 
   } catch (error: any) {
     console.error('Webhook error:', error)
-    // Retourner 200 quand même pour éviter les retries
-    return NextResponse.json({ success: false, error: error.message })
+    return NextResponse.json({ success: true })
   }
 }
 
-// Envoyer email de confirmation
-async function sendConfirmationEmail(orderId: string) {
+// GET: Viva vérifie l'URL lors de la configuration du webhook
+// SÉCURITÉ : protégé par WEBHOOK_VERIFY_SECRET (variable d'env Vercel)
+export async function GET(request: NextRequest) {
+  const secret = request.nextUrl.searchParams.get('s')
+  const expectedSecret = process.env.WEBHOOK_VERIFY_SECRET
+
+  if (!expectedSecret || secret !== expectedSecret) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  return NextResponse.json({ status: 'ok', message: 'Viva Webhook endpoint ready' })
+}
+
+async function sendConfirmationEmail(orderId: string, supabase: ReturnType<typeof getServiceClient>) {
   try {
-    // Charger la commande complète
     const { data: order } = await supabase
       .from('orders')
       .select(`
         *,
-        order_items (
-          product_name, quantity, unit_price, line_total, options_selected
-        ),
-        establishment:establishments (
-          name, address, phone
-        )
+        order_items (product_name, quantity, unit_price, line_total, options_selected),
+        establishment:establishments (name, address, phone)
       `)
       .eq('id', orderId)
       .single()
 
     if (!order || !order.customer_email) return
 
-    // Formater les items
     const itemsHtml = order.order_items
       .map(
         (item: any) => `
@@ -117,15 +161,10 @@ async function sendConfirmationEmail(orderId: string) {
 
     const pickupTime = order.scheduled_time
       ? new Date(order.scheduled_time).toLocaleString('fr-BE', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          hour: '2-digit',
-          minute: '2-digit',
+          weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
         })
       : 'À définir'
 
-    // Envoyer via Brevo
     await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
@@ -149,8 +188,6 @@ async function sendConfirmationEmail(orderId: string) {
               body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
               .container { max-width: 500px; margin: 0 auto; background: white; border-radius: 16px; padding: 32px; }
               .header { text-align: center; margin-bottom: 24px; }
-              .logo { font-size: 48px; }
-              .title { font-size: 24px; font-weight: bold; color: #333; }
               .order-number { font-size: 32px; font-weight: bold; color: #FF6B00; margin: 16px 0; }
               .pickup-code { background: #f5f5f5; padding: 16px; border-radius: 12px; text-align: center; margin: 24px 0; }
               .pickup-code-value { font-size: 28px; font-weight: bold; letter-spacing: 4px; }
@@ -164,36 +201,24 @@ async function sendConfirmationEmail(orderId: string) {
           <body>
             <div class="container">
               <div class="header">
-                <div class="logo">🍟</div>
-                <div class="title">${order.establishment?.name || 'MDjambo'}</div>
+                <div style="font-size: 48px;">🍟</div>
+                <div style="font-size: 24px; font-weight: bold; color: #333;">${order.establishment?.name || 'MDjambo'}</div>
               </div>
-              
               <div style="text-align: center;">
                 <p style="color: #22c55e; font-size: 24px; margin: 0;">✅ Commande confirmée !</p>
                 <div class="order-number">#${order.order_number}</div>
               </div>
-              
-              ${
-                order.pickup_code
-                  ? `
+              ${order.pickup_code ? `
               <div class="pickup-code">
                 <p style="margin: 0 0 8px 0; color: #666;">Code de retrait</p>
                 <div class="pickup-code-value">${order.pickup_code}</div>
-              </div>
-              `
-                  : ''
-              }
-              
+              </div>` : ''}
               <div class="section">
                 <div class="section-title">📅 ${order.order_type === 'delivery' ? 'Livraison' : 'Retrait'}</div>
                 <p style="margin: 0;">${pickupTime}</p>
-                ${
-                  order.order_type === 'pickup' && order.establishment?.address
-                    ? `<p style="margin: 4px 0 0 0; color: #666;">📍 ${order.establishment.address}</p>`
-                    : ''
-                }
+                ${order.order_type === 'pickup' && order.establishment?.address
+                  ? `<p style="margin: 4px 0 0 0; color: #666;">📍 ${order.establishment.address}</p>` : ''}
               </div>
-              
               <div class="section">
                 <div class="section-title">🛒 Votre commande</div>
                 <table class="items-table">
@@ -204,7 +229,6 @@ async function sendConfirmationEmail(orderId: string) {
                   </tr>
                 </table>
               </div>
-              
               <div class="footer">
                 <p>Merci pour votre commande !</p>
                 ${order.establishment?.phone ? `<p>📞 ${order.establishment.phone}</p>` : ''}
@@ -221,12 +245,4 @@ async function sendConfirmationEmail(orderId: string) {
   } catch (error) {
     console.error('Erreur envoi email confirmation:', error)
   }
-}
-
-// GET: Viva peut faire un GET pour vérifier que le webhook est accessible
-export async function GET(request: NextRequest) {
-  return NextResponse.json({
-    status: 'ok',
-    message: 'Viva Webhook endpoint ready',
-  })
 }
