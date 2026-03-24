@@ -135,6 +135,11 @@ export default function KioskDevicePage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [orderType, setOrderType] = useState<OrderType | null>(null)
   const [showCart, setShowCart] = useState(false)
+
+  // --- NOUVEAU : plafonnement eat_in + mode Bux ---
+  const [eatInEnabled, setEatInEnabled] = useState(true)
+  const [isBuxMode, setIsBuxMode] = useState(false)
+  // ------------------------------------------------
   
   // Confirmation
   const [orderNumber, setOrderNumber] = useState<string | null>(null)
@@ -199,6 +204,7 @@ export default function KioskDevicePage() {
             clearInterval(timer)
             setOrderNumber(null)
             setOrderType(null)
+            setIsBuxMode(false)
             setPendingOrderId(null)
             setIsSubmitting(false)
             return 30
@@ -270,6 +276,16 @@ export default function KioskDevicePage() {
       `)
       .eq('establishment_id', establishmentId)
       .eq('is_active', true)
+
+    // --- NOUVEAU : récupérer eat_in_enabled ---
+    const { data: estData } = await supabase
+      .from('establishments')
+      .select('eat_in_enabled')
+      .eq('id', establishmentId)
+      .single()
+
+    if (estData) setEatInEnabled(estData.eat_in_enabled)
+    // ------------------------------------------
 
     setCategories((categoriesData || []) as any)
     setProducts((productsData || []) as any)
@@ -465,8 +481,6 @@ export default function KioskDevicePage() {
   }
 
   function getCartTotal(): number {
-    // Prix TTC identique pour le client (sur place ou emporter)
-    // La différence de TVA (12% vs 6%) est absorbée par le commerçant
     return getCartSubtotal()
   }
 
@@ -520,7 +534,6 @@ export default function KioskDevicePage() {
           await finalizeOrder(orderId)
           return
         } else if (data.status === 'failed' || data.status === 'cancelled' || data.status === 'aborted') {
-          // Paiement échoué ou annulé sur le terminal
           await supabase.from('orders').update({ 
             status: 'cancelled', 
             payment_status: 'failed' 
@@ -570,7 +583,6 @@ export default function KioskDevicePage() {
     
     try {
       const totalTTC = getCartTotal()
-      // Calcul TVA par produit (chaque produit a son propre taux)
       let totalTax = 0
       cart.forEach(item => {
         const rate = orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway
@@ -593,6 +605,7 @@ export default function KioskDevicePage() {
           payment_method: 'card',
           payment_status: 'pending',
           device_id: device.id,
+          notes: isBuxMode ? 'BUX' : null, // --- NOUVEAU ---
         })
         .select()
         .single()
@@ -750,6 +763,7 @@ export default function KioskDevicePage() {
                 setPaymentStatus('idle')
                 setCart([])
                 setOrderType(null)
+                setIsBuxMode(false) // --- NOUVEAU ---
                 setIsSubmitting(false)
               }}
               className="bg-white/20 text-white font-bold px-8 py-4 rounded-2xl"
@@ -762,7 +776,7 @@ export default function KioskDevicePage() {
     )
   }
 
-  // Order type selection
+  // --- NOUVEAU : Écran de sélection du type de commande ---
   if (!orderType && !orderNumber) {
     return (
       <div className="min-h-screen bg-[#FFF9E6] flex items-center justify-center p-8">
@@ -774,17 +788,30 @@ export default function KioskDevicePage() {
           <p className="text-2xl text-[#3D2314]/70 mb-12">Touchez pour commander</p>
           
           <div className="grid grid-cols-2 gap-8">
+            {/* Bouton Sur place OU Manger au Bux selon le quota */}
+            {eatInEnabled ? (
+              <button
+                onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }}
+                className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
+              >
+                <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">🍽️</span>
+                <span className="text-3xl font-bold text-[#3D2314] block mb-2">Sur place</span>
+                <span className="text-[#E63329] font-semibold text-lg">TVA 12%</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }}
+                className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
+              >
+                <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">☕</span>
+                <span className="text-3xl font-bold text-[#3D2314] block mb-2">Manger au Bux</span>
+                <span className="text-[#E63329] font-semibold text-lg">Préparé ici</span>
+              </button>
+            )}
+
+            {/* Bouton À emporter — toujours visible */}
             <button
-              onClick={() => setOrderType('eat_in')}
-              className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
-            >
-              <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">🍽️</span>
-              <span className="text-3xl font-bold text-[#3D2314] block mb-2">Sur place</span>
-              <span className="text-[#E63329] font-semibold text-lg">TVA 12%</span>
-            </button>
-            
-            <button
-              onClick={() => setOrderType('takeaway')}
+              onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }}
               className="bg-white rounded-3xl p-10 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all border-4 border-transparent hover:border-[#F7B52C] group"
             >
               <span className="text-8xl block mb-4 group-hover:scale-110 transition-transform">🥡</span>
@@ -798,6 +825,7 @@ export default function KioskDevicePage() {
       </div>
     )
   }
+  // --------------------------------------------------------
 
   // Order confirmation
   if (orderNumber) {
@@ -836,7 +864,7 @@ export default function KioskDevicePage() {
           </div>
           
           <button
-            onClick={() => { setOrderNumber(null); setOrderType(null); setPendingOrderId(null); setIsSubmitting(false) }}
+            onClick={() => { setOrderNumber(null); setOrderType(null); setIsBuxMode(false); setPendingOrderId(null); setIsSubmitting(false) }}
             className="bg-white text-[#4CAF50] font-bold text-lg px-10 py-3 rounded-xl"
           >
             Nouvelle commande
@@ -855,7 +883,7 @@ export default function KioskDevicePage() {
       {/* Header */}
       <header className="bg-white shadow-md px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={() => { setOrderType(null); setCart([]) }} className="text-[#3D2314]/50 hover:text-[#3D2314]">
+          <button onClick={() => { setOrderType(null); setCart([]); setIsBuxMode(false) }} className="text-[#3D2314]/50 hover:text-[#3D2314]">
             ← Retour
           </button>
           <div className="w-12 h-12">
@@ -864,19 +892,31 @@ export default function KioskDevicePage() {
           <span className="text-2xl font-black text-[#E63329]">MDjambo</span>
         </div>
         
+        {/* Toggle eat_in / takeaway dans le header — respecte le quota */}
         <div className="flex items-center gap-2 bg-[#FFF9E6] rounded-full p-1">
+          {eatInEnabled ? (
+            <button
+              onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }}
+              className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+                orderType === 'eat_in' ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
+              }`}
+            >
+              🍽️ Sur place
+            </button>
+          ) : (
+            <button
+              onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }}
+              className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+                isBuxMode ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
+              }`}
+            >
+              ☕ Bux
+            </button>
+          )}
           <button
-            onClick={() => setOrderType('eat_in')}
+            onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }}
             className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
-              orderType === 'eat_in' ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
-            }`}
-          >
-            🍽️ Sur place
-          </button>
-          <button
-            onClick={() => setOrderType('takeaway')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
-              orderType === 'takeaway' ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
+              orderType === 'takeaway' && !isBuxMode ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
             }`}
           >
             🥡 À emporter

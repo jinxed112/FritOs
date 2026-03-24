@@ -28,6 +28,7 @@ type Order = {
   scheduled_slot_start?: string | null
   source?: string | null
   delivery_notes?: string | null
+  notes?: string | null
   payment_status?: string | null
   metadata?: { source?: string; slot_date?: string; slot_time?: string; delivery_duration?: number; delivery_address?: string; delivery_lat?: number; delivery_lng?: number; travel_minutes?: number } | null
 }
@@ -348,7 +349,7 @@ export default function KitchenPage() {
     // Charger : toutes les commandes non-terminées + commandes du jour
     const { data } = await supabase
       .from('orders')
-      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, payment_status, metadata, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
+      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, notes, payment_status, metadata, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
       .eq('establishment_id', estId)
       .neq('status', 'cancelled')
       .neq('status', 'awaiting_payment')
@@ -565,6 +566,9 @@ export default function KitchenPage() {
             )}
             <span className="font-bold text-lg">{order.order_number}</span>
             <span className="text-base">{getOrderTypeEmoji(order.order_type)}</span>
+            {order.notes === 'BUX' && (
+              <span className="text-xs px-2 py-1 rounded font-bold bg-amber-500/30 text-amber-300">☕ BUX</span>
+            )}
             {order.is_offered && <span title="Offert" className="text-base">🎁</span>}
             {column.key !== 'completed' && (
               <>
