@@ -80,6 +80,8 @@ export default function ReportsPage() {
   })
   const [stats, setStats] = useState<DailyStats[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+  const [ordersLoaded, setOrdersLoaded] = useState(false)
+  const [ordersLoading, setOrdersLoading] = useState(false)
   const [zReports, setZReports] = useState<ZReport[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
@@ -93,86 +95,94 @@ export default function ReportsPage() {
   const supabase = createClient()
   const establishmentId = 'a0000000-0000-0000-0000-000000000001'
 
+  // Quand la plage de dates change : recharge le dashboard et invalide les orders
   useEffect(() => {
-    loadData()
+    loadDashboard()
+    setOrders([])
+    setOrdersLoaded(false)
   }, [dateRange])
 
-  async function loadData() {
+  // Quand on bascule sur l'onglet Tickets : charge les orders si pas encore fait
+  useEffect(() => {
+    if (activeTab === 'tickets' && !ordersLoaded) {
+      loadOrders()
+    }
+  }, [activeTab, ordersLoaded])
+
+  // ─── Dashboard via RPC (agrégation SQL, pas de limite de lignes) ────────────
+  async function loadDashboard() {
     setLoading(true)
-    
-    // Charger les commandes
-    const { data: ordersData } = await supabase
-      .from('orders')
-      .select(`*, order_items (*)`)
-      .eq('establishment_id', establishmentId)
-      .gte('created_at', dateRange.start + 'T00:00:00')
-      .lte('created_at', dateRange.end + 'T23:59:59')
-      .in('payment_status', ['paid', 'refunded'])
-      .order('created_at', { ascending: false })
 
-    setOrders((ordersData || []) as Order[])
+    const [{ data: rpcData }, { data: zData }] = await Promise.all([
+      supabase.rpc('get_report_stats', {
+        p_establishment_id: establishmentId,
+        p_start: dateRange.start,
+        p_end: dateRange.end
+      }),
+      supabase
+        .from('z_reports')
+        .select('*')
+        .eq('establishment_id', establishmentId)
+        .order('closed_at', { ascending: false })
+        .limit(100)
+    ])
 
-    // Stats par jour (seulement commandes payées non annulées)
-    const paidOrders = (ordersData || []).filter((o: any) => 
-      o.payment_status === 'paid' && !['cancelled', 'refunded'].includes(o.status)
-    )
-    
-    const dailyMap = new Map<string, DailyStats>()
-    paidOrders.forEach((order: any) => {
-      const date = order.created_at.split('T')[0]
-      const existing = dailyMap.get(date) || {
-        date, orders_count: 0, total_ht: 0, total_tva: 0, total_ttc: 0,
-        eat_in_count: 0, eat_in_total: 0, takeaway_count: 0, takeaway_total: 0,
-        delivery_count: 0, delivery_total: 0, cash_count: 0, cash_total: 0,
-        card_count: 0, card_total: 0
-      }
+    if (rpcData) {
+      setStats((rpcData.daily ?? []) as DailyStats[])
+      const t = rpcData.totals ?? {}
+      setTotals({
+        orders:   Number(t.orders   ?? 0),
+        ht:       Number(t.ht       ?? 0),
+        tva:      Number(t.tva      ?? 0),
+        ttc:      Number(t.ttc      ?? 0),
+        eat_in:   Number(t.eat_in   ?? 0),
+        takeaway: Number(t.takeaway ?? 0),
+        delivery: Number(t.delivery ?? 0),
+        cash:     Number(t.cash     ?? 0),
+        card:     Number(t.card     ?? 0),
+      })
+    }
 
-      existing.orders_count++
-      const ttc = Number(order.total_amount) || 0
-      const ht = Number(order.subtotal) || 0
-      existing.total_ttc += ttc
-      existing.total_ht += ht
-      existing.total_tva += ttc - ht
-
-      if (order.order_type === 'eat_in') { existing.eat_in_count++; existing.eat_in_total += ttc }
-      else if (order.order_type === 'delivery') { existing.delivery_count++; existing.delivery_total += ttc }
-      else { existing.takeaway_count++; existing.takeaway_total += ttc }
-
-      if (order.payment_method === 'cash') { existing.cash_count++; existing.cash_total += ttc }
-      else { existing.card_count++; existing.card_total += ttc }
-
-      dailyMap.set(date, existing)
-    })
-
-    const dailyStats = Array.from(dailyMap.values()).sort((a, b) => b.date.localeCompare(a.date))
-    setStats(dailyStats)
-
-    // Totaux
-    const t = dailyStats.reduce((acc, day) => ({
-      orders: acc.orders + day.orders_count,
-      ht: acc.ht + day.total_ht,
-      tva: acc.tva + day.total_tva,
-      ttc: acc.ttc + day.total_ttc,
-      eat_in: acc.eat_in + day.eat_in_total,
-      takeaway: acc.takeaway + day.takeaway_total,
-      delivery: acc.delivery + day.delivery_total,
-      cash: acc.cash + day.cash_total,
-      card: acc.card + day.card_total
-    }), { orders: 0, ht: 0, tva: 0, ttc: 0, eat_in: 0, takeaway: 0, delivery: 0, cash: 0, card: 0 })
-    setTotals(t)
-
-    // Rapports Z
-    const { data: zData } = await supabase
-      .from('z_reports')
-      .select('*')
-      .eq('establishment_id', establishmentId)
-      .order('closed_at', { ascending: false })
-      .limit(100)
     setZReports(zData || [])
-
     setLoading(false)
   }
 
+  // ─── Chargement paginé des orders (tickets + export) ────────────────────────
+  async function fetchAllOrders(): Promise<Order[]> {
+    const PAGE_SIZE = 1000
+    const collected: Order[] = []
+    let from = 0
+
+    while (true) {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`*, order_items (*)`)
+        .eq('establishment_id', establishmentId)
+        .gte('created_at', dateRange.start + 'T00:00:00')
+        .lte('created_at', dateRange.end + 'T23:59:59')
+        .in('payment_status', ['paid', 'refunded'])
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1)
+
+      if (error || !data || data.length === 0) break
+      collected.push(...(data as Order[]))
+      if (data.length < PAGE_SIZE) break
+      from += PAGE_SIZE
+    }
+
+    return collected
+  }
+
+  async function loadOrders(): Promise<Order[]> {
+    setOrdersLoading(true)
+    const all = await fetchAllOrders()
+    setOrders(all)
+    setOrdersLoaded(true)
+    setOrdersLoading(false)
+    return all
+  }
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
   function formatCurrency(amount: number) {
     return new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR' }).format(amount)
   }
@@ -202,16 +212,17 @@ export default function ReportsPage() {
     return badges[status] || <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">{status}</span>
   }
 
-  // Export Excel format RestoMax - 5 fichiers
+  // ─── Export Excel ────────────────────────────────────────────────────────────
   async function exportExcel() {
-    const paidOrders = orders.filter(o => o.payment_status === 'paid' && o.status !== 'cancelled')
-    
+    // Réutilise les orders déjà chargés, sinon les charge maintenant
+    const exportOrders = ordersLoaded ? orders : await loadOrders()
+    const paidOrders = exportOrders.filter(o => o.payment_status === 'paid' && o.status !== 'cancelled')
+
     if (paidOrders.length === 0) {
       alert('Aucune donnée à exporter')
       return
     }
 
-    // Calculer les données par jour avec ventilation TVA complète
     const dailyData = new Map<string, any>()
     const itemsSales = new Map<string, { qty: number, total: number, category: string }>()
     const categoryTotals = new Map<string, number>()
@@ -220,31 +231,24 @@ export default function ReportsPage() {
       const dateKey = order.created_at.split('T')[0].replace(/-/g, '/')
       const existing = dailyData.get(dateKey) || {
         date: dateKey,
-        caTTC: 0,
-        caPlace: 0,
-        caEmporter: 0,
-        caDelivery: 0,
+        caTTC: 0, caPlace: 0, caEmporter: 0, caDelivery: 0,
         ttc21: 0, ttc12: 0, ttc6: 0, ttc0: 0,
         htva21: 0, htva12: 0, htva6: 0, htva0: 0,
         tva21: 0, tva12: 0, tva6: 0,
-        cash: 0, card: 0,
-        tickets: 0
+        cash: 0, card: 0, tickets: 0
       }
 
       const orderTotal = Number(order.total_amount) || 0
       existing.caTTC += orderTotal
       existing.tickets++
 
-      // Par type
       if (order.order_type === 'eat_in') existing.caPlace += orderTotal
       else if (order.order_type === 'delivery') existing.caDelivery += orderTotal
       else existing.caEmporter += orderTotal
 
-      // Par paiement
       if (order.payment_method === 'cash') existing.cash += orderTotal
       else existing.card += orderTotal
 
-      // Ventilation TVA par article
       ;(order.order_items || []).forEach((item: OrderItem) => {
         const vatRate = item.vat_rate || (order.order_type === 'eat_in' ? 12 : 6)
         const lineTTC = item.line_total || 0
@@ -252,30 +256,21 @@ export default function ReportsPage() {
         const lineTVA = lineTTC - lineHT
 
         if (vatRate === 21) {
-          existing.ttc21 += lineTTC
-          existing.htva21 += lineHT
-          existing.tva21 += lineTVA
+          existing.ttc21 += lineTTC; existing.htva21 += lineHT; existing.tva21 += lineTVA
         } else if (vatRate === 12) {
-          existing.ttc12 += lineTTC
-          existing.htva12 += lineHT
-          existing.tva12 += lineTVA
+          existing.ttc12 += lineTTC; existing.htva12 += lineHT; existing.tva12 += lineTVA
         } else if (vatRate === 6) {
-          existing.ttc6 += lineTTC
-          existing.htva6 += lineHT
-          existing.tva6 += lineTVA
+          existing.ttc6 += lineTTC; existing.htva6 += lineHT; existing.tva6 += lineTVA
         } else {
-          existing.ttc0 += lineTTC
-          existing.htva0 += lineHT
+          existing.ttc0 += lineTTC; existing.htva0 += lineHT
         }
 
-        // Pour DetailSales
         const itemKey = `${item.product_name}|${item.unit_price}`
         const itemData = itemsSales.get(itemKey) || { qty: 0, total: 0, category: 'Divers' }
         itemData.qty += item.quantity
         itemData.total += lineTTC
         itemsSales.set(itemKey, itemData)
 
-        // Pour CAByItemLevel (par catégorie)
         const cat = itemData.category
         categoryTotals.set(cat, (categoryTotals.get(cat) || 0) + lineTTC)
       })
@@ -283,18 +278,24 @@ export default function ReportsPage() {
       dailyData.set(dateKey, existing)
     })
 
-    // ============ CA.xlsx - Format RestoMax ============
-    const caHeaders = ['Date', 'CA TTC', 'CA TTC /place', 'CA TTC /emporter', 'CA TTC /delivery', 
+    const r = (n: number) => Math.round(n * 100) / 100
+
+    // ── CA.xlsx ──
+    const caHeaders = ['Date', 'CA TTC', 'CA TTC /place', 'CA TTC /emporter', 'CA TTC /delivery',
       'TTC 21%', 'TTC 12%', 'TTC 6%', 'TTC 0%', 'HTVA 21%', 'HTVA 12%', 'HTVA 6%', 'HTVA 0%',
-      'TVA 21%', 'TVA 12%', 'TVA 6%', 'Cash', 'Carte banque', 'Virement bancaire', 
-      'Bonsai', 'Mollie', 'Chèque repas', 'Chèque cadeau', 'Chèque culture/sport', 
-      'Ecochèque', 'Chèque transport', 'Arrondi', 'Libre1', 'Libre2', 'Libre3', 
+      'TVA 21%', 'TVA 12%', 'TVA 6%', 'Cash', 'Carte banque', 'Virement bancaire',
+      'Bonsai', 'Mollie', 'Chèque repas', 'Chèque cadeau', 'Chèque culture/sport',
+      'Ecochèque', 'Chèque transport', 'Arrondi', 'Libre1', 'Libre2', 'Libre3',
       'Libre4', 'Libre5', 'Libre6', 'Libre7', 'Tickets']
 
     const caRows: any[][] = []
-    let totals_ca = { caTTC: 0, caPlace: 0, caEmporter: 0, caDelivery: 0, 
-      ttc21: 0, ttc12: 0, ttc6: 0, ttc0: 0, htva21: 0, htva12: 0, htva6: 0, htva0: 0,
-      tva21: 0, tva12: 0, tva6: 0, cash: 0, card: 0, tickets: 0 }
+    let totals_ca = {
+      caTTC: 0, caPlace: 0, caEmporter: 0, caDelivery: 0,
+      ttc21: 0, ttc12: 0, ttc6: 0, ttc0: 0,
+      htva21: 0, htva12: 0, htva6: 0, htva0: 0,
+      tva21: 0, tva12: 0, tva6: 0,
+      cash: 0, card: 0, tickets: 0
+    }
 
     Array.from(dailyData.values()).forEach(d => {
       caRows.push([
@@ -304,11 +305,9 @@ export default function ReportsPage() {
         r(d.tva21), r(d.tva12), r(d.tva6),
         r(d.cash), r(d.card), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, d.tickets
       ])
-      // Cumul totaux
       Object.keys(totals_ca).forEach(k => totals_ca[k as keyof typeof totals_ca] += d[k] || 0)
     })
 
-    // Ligne Total
     caRows.push([
       'Total', r(totals_ca.caTTC), r(totals_ca.caPlace), r(totals_ca.caEmporter), r(totals_ca.caDelivery),
       r(totals_ca.ttc21), r(totals_ca.ttc12), r(totals_ca.ttc6), r(totals_ca.ttc0),
@@ -321,166 +320,126 @@ export default function ReportsPage() {
     XLSX.utils.book_append_sheet(wbCA, XLSX.utils.aoa_to_sheet([caHeaders, ...caRows]), 'CA')
     XLSX.writeFile(wbCA, `CA_${dateRange.start}_${dateRange.end}.xlsx`)
 
-    // ============ DetailSales.xlsx ============
+    // ── DetailSales.xlsx ──
     const detailHeaders = ['Article', 'Quantité', 'Prix', 'Nombre remises ', 'Total remises', 'Total', 'Famille (hiérarchie)']
     const detailRows: any[][] = []
-    
     Array.from(itemsSales.entries()).forEach(([key, data]) => {
       const [name, price] = key.split('|')
       detailRows.push([name, data.qty, Number(price) || 0, 0, 0, r(data.total), data.category])
     })
-
     const wbDetail = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wbDetail, XLSX.utils.aoa_to_sheet([detailHeaders, ...detailRows]), 'DetailSales')
     XLSX.writeFile(wbDetail, `DetailSales_${dateRange.start}_${dateRange.end}.xlsx`)
-
-    // ============ ReportZStats.xlsx ============
-    const zHeaders = ['Rapport Z', "Date d'ouverture", 'Date de fermeture', 'CA TTC', 
-      'TTC 21%', 'TTC 12%', 'TTC 6%', 'TTC 0%', 'HTVA 21%', 'HTVA 12%', 'HTVA 6%', 'HTVA 0%',
-      'TVA 21%', 'TVA 12%', 'TVA 6%', 'Tickets']
-
-    // FIX: Filtrer les rapports Z selon la plage de dates sélectionnée
-    const filteredZReports = zReports.filter(z => {
-      const zDate = z.period_start.split('T')[0]
-      return zDate >= dateRange.start && zDate <= dateRange.end
-    })
-
-    const zRows = filteredZReports.map(z => [
-      z.report_number,
-      formatDateTime(z.period_start),
-      formatDateTime(z.closed_at),
-      r(z.total_ttc),
-      r(getVatValue(z.vat_breakdown, 21, 'total_ttc')),
-      r(getVatValue(z.vat_breakdown, 12, 'total_ttc')),
-      r(getVatValue(z.vat_breakdown, 6, 'total_ttc')),
-      0,
-      r(getVatValue(z.vat_breakdown, 21, 'base_ht')),
-      r(getVatValue(z.vat_breakdown, 12, 'base_ht')),
-      r(getVatValue(z.vat_breakdown, 6, 'base_ht')),
-      0,
-      r(getVatValue(z.vat_breakdown, 21, 'tva_amount')),
-      r(getVatValue(z.vat_breakdown, 12, 'tva_amount')),
-      r(getVatValue(z.vat_breakdown, 6, 'tva_amount')),
-      z.orders_count
-    ])
-
-    const wbZ = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wbZ, XLSX.utils.aoa_to_sheet([zHeaders, ...zRows]), 'ReportZStats')
-    XLSX.writeFile(wbZ, `ReportZStats_${dateRange.start}_${dateRange.end}.xlsx`)
-
-    alert('✅ 3 fichiers Excel exportés (format RestoMax)')
   }
 
-  // Helpers pour export
-  function r(n: number) { return Math.round((n || 0) * 100) / 100 }
-  function formatDateTime(d: string) { 
-    const date = new Date(d)
-    return `${date.toLocaleDateString('fr-BE')} ${date.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}`
-  }
-  function getVatValue(breakdown: any[], rate: number, field: string): number {
-    const found = (breakdown || []).find((v: any) => v.rate === rate)
-    return found ? found[field] : 0
+  // ─── Shortcuts de dates ──────────────────────────────────────────────────────
+  function setQuickDate(preset: string) {
+    const today = new Date()
+    const fmt = (d: Date) => d.toISOString().split('T')[0]
+    if (preset === 'today') {
+      setDateRange({ start: fmt(today), end: fmt(today) })
+    } else if (preset === 'yesterday') {
+      const y = new Date(today); y.setDate(y.getDate() - 1)
+      setDateRange({ start: fmt(y), end: fmt(y) })
+    } else if (preset === '7days') {
+      const s = new Date(today); s.setDate(s.getDate() - 6)
+      setDateRange({ start: fmt(s), end: fmt(today) })
+    } else if (preset === '30days') {
+      const s = new Date(today); s.setDate(s.getDate() - 29)
+      setDateRange({ start: fmt(s), end: fmt(today) })
+    } else if (preset === 'month') {
+      const s = new Date(today.getFullYear(), today.getMonth(), 1)
+      setDateRange({ start: fmt(s), end: fmt(today) })
+    }
   }
 
-  // Tabs
-  const tabs = [
-    { key: 'dashboard', label: '📊 Dashboard', icon: '📊' },
-    { key: 'tickets', label: '🧾 Tickets', icon: '🧾' },
-    { key: 'z-reports', label: '📋 Rapports Z', icon: '📋' },
-  ]
-
+  // ─── Rendu ───────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">📊 Rapports & Statistiques</h1>
-          <p className="text-gray-500">Analyse des ventes et export comptable</p>
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+            <span className="text-2xl">📊</span> Rapports & Statistiques
+          </h1>
+          <p className="text-gray-500 mt-1">Analyse des ventes et export comptable</p>
         </div>
         <button
           onClick={exportExcel}
-          className="flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-xl hover:bg-green-700 font-semibold"
+          className="bg-green-500 hover:bg-green-600 text-white font-semibold px-6 py-3 rounded-xl flex items-center gap-2 transition-colors"
         >
-          📥 Export Excel
+          📊 Export Excel
         </button>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6">
-        {tabs.map(tab => (
+        {(['dashboard', 'tickets', 'z-reports'] as const).map(tab => (
           <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key as any)}
-            className={`px-6 py-3 rounded-xl font-semibold transition-all ${
-              activeTab === tab.key
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-5 py-2.5 rounded-xl font-medium transition-colors ${
+              activeTab === tab
                 ? 'bg-orange-500 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
+                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
             }`}
           >
-            {tab.label}
+            {tab === 'dashboard' ? '📊 Dashboard' : tab === 'tickets' ? '🧾 Tickets' : '📋 Rapports Z'}
           </button>
         ))}
       </div>
 
-      {/* Filtres date */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-        <div className="flex items-center gap-4 flex-wrap">
+      {/* Filtres dates */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6 flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Du</label>
+            <label className="text-xs text-gray-500 block mb-1">Du</label>
             <input
               type="date"
               value={dateRange.start}
-              onChange={e => setDateRange({ ...dateRange, start: e.target.value })}
-              className="px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Au</label>
+            <label className="text-xs text-gray-500 block mb-1">Au</label>
             <input
               type="date"
               value={dateRange.end}
-              onChange={e => setDateRange({ ...dateRange, end: e.target.value })}
-              className="px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
             />
           </div>
-          <div className="flex gap-2 ml-4">
-            <button onClick={() => {
-              const today = new Date().toISOString().split('T')[0]
-              setDateRange({ start: today, end: today })
-            }} className="px-4 py-2 bg-gray-100 rounded-xl hover:bg-gray-200 text-sm">Aujourd'hui</button>
-            <button onClick={() => {
-              const today = new Date()
-              const yesterday = new Date(today.setDate(today.getDate() - 1)).toISOString().split('T')[0]
-              setDateRange({ start: yesterday, end: yesterday })
-            }} className="px-4 py-2 bg-gray-100 rounded-xl hover:bg-gray-200 text-sm">Hier</button>
-            <button onClick={() => {
-              const end = new Date().toISOString().split('T')[0]
-              const start = new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split('T')[0]
-              setDateRange({ start, end })
-            }} className="px-4 py-2 bg-gray-100 rounded-xl hover:bg-gray-200 text-sm">7 jours</button>
-            <button onClick={() => {
-              const end = new Date().toISOString().split('T')[0]
-              const start = new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]
-              setDateRange({ start, end })
-            }} className="px-4 py-2 bg-gray-100 rounded-xl hover:bg-gray-200 text-sm">30 jours</button>
-            <button onClick={() => {
-              const now = new Date()
-              const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-              const end = new Date().toISOString().split('T')[0]
-              setDateRange({ start, end })
-            }} className="px-4 py-2 bg-gray-100 rounded-xl hover:bg-gray-200 text-sm">Ce mois</button>
-          </div>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {[
+            { key: 'today', label: "Aujourd'hui" },
+            { key: 'yesterday', label: 'Hier' },
+            { key: '7days', label: '7 jours' },
+            { key: '30days', label: '30 jours' },
+            { key: 'month', label: 'Ce mois' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setQuickDate(key)}
+              className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
       {loading ? (
-        <div className="bg-white rounded-2xl p-12 text-center text-gray-400">Chargement...</div>
+        <div className="flex items-center justify-center py-24">
+          <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+        </div>
       ) : (
         <>
           {/* ==================== DASHBOARD ==================== */}
           {activeTab === 'dashboard' && (
             <>
-              {/* Cards résumé */}
+              {/* KPIs */}
               <div className="grid grid-cols-4 gap-6 mb-6">
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                   <p className="text-gray-500 text-sm">Commandes</p>
@@ -576,51 +535,60 @@ export default function ReportsPage() {
           {activeTab === 'tickets' && (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Liste des tickets ({orders.filter(o => o.payment_status === 'paid').length})</h3>
+                <h3 className="font-semibold text-gray-900">
+                  Liste des tickets ({orders.filter(o => o.payment_status === 'paid').length})
+                  {ordersLoading && <span className="ml-3 text-sm text-gray-400">Chargement…</span>}
+                </h3>
               </div>
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">Date/Heure</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">N° Ticket</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">Type</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">Statut</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">Paiement</th>
-                    <th className="text-right px-6 py-3 text-sm font-semibold text-gray-600">Total</th>
-                    <th className="text-center px-6 py-3 text-sm font-semibold text-gray-600">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {orders.map(order => (
-                    <tr key={order.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div className="font-medium">{formatDate(order.created_at)}</div>
-                        <div className="text-sm text-gray-500">{formatTime(order.created_at)}</div>
-                      </td>
-                      <td className="px-6 py-4 font-mono font-bold">{order.order_number}</td>
-                      <td className="px-6 py-4">{getOrderTypeLabel(order.order_type)}</td>
-                      <td className="px-6 py-4">{getStatusBadge(order.status, order.payment_status)}</td>
-                      <td className="px-6 py-4">
-                        <span className={order.payment_method === 'cash' ? 'text-green-600' : 'text-blue-600'}>
-                          {order.payment_method === 'cash' ? '💵 Espèces' : '💳 Carte'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right font-semibold">{formatCurrency(Number(order.total_amount) || 0)}</td>
-                      <td className="px-6 py-4 text-center">
-                        <button
-                          onClick={() => setSelectedOrder(order)}
-                          className="text-orange-600 hover:text-orange-700 font-medium"
-                        >
-                          Détails
-                        </button>
-                      </td>
+              {ordersLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">Date/Heure</th>
+                      <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">N° Ticket</th>
+                      <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">Type</th>
+                      <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">Statut</th>
+                      <th className="text-left px-6 py-3 text-sm font-semibold text-gray-600">Paiement</th>
+                      <th className="text-right px-6 py-3 text-sm font-semibold text-gray-600">Total</th>
+                      <th className="text-center px-6 py-3 text-sm font-semibold text-gray-600">Actions</th>
                     </tr>
-                  ))}
-                  {orders.length === 0 && (
-                    <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-400">Aucune commande</td></tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {orders.map(order => (
+                      <tr key={order.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4">
+                          <div className="font-medium">{formatDate(order.created_at)}</div>
+                          <div className="text-sm text-gray-500">{formatTime(order.created_at)}</div>
+                        </td>
+                        <td className="px-6 py-4 font-mono font-bold">{order.order_number}</td>
+                        <td className="px-6 py-4">{getOrderTypeLabel(order.order_type)}</td>
+                        <td className="px-6 py-4">{getStatusBadge(order.status, order.payment_status)}</td>
+                        <td className="px-6 py-4">
+                          <span className={order.payment_method === 'cash' ? 'text-green-600' : 'text-blue-600'}>
+                            {order.payment_method === 'cash' ? '💵 Espèces' : '💳 Carte'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right font-semibold">{formatCurrency(Number(order.total_amount) || 0)}</td>
+                        <td className="px-6 py-4 text-center">
+                          <button
+                            onClick={() => setSelectedOrder(order)}
+                            className="text-orange-600 hover:text-orange-700 font-medium"
+                          >
+                            Détails
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {orders.length === 0 && (
+                      <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-400">Aucune commande</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
 
@@ -644,7 +612,7 @@ export default function ReportsPage() {
                       <p className="text-sm text-gray-500">{report.orders_count} commande(s)</p>
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-4 gap-4 pt-4 border-t border-gray-100">
                     <div className="text-center">
                       <p className="text-sm text-gray-500">🍽️ Sur place</p>
@@ -693,7 +661,7 @@ export default function ReportsPage() {
               </div>
               <button onClick={() => setSelectedOrder(null)} className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">✕</button>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div className="flex gap-2">
                 {getStatusBadge(selectedOrder.status, selectedOrder.payment_status)}
@@ -758,7 +726,7 @@ export default function ReportsPage() {
               </div>
               <button onClick={() => setSelectedZReport(null)} className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">✕</button>
             </div>
-            
+
             <div className="p-6 space-y-6">
               <div className="bg-orange-50 rounded-xl p-6 text-center">
                 <p className="text-gray-600 mb-2">Chiffre d'affaires TTC</p>
