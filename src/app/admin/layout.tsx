@@ -19,6 +19,7 @@ const navigation = [
   { name: 'Livraisons', href: '/admin/deliveries', icon: '📦' },
   { name: 'Créneaux', href: '/admin/slots', icon: '⏰' },
   { name: 'Devices', href: '/admin/devices', icon: '📱' },
+  { name: 'Stock', href: '/admin/stock-planning', icon: '📦' },
   { name: 'Rapports', href: '/admin/reports', icon: '📈' },
   { name: 'Paramètres', href: '/admin/settings', icon: '⚙️' },
 ]
