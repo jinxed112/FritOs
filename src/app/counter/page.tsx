@@ -135,6 +135,7 @@ export default function CounterPage() {
   // Cart state
   const [cart, setCart] = useState<CartItem[]>([])
   const [orderType, setOrderType] = useState<OrderType>('takeaway')
+  const [isBux, setIsBux] = useState(false)
   
   // Payment modal state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -331,6 +332,7 @@ export default function CounterPage() {
 
   function startDeliveryOrder() {
     setOrderType('delivery')
+    setIsBux(false)
     setShowDeliveryModal(true)
     setDeliveryCustomerName('')
     setDeliveryCustomerPhone('')
@@ -604,7 +606,7 @@ export default function CounterPage() {
       // Créer la commande
       const orderData: any = {
         establishment_id: device!.establishmentId,
-        order_type: orderType,
+        order_type: orderType === 'delivery' ? 'delivery' : 'takeaway',
         status: 'pending',
         subtotal: subtotalHT,
         tax_amount: taxAmount,
@@ -615,6 +617,7 @@ export default function CounterPage() {
         payment_status: orderType === 'delivery' ? 'pending' : 'paid',
         is_offered: isOffered,
         device_id: device!.id,
+        notes: isBux ? 'BUX' : null,
         metadata: orderType === 'delivery' 
           ? JSON.stringify({
               delivery_address: deliveryAddress,
@@ -676,6 +679,7 @@ export default function CounterPage() {
       setPaymentMethod('cash')
       setCashReceived(0)
       setOfferedReason('')
+      setIsBux(false)
       
       // Reset delivery
       if (orderType === 'delivery') {
@@ -848,6 +852,7 @@ export default function CounterPage() {
             onClick={() => {
               setOrderNumber(null)
               setOrderType('takeaway')
+              setIsBux(false)
             }}
             className="bg-white text-green-600 font-bold px-12 py-5 rounded-2xl text-2xl active:scale-95 transition-transform"
           >
@@ -881,9 +886,19 @@ export default function CounterPage() {
             {/* Type de commande - Boutons tablette */}
             <div className="flex gap-3">
               <button
-                onClick={() => setOrderType('takeaway')}
+                onClick={() => { setOrderType('takeaway'); setIsBux(true) }}
                 className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
-                  orderType === 'takeaway' 
+                  isBux 
+                    ? 'bg-amber-600 text-white shadow-lg' 
+                    : 'bg-slate-700 text-gray-300'
+                }`}
+              >
+                🪵 Manger au BUX
+              </button>
+              <button
+                onClick={() => { setOrderType('takeaway'); setIsBux(false) }}
+                className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
+                  orderType === 'takeaway' && !isBux
                     ? 'bg-orange-500 text-white shadow-lg' 
                     : 'bg-slate-700 text-gray-300'
                 }`}
@@ -1018,7 +1033,7 @@ export default function CounterPage() {
       <div className="w-96 bg-white shadow-xl flex flex-col flex-shrink-0 border-l">
         <div className="p-5 bg-slate-800 text-white flex-shrink-0">
           <h2 className="text-xl font-bold">
-            {orderType === 'delivery' ? '📞 Livraison' : '🛒 Commande'}
+            {orderType === 'delivery' ? '📞 Livraison' : isBux ? '🪵 BUX' : '🛒 Commande'}
           </h2>
         </div>
         
