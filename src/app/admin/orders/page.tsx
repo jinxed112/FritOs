@@ -464,151 +464,185 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Modal détail */}
+      {/* Modal ticket */}
       {selectedOrder && (
         <div className="fixed inset-0 bg-black/50 flex items-end lg:items-center justify-center z-50 lg:p-4">
-          <div className="bg-white rounded-t-2xl lg:rounded-2xl w-full lg:max-w-2xl h-[95vh] lg:h-auto lg:max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="p-4 lg:p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
-              <div>
-                <h2 className="text-xl lg:text-2xl font-bold">
-                  Commande {selectedOrder.order_number}
-                  {selectedOrder.is_offered && <span className="ml-2 text-purple-500">🎁 Offert</span>}
-                </h2>
-                <p className="text-gray-500">{formatDate(selectedOrder.created_at)}</p>
+          <div className="bg-white rounded-t-2xl lg:rounded-2xl w-full lg:max-w-md h-[95vh] lg:h-auto lg:max-h-[90vh] flex flex-col">
+            {/* Header sticky */}
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10 rounded-t-2xl">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 text-sm"
+                >
+                  ✕
+                </button>
+                <div>
+                  <p className="font-bold text-lg">#{selectedOrder.order_number}</p>
+                  <p className="text-xs text-gray-500">{formatDate(selectedOrder.created_at)}</p>
+                </div>
               </div>
-              <button
-                onClick={() => setSelectedOrder(null)}
-                className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                {getStatusBadge(selectedOrder.status)}
+              </div>
             </div>
 
-            {/* Content */}
-            <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
-              {/* Info */}
-              <div className="grid grid-cols-2 gap-3 lg:gap-4">
-                <div className="bg-gray-50 rounded-xl p-3 lg:p-4">
-                  <p className="text-sm text-gray-500 mb-1">Type</p>
-                  <p className="font-medium text-lg">
-                    {selectedOrder.eat_in ? '🍽️ Sur place' : '🥡 À emporter'}
-                  </p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3 lg:p-4">
-                  <p className="text-sm text-gray-500 mb-1">Source</p>
-                  <p className="font-medium text-lg">
+            {/* Ticket content */}
+            <div className="flex-1 overflow-y-auto">
+              {/* Info bar */}
+              <div className="px-4 py-3 bg-gray-50 flex items-center justify-between text-sm border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <span>{selectedOrder.eat_in ? '🍽️ Sur place' : '🥡 Emporter'}</span>
+                  <span className="text-gray-400">•</span>
+                  <span>
                     {selectedOrder.source === 'kiosk' ? '🖥️ Borne' : 
                      selectedOrder.source === 'counter' ? '📋 Comptoir' : 
+                     selectedOrder.source === 'online' ? '🌐 En ligne' :
                      selectedOrder.source || '-'}
-                  </p>
+                  </span>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-3 lg:p-4">
-                  <p className="text-sm text-gray-500 mb-1">Status</p>
-                  {getStatusBadge(selectedOrder.status)}
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3 lg:p-4">
-                  <p className="text-sm text-gray-500 mb-1">Paiement</p>
+                <div>
                   {getPaymentBadge(selectedOrder.payment_status)}
-                  {selectedOrder.payment_method && (
-                    <span className="ml-2 text-sm text-gray-500">
-                      ({selectedOrder.payment_method === 'card' ? 'Carte' : 
-                        selectedOrder.payment_method === 'cash' ? 'Espèces' : 
-                        selectedOrder.payment_method})
-                    </span>
-                  )}
                 </div>
               </div>
 
               {/* Client */}
-              {(selectedOrder.customer_name || selectedOrder.customer_phone || selectedOrder.customer_email) && (
-                <div className="bg-blue-50 rounded-xl p-4">
-                  <p className="text-sm text-blue-600 mb-2">👤 Client</p>
-                  {selectedOrder.customer_name && <p className="font-medium">{selectedOrder.customer_name}</p>}
-                  {selectedOrder.customer_phone && <p className="text-gray-600">{selectedOrder.customer_phone}</p>}
-                  {selectedOrder.customer_email && <p className="text-gray-600">{selectedOrder.customer_email}</p>}
+              {(selectedOrder.customer_name || selectedOrder.customer_phone) && (
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2 text-sm">
+                  <span className="text-gray-400">👤</span>
+                  <span className="font-medium">{selectedOrder.customer_name || ''}</span>
+                  {selectedOrder.customer_phone && (
+                    <span className="text-gray-500">{selectedOrder.customer_phone}</span>
+                  )}
                 </div>
               )}
 
-              {/* Offert reason */}
-              {selectedOrder.is_offered && selectedOrder.offered_reason && (
-                <div className="bg-purple-50 rounded-xl p-4">
-                  <p className="text-sm text-purple-600 mb-1">🎁 Raison offert</p>
-                  <p className="font-medium">{selectedOrder.offered_reason}</p>
+              {/* Offert */}
+              {selectedOrder.is_offered && (
+                <div className="px-4 py-2 bg-purple-50 text-purple-700 text-sm font-medium">
+                  🎁 Commande offerte {selectedOrder.offered_reason ? `— ${selectedOrder.offered_reason}` : ''}
                 </div>
               )}
 
-              {/* Items */}
-              <div>
-                <h3 className="font-bold text-gray-900 mb-3">Articles</h3>
-                <div className="space-y-2">
+              {/* ═══ ARTICLES (TICKET STYLE) ═══ */}
+              <div className="px-4 py-3">
+                <div className="space-y-1">
                   {selectedOrder.order_items.map(item => {
-                    const options = item.options_selected || []
+                    // Parse options_selected (handle double-encoded JSONB)
+                    let options: any[] = []
+                    try {
+                      let raw = item.options_selected
+                      if (typeof raw === 'string') {
+                        raw = JSON.parse(raw)
+                        if (typeof raw === 'string') raw = JSON.parse(raw)
+                      }
+                      if (Array.isArray(raw)) options = raw
+                    } catch {}
+
+                    const unitPrice = item.unit_price || 0
+                    const optionsTotal = item.options_total || 0
+
                     return (
-                      <div key={item.id} className="bg-gray-50 rounded-xl p-3 lg:p-4">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="font-medium">
-                              {item.quantity}x {item.product_name}
-                              {item.is_free && <span className="ml-2 text-green-600">🎁 Offert</span>}
-                            </p>
-                            {Array.isArray(options) && options.length > 0 && (
-                              <div className="text-sm text-gray-500 mt-1">
-                                {options.map((opt: any, idx: number) => (
-                                  <div key={idx}>+ {opt.item_name}</div>
-                                ))}
-                              </div>
-                            )}
-                            {item.notes && (
-                              <p className="text-sm text-yellow-600 mt-1">📝 {item.notes}</p>
-                            )}
+                      <div key={item.id} className="py-2 border-b border-dashed border-gray-200 last:border-0">
+                        {/* Product line */}
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <span className="font-bold">{item.quantity}x </span>
+                            <span className="font-medium">{item.product_name}</span>
+                            {item.is_free && <span className="ml-1 text-green-600 text-xs">🎁</span>}
                           </div>
-                          <p className="font-bold">{(item.line_total || 0).toFixed(2)}€</p>
+                          <span className="font-medium ml-2 tabular-nums">
+                            {(unitPrice * item.quantity).toFixed(2)}€
+                          </span>
                         </div>
+
+                        {/* Options/supplements */}
+                        {options.length > 0 && (
+                          <div className="mt-1 ml-4 space-y-0.5">
+                            {options.map((opt: any, idx: number) => {
+                              const optPrice = parseFloat(opt.price || opt.item_price || 0)
+                              const optQty = opt.quantity || 1
+                              return (
+                                <div key={idx} className="flex justify-between text-sm text-gray-600">
+                                  <span>
+                                    ＋ {opt.item_name || opt.name || opt.option_name || '?'}
+                                    {optQty > 1 && <span className="text-gray-400"> x{optQty}</span>}
+                                  </span>
+                                  {optPrice > 0 && (
+                                    <span className="text-gray-500 tabular-nums ml-2">
+                                      {(optPrice * optQty * item.quantity).toFixed(2)}€
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {/* Notes */}
+                        {item.notes && (
+                          <p className="mt-1 ml-4 text-xs text-yellow-600 italic">📝 {item.notes}</p>
+                        )}
+
+                        {/* Line total if options */}
+                        {options.length > 0 && (
+                          <div className="flex justify-between mt-1 text-sm font-semibold text-gray-800">
+                            <span className="ml-4 text-gray-400">Sous-total article</span>
+                            <span className="tabular-nums">{(item.line_total || 0).toFixed(2)}€</span>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
                 </div>
               </div>
 
-              {/* Totaux */}
-              <div className="border-t border-gray-200 pt-4 space-y-2">
-                <div className="flex justify-between text-gray-600">
-                  <span>Sous-total</span>
-                  <span>{(selectedOrder.subtotal || 0).toFixed(2)}€</span>
-                </div>
-                {selectedOrder.discount_amount > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span>Remise</span>
-                    <span>-{selectedOrder.discount_amount.toFixed(2)}€</span>
+              {/* ═══ TOTAUX ═══ */}
+              <div className="px-4 py-3 bg-gray-50 border-t border-gray-200">
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between text-gray-600">
+                    <span>Sous-total</span>
+                    <span className="tabular-nums">{(selectedOrder.subtotal || 0).toFixed(2)}€</span>
                   </div>
-                )}
-                <div className="flex justify-between text-gray-600">
-                  <span>TVA</span>
-                  <span>{(selectedOrder.vat_amount || selectedOrder.tax_amount || 0).toFixed(2)}€</span>
+                  {selectedOrder.discount_amount > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Remise</span>
+                      <span className="tabular-nums">-{selectedOrder.discount_amount.toFixed(2)}€</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-gray-600">
+                    <span>TVA</span>
+                    <span className="tabular-nums">{(selectedOrder.vat_amount || selectedOrder.tax_amount || 0).toFixed(2)}€</span>
+                  </div>
                 </div>
-                <div className="flex justify-between text-xl font-bold border-t border-gray-200 pt-2">
+                <div className="flex justify-between text-xl font-bold mt-2 pt-2 border-t border-gray-300">
                   <span>Total</span>
-                  <span className="text-orange-500">
+                  <span className="text-orange-500 tabular-nums">
                     {(selectedOrder.total_amount || selectedOrder.total || 0).toFixed(2)}€
                   </span>
                 </div>
+                {selectedOrder.payment_method && (
+                  <p className="text-xs text-gray-400 mt-1 text-right">
+                    Payé par {selectedOrder.payment_method === 'card' ? 'carte bancaire' : 
+                      selectedOrder.payment_method === 'cash' ? 'espèces' : 
+                      selectedOrder.payment_method}
+                  </p>
+                )}
               </div>
 
-              {/* Notes */}
+              {/* Notes commande */}
               {selectedOrder.notes && (
-                <div className="bg-yellow-50 rounded-xl p-4">
-                  <p className="text-sm text-yellow-600 mb-1">📝 Notes</p>
-                  <p>{selectedOrder.notes}</p>
+                <div className="px-4 py-3 bg-yellow-50 border-t border-yellow-100">
+                  <p className="text-sm text-yellow-700">📝 {selectedOrder.notes}</p>
                 </div>
               )}
             </div>
 
-            {/* Footer actions */}
-            <div className="p-4 lg:p-6 border-t border-gray-100 flex gap-3 sticky bottom-0 bg-white">
+            {/* Footer actions sticky */}
+            <div className="p-4 border-t border-gray-100 flex gap-3 sticky bottom-0 bg-white">
               <button
                 onClick={() => setSelectedOrder(null)}
-                className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
+                className="flex-1 px-4 py-3 rounded-xl border border-gray-200 font-semibold text-sm"
               >
                 Fermer
               </button>
@@ -618,7 +652,7 @@ export default function OrdersPage() {
                     updateStatus(selectedOrder.id, 'preparing')
                     setSelectedOrder(null)
                   }}
-                  className="flex-1 px-6 py-3 rounded-xl bg-blue-500 text-white font-semibold hover:bg-blue-600"
+                  className="flex-1 px-4 py-3 rounded-xl bg-blue-500 text-white font-semibold hover:bg-blue-600 text-sm"
                 >
                   🍳 Préparer
                 </button>
@@ -629,7 +663,7 @@ export default function OrdersPage() {
                     updateStatus(selectedOrder.id, 'ready')
                     setSelectedOrder(null)
                   }}
-                  className="flex-1 px-6 py-3 rounded-xl bg-green-500 text-white font-semibold hover:bg-green-600"
+                  className="flex-1 px-4 py-3 rounded-xl bg-green-500 text-white font-semibold hover:bg-green-600 text-sm"
                 >
                   ✅ Prêt
                 </button>
@@ -640,9 +674,22 @@ export default function OrdersPage() {
                     updateStatus(selectedOrder.id, 'completed')
                     setSelectedOrder(null)
                   }}
-                  className="flex-1 px-6 py-3 rounded-xl bg-gray-500 text-white font-semibold hover:bg-gray-600"
+                  className="flex-1 px-4 py-3 rounded-xl bg-gray-500 text-white font-semibold hover:bg-gray-600 text-sm"
                 >
                   🏁 Terminer
+                </button>
+              )}
+              {['pending', 'preparing'].includes(selectedOrder.status) && (
+                <button
+                  onClick={() => {
+                    if (confirm('Annuler cette commande ?')) {
+                      updateStatus(selectedOrder.id, 'cancelled')
+                      setSelectedOrder(null)
+                    }
+                  }}
+                  className="px-4 py-3 rounded-xl bg-red-100 text-red-700 font-semibold hover:bg-red-200 text-sm"
+                >
+                  ❌
                 </button>
               )}
             </div>
