@@ -867,68 +867,65 @@ export default function CounterPage() {
     <div className="h-screen bg-gray-100 flex overflow-hidden">
       {/* Zone principale */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header - Optimisé tablette 10" */}
-        <header className="bg-slate-800 text-white px-6 py-4 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              📋 Caisse
-            </h1>
-            <span className="text-sm text-gray-400">{device?.name}</span>
+        {/* Header compact */}
+        <header className="bg-slate-800 text-white px-3 py-2 flex items-center justify-between flex-shrink-0 gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={() => router.push('/device')}
-              className="bg-slate-700 px-3 py-2 rounded-lg text-sm hover:bg-slate-600"
+              className="bg-slate-700 p-2 rounded-lg text-xs active:bg-slate-600 flex-shrink-0"
             >
               🔄
             </button>
+            <span className="text-xs text-gray-400 truncate max-w-[80px]">{device?.name}</span>
           </div>
           
-          <div className="flex items-center gap-4">
-            {/* Type de commande - Boutons tablette */}
-            <div className="flex gap-3">
-              <button
-                onClick={() => { setOrderType('takeaway'); setIsBux(true) }}
-                className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
-                  isBux 
-                    ? 'bg-amber-600 text-white shadow-lg' 
-                    : 'bg-slate-700 text-gray-300'
-                }`}
-              >
-                🪵 Manger au BUX
-              </button>
-              <button
-                onClick={() => { setOrderType('takeaway'); setIsBux(false) }}
-                className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
-                  orderType === 'takeaway' && !isBux
-                    ? 'bg-orange-500 text-white shadow-lg' 
-                    : 'bg-slate-700 text-gray-300'
-                }`}
-              >
-                🥡 Emporter
-              </button>
-              <button
-                onClick={startDeliveryOrder}
-                className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
-                  orderType === 'delivery' 
-                    ? 'bg-blue-500 text-white shadow-lg' 
-                    : 'bg-slate-700 text-gray-300'
-                }`}
-              >
-                📞 Livraison
-              </button>
-            </div>
-            
+          <div className="flex items-center gap-1.5 flex-1 justify-center">
+            {/* Type de commande - boutons compacts */}
+            <button
+              onClick={() => { setOrderType('takeaway'); setIsBux(true) }}
+              className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
+                isBux 
+                  ? 'bg-amber-600 text-white shadow-lg' 
+                  : 'bg-slate-700 text-gray-300'
+              }`}
+            >
+              🪵 BUX
+            </button>
+            <button
+              onClick={() => { setOrderType('takeaway'); setIsBux(false) }}
+              className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
+                orderType === 'takeaway' && !isBux
+                  ? 'bg-orange-500 text-white shadow-lg' 
+                  : 'bg-slate-700 text-gray-300'
+              }`}
+            >
+              🥡 Emporter
+            </button>
+            <button
+              onClick={startDeliveryOrder}
+              className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
+                orderType === 'delivery' 
+                  ? 'bg-blue-500 text-white shadow-lg' 
+                  : 'bg-slate-700 text-gray-300'
+              }`}
+            >
+              📞 Livraison
+            </button>
+          </div>
+          
+          <div className="flex items-center gap-1.5 flex-shrink-0">
             {/* Badge commandes en retard */}
             <button
               onClick={() => setShowLateOrdersModal(true)}
-              className={`relative px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
+              className={`relative p-2 rounded-lg text-sm transition-all active:scale-95 ${
                 lateOrders.length > 0 
                   ? 'bg-red-500 text-white animate-pulse' 
                   : 'bg-slate-700 text-gray-400'
               }`}
             >
-              ⚠️ Retards
+              ⚠️
               {lateOrders.length > 0 && (
-                <span className="absolute -top-2 -right-2 bg-yellow-400 text-yellow-900 text-sm font-bold w-7 h-7 rounded-full flex items-center justify-center">
+                <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-yellow-900 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
                   {lateOrders.length}
                 </span>
               )}
@@ -937,21 +934,21 @@ export default function CounterPage() {
             {/* Bouton Backoffice */}
             <Link
               href="/counter/backoffice"
-              className="px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 bg-slate-700 text-gray-300 hover:bg-slate-600"
+              className="p-2 rounded-lg text-sm transition-all active:scale-95 bg-slate-700 text-gray-300 hover:bg-slate-600"
             >
-              ⚙️ Backoffice
+              ⚙️
             </Link>
           </div>
         </header>
 
-        {/* Categories - Optimisé tablette */}
-        <div className="bg-white border-b px-4 py-4 flex-shrink-0">
-          <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+        {/* Categories */}
+        <div className="bg-white border-b px-3 py-2 flex-shrink-0">
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
             {categories.map(cat => (
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`px-6 py-3 rounded-xl font-semibold whitespace-nowrap transition-all active:scale-95 text-lg ${
+                className={`px-4 py-2 rounded-lg font-semibold whitespace-nowrap transition-all active:scale-95 text-sm ${
                   selectedCategory === cat.id
                     ? 'bg-orange-500 text-white shadow-lg'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -964,21 +961,21 @@ export default function CounterPage() {
         </div>
 
         {/* Products grid - Optimisé tablette 10" FHD */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3">
           {filteredProducts.length === 0 ? (
-            <div className="text-center text-gray-400 py-16">
-              <span className="text-6xl block mb-4">📦</span>
-              <p className="text-xl">Aucun produit dans cette catégorie</p>
+            <div className="text-center text-gray-400 py-12">
+              <span className="text-5xl block mb-3">📦</span>
+              <p className="text-base">Aucun produit dans cette catégorie</p>
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {filteredProducts.map(product => {
                 const allergens = getProductAllergens(product)
                 
                 return (
                 <div
                   key={product.id}
-                  className="bg-white rounded-2xl shadow-sm overflow-hidden text-left relative hover:shadow-md transition-shadow"
+                  className="bg-white rounded-xl shadow-sm overflow-hidden text-left relative hover:shadow-md transition-shadow"
                 >
                   <button
                     onClick={() => openProductModal(product)}
@@ -988,15 +985,15 @@ export default function CounterPage() {
                       {product.image_url ? (
                         <img src={product.image_url} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-6xl">🍔</span>
+                        <span className="text-5xl">🍔</span>
                       )}
                     </div>
-                    <div className="p-4">
-                      <h3 className="font-bold text-gray-900 text-base leading-tight line-clamp-2 min-h-[3rem]">
+                    <div className="p-2.5">
+                      <h3 className="font-bold text-gray-900 text-sm leading-tight line-clamp-2 min-h-[2.5rem]">
                         {product.name}
                       </h3>
-                      <div className="flex items-center justify-between mt-2">
-                        <p className="text-2xl font-bold text-orange-500">{product.price.toFixed(2)} €</p>
+                      <div className="flex items-center justify-between mt-1">
+                        <p className="text-lg font-bold text-orange-500">{product.price.toFixed(2)} €</p>
                       </div>
                     </div>
                   </button>
@@ -1007,7 +1004,7 @@ export default function CounterPage() {
                         e.stopPropagation()
                         setAllergenModalProduct(product)
                       }}
-                      className="absolute bottom-4 right-4 flex gap-1 bg-gray-100 hover:bg-orange-100 rounded-lg px-3 py-2 transition-colors"
+                      className="absolute bottom-2.5 right-2.5 flex gap-0.5 bg-gray-100 hover:bg-orange-100 rounded-md px-2 py-1 transition-colors"
                     >
                       {allergens.slice(0, 4).map(a => (
                         <span 
@@ -1029,10 +1026,10 @@ export default function CounterPage() {
         </div>
       </div>
 
-      {/* Cart sidebar - Optimisé tablette */}
-      <div className="w-96 bg-white shadow-xl flex flex-col flex-shrink-0 border-l">
-        <div className="p-5 bg-slate-800 text-white flex-shrink-0">
-          <h2 className="text-xl font-bold">
+      {/* Cart sidebar */}
+      <div className="w-72 md:w-80 lg:w-96 bg-white shadow-xl flex flex-col flex-shrink-0 border-l">
+        <div className="p-3 bg-slate-800 text-white flex-shrink-0">
+          <h2 className="text-base font-bold">
             {orderType === 'delivery' ? '📞 Livraison' : isBux ? '🪵 BUX' : '🛒 Commande'}
           </h2>
         </div>
