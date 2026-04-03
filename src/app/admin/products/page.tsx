@@ -589,24 +589,24 @@ export default function ProductsPage() {
   const productAllergens = getProductAllergens()
 
   return (
-    <div className="p-8">
+    <div className="p-4 lg:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6 lg:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Produits</h1>
-          <p className="text-gray-500">{products.length} produits au total</p>
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Produits</h1>
+          <p className="text-gray-500 text-sm">{products.length} produits au total</p>
         </div>
         <button
           onClick={() => openModal()}
-          className="bg-orange-500 text-white font-semibold px-6 py-3 rounded-xl hover:bg-orange-600 transition-colors"
+          className="bg-orange-500 text-white font-semibold px-4 lg:px-6 py-2 lg:py-3 rounded-xl hover:bg-orange-600 transition-colors text-sm lg:text-base"
         >
-          ➕ Nouveau produit
+          ➕ <span className="hidden sm:inline">Nouveau produit</span><span className="sm:hidden">Nouveau</span>
         </button>
       </div>
 
       {/* Filtres */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
-        <div className="flex flex-wrap gap-4 items-center">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 lg:p-4 mb-4 lg:mb-6">
+        <div className="space-y-3 lg:space-y-0 lg:flex lg:flex-wrap lg:gap-4 lg:items-center">
           {/* Recherche */}
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -619,11 +619,11 @@ export default function ProductsPage() {
             />
           </div>
 
-          {/* Filtre catégorie */}
-          <div className="flex items-center gap-2 flex-wrap">
+          {/* Filtre catégorie - scrollable on mobile */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-3 px-3 lg:mx-0 lg:px-0 lg:flex-wrap">
             <button
               onClick={() => setSelectedCategory('')}
-              className={`px-4 py-2 rounded-xl font-medium transition-colors ${
+              className={`px-3 lg:px-4 py-2 rounded-xl font-medium transition-colors text-sm whitespace-nowrap ${
                 !selectedCategory
                   ? 'bg-orange-500 text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -635,7 +635,7 @@ export default function ProductsPage() {
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`px-4 py-2 rounded-xl font-medium transition-colors ${
+                className={`px-3 lg:px-4 py-2 rounded-xl font-medium transition-colors text-sm whitespace-nowrap ${
                   selectedCategory === cat.id
                     ? 'bg-orange-500 text-white'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -661,7 +661,8 @@ export default function ProductsPage() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <table className="w-full">
+          {/* Desktop table */}
+          <table className="w-full hidden lg:table">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="text-left px-6 py-4 font-semibold text-gray-600">Produit</th>
@@ -676,7 +677,6 @@ export default function ProductsPage() {
               {filteredProducts.map(product => {
                 const category = categories.find(c => c.id === product.category_id)
                 
-                // Calculer les allergènes du produit
                 const allergens = new Map<string, { emoji: string, name: string, is_trace: boolean }>()
                 product.product_ingredients?.forEach(pi => {
                   pi.ingredient?.ingredient_allergens?.forEach(ia => {
@@ -765,16 +765,56 @@ export default function ProductsPage() {
               })}
             </tbody>
           </table>
+
+          {/* Mobile cards */}
+          <div className="lg:hidden divide-y divide-gray-100">
+            {filteredProducts.map(product => {
+              const category = categories.find(c => c.id === product.category_id)
+              
+              return (
+                <div 
+                  key={product.id} 
+                  className={`p-4 flex items-center gap-3 active:bg-gray-50 ${!product.is_active ? 'opacity-50' : ''}`}
+                  onClick={() => openModal(product)}
+                >
+                  <div className="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {product.image_url ? (
+                      <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-2xl">🍔</span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{product.name}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                        {category?.name || '-'}
+                      </span>
+                      {!product.is_available && (
+                        <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
+                          Indispo
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-bold text-gray-900">{product.price.toFixed(2)}€</p>
+                    <p className="text-xs text-gray-400 mt-0.5">✏️</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 bg-black/50 flex items-end lg:items-center justify-center z-50 lg:p-4">
+          <div className="bg-white rounded-t-2xl lg:rounded-2xl w-full lg:max-w-2xl h-[95vh] lg:max-h-[90vh] flex flex-col">
             {/* Header */}
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-2xl font-bold">
+            <div className="p-4 lg:p-6 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-xl lg:text-2xl font-bold">
                 {editingProduct ? '✏️ Modifier' : '➕ Nouveau'} produit
               </h2>
               <button
@@ -786,11 +826,11 @@ export default function ProductsPage() {
             </div>
             
             {/* Tabs */}
-            <div className="px-6 pt-4 border-b border-gray-100">
-              <div className="flex gap-2">
+            <div className="px-4 lg:px-6 pt-3 lg:pt-4 border-b border-gray-100">
+              <div className="flex gap-2 overflow-x-auto pb-2">
                 <button
                   onClick={() => setActiveTab('info')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  className={`px-3 lg:px-4 py-2 rounded-lg font-medium transition-colors text-sm whitespace-nowrap ${
                     activeTab === 'info'
                       ? 'bg-orange-500 text-white'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -800,7 +840,7 @@ export default function ProductsPage() {
                 </button>
                 <button
                   onClick={() => setActiveTab('propositions')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  className={`px-3 lg:px-4 py-2 rounded-lg font-medium transition-colors text-sm whitespace-nowrap ${
                     activeTab === 'propositions'
                       ? 'bg-orange-500 text-white'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -810,7 +850,7 @@ export default function ProductsPage() {
                 </button>
                 <button
                   onClick={() => setActiveTab('ingredients')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  className={`px-3 lg:px-4 py-2 rounded-lg font-medium transition-colors text-sm whitespace-nowrap ${
                     activeTab === 'ingredients'
                       ? 'bg-orange-500 text-white'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -820,7 +860,7 @@ export default function ProductsPage() {
                 </button>
                 <button
                   onClick={() => setActiveTab('allergens')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  className={`px-3 lg:px-4 py-2 rounded-lg font-medium transition-colors text-sm whitespace-nowrap ${
                     activeTab === 'allergens'
                       ? 'bg-orange-500 text-white'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -832,7 +872,7 @@ export default function ProductsPage() {
             </div>
             
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 lg:p-6">
               {formError && (
                 <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4">
                   {formError}
@@ -845,8 +885,8 @@ export default function ProductsPage() {
                   {/* Image upload */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Photo du produit</label>
-                    <div className="flex items-start gap-4">
-                      <div className="w-32 h-32 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-300">
+                    <div className="flex flex-col sm:flex-row items-start gap-4">
+                      <div className="w-24 h-24 lg:w-32 lg:h-32 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-300 flex-shrink-0">
                         {imagePreview ? (
                           <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
                         ) : (
@@ -1411,7 +1451,7 @@ export default function ProductsPage() {
             </div>
             
             {/* Footer */}
-            <div className="p-6 border-t border-gray-100 flex gap-3">
+            <div className="p-4 lg:p-6 border-t border-gray-100 flex gap-3">
               <button
                 type="button"
                 onClick={() => setShowModal(false)}
