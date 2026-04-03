@@ -35,7 +35,9 @@ type StockPlan = {
   avgPerDay: { [isoDay: number]: number }
   currentStock: number
   expiringToday: number
-  neededForPeriod: number
+  neededTomorrow: number      // portions prévues pour demain
+  inFridge: number            // ce qui est dispo dans le frigo pour demain
+  delta: number               // négatif = il manque, positif = surplus
   packsNeeded: number | null
   portionsPerPack: number | null
 }
@@ -200,7 +202,10 @@ export default function StockPlanningPage() {
     if (!item) { setSaving(false); return }
 
     const now = new Date()
-    const expires = addDays(now, item.dlc_days)
+    // DLC starts from tomorrow (defrost tonight, available tomorrow)
+    const tomorrowMorning = addDays(now, 1)
+    tomorrowMorning.setHours(23, 59, 59)
+    const expires = addDays(tomorrowMorning, item.dlc_days - 1)
 
     await supabase.from('stock_defrost_logs').insert({
       stock_item_id: defrostItemId,
@@ -228,40 +233,43 @@ export default function StockPlanningPage() {
   // ─── Compute planning ─────────────────────────────────────────────
   function getPlanning(): StockPlan[] {
     const today = new Date()
-    const todayISO = isoDay(today)
+    const tomorrow = addDays(today, 1)
+    const tomorrowDay = isoDay(tomorrow)
 
     return stockItems.map(item => {
       const avgs = avgData[item.id] || {}
 
-      // Current available stock from defrost logs
+      // What's currently in the fridge (non-expired defrost logs)
       const activeLogs = defrostLogs.filter(l => l.stock_item_id === item.id)
       const currentStock = activeLogs.reduce((sum, l) => sum + l.quantity, 0)
 
-      // Expiring today
+      // Expiring today (urgent: use it or lose it)
       const todayEnd = new Date(today)
       todayEnd.setHours(23, 59, 59)
-      const tomorrowStart = addDays(today, 1)
-      tomorrowStart.setHours(0, 0, 0)
       const expiringToday = activeLogs
         .filter(l => new Date(l.expires_at) <= todayEnd)
         .reduce((sum, l) => sum + l.quantity, 0)
 
-      // Needed for the next DLC period (what to defrost/order today)
-      let neededForPeriod = 0
-      for (let i = 0; i < item.dlc_days; i++) {
-        const futureDate = addDays(today, i)
-        const futureDay = isoDay(futureDate)
-        neededForPeriod += (avgs[futureDay] || 0)
-      }
-      neededForPeriod = Math.ceil(neededForPeriod * (1 + margin))
+      // Predicted demand for tomorrow
+      const neededTomorrow = Math.ceil((avgs[tomorrowDay] || 0) * (1 + margin))
 
-      // Packs needed (for fresh items with pack info)
+      // What's in the fridge that will still be valid tomorrow
+      const tomorrowStart = new Date(tomorrow)
+      tomorrowStart.setHours(0, 0, 0)
+      const inFridge = activeLogs
+        .filter(l => new Date(l.expires_at) >= tomorrowStart)
+        .reduce((sum, l) => sum + l.quantity, 0)
+
+      // Delta: positive = surplus, negative = need to defrost/order
+      const delta = inFridge - neededTomorrow
+
+      // Packs needed for fresh items
       let portionsPerPack: number | null = null
       let packsNeeded: number | null = null
       if (item.pack_weight_g && item.portion_weight_g) {
         portionsPerPack = Math.floor(item.pack_weight_g / item.portion_weight_g)
-        const deficit = Math.max(0, neededForPeriod - currentStock)
-        packsNeeded = Math.ceil(deficit / portionsPerPack)
+        const deficit = Math.max(0, -delta)
+        packsNeeded = deficit > 0 ? Math.ceil(deficit / portionsPerPack) : 0
       }
 
       return {
@@ -269,7 +277,9 @@ export default function StockPlanningPage() {
         avgPerDay: avgs,
         currentStock,
         expiringToday,
-        neededForPeriod,
+        neededTomorrow,
+        inFridge,
+        delta,
         packsNeeded,
         portionsPerPack,
       }
@@ -279,6 +289,7 @@ export default function StockPlanningPage() {
   const plans = loading ? [] : getPlanning()
   const freshPlans = plans.filter(p => p.item.stock_type === 'fresh')
   const frozenPlans = plans.filter(p => p.item.stock_type === 'frozen')
+  const tomorrow = addDays(new Date(), 1)
 
   // ─── Render ────────────────────────────────────────────────────────
   if (loading) {
@@ -300,7 +311,7 @@ export default function StockPlanningPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Gestion du stock</h1>
-          <p className="text-gray-500">Planification décongélation & commandes fournisseur</p>
+          <p className="text-gray-500">Ce qu'il faut sortir ce soir pour {DAY_NAMES[isoDay(tomorrow)].toLowerCase()}</p>
         </div>
         <div className="flex items-center gap-3">
           <select
@@ -360,143 +371,126 @@ export default function StockPlanningPage() {
           {/* ── Summary cards ── */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-white rounded-2xl p-5 border border-gray-100">
-              <p className="text-sm text-gray-500">Aujourd'hui</p>
-              <p className="text-2xl font-bold text-gray-900">{DAY_NAMES[isoDay(today)]}</p>
-              <p className="text-sm text-gray-400">{fmtDate(today)}</p>
+              <p className="text-sm text-gray-500">Dans le frigo pour</p>
+              <p className="text-2xl font-bold text-gray-900">{DAY_NAMES[isoDay(tomorrow)]}</p>
+              <p className="text-sm text-gray-400">{fmtDate(tomorrow)}</p>
             </div>
             <div className="bg-white rounded-2xl p-5 border border-gray-100">
-              <p className="text-sm text-gray-500">Articles en stock</p>
+              <p className="text-sm text-gray-500">Tout est prêt</p>
               <p className="text-2xl font-bold text-green-600">
-                {plans.filter(p => p.currentStock > 0).length}
+                {plans.filter(p => p.delta >= 0 && p.neededTomorrow > 0).length}
               </p>
-              <p className="text-sm text-gray-400">sur {plans.length} articles</p>
+              <p className="text-sm text-gray-400">sur {plans.filter(p => p.neededTomorrow > 0).length} articles demandés</p>
             </div>
             <div className="bg-white rounded-2xl p-5 border border-gray-100">
-              <p className="text-sm text-gray-500">Expire aujourd'hui</p>
+              <p className="text-sm text-gray-500">Il manque</p>
               <p className="text-2xl font-bold text-red-600">
+                {plans.filter(p => p.delta < 0).length} articles
+              </p>
+              <p className="text-sm text-gray-400">à sortir / commander</p>
+            </div>
+            <div className="bg-white rounded-2xl p-5 border border-gray-100">
+              <p className="text-sm text-gray-500">Expire ce soir</p>
+              <p className="text-2xl font-bold text-orange-600">
                 {plans.reduce((s, p) => s + p.expiringToday, 0)} portions
               </p>
-              <p className="text-sm text-gray-400">à écouler en priorité</p>
-            </div>
-            <div className="bg-white rounded-2xl p-5 border border-gray-100">
-              <p className="text-sm text-gray-500">À sortir/commander</p>
-              <p className="text-2xl font-bold text-orange-600">
-                {plans.filter(p => p.neededForPeriod > p.currentStock).length} articles
-              </p>
-              <p className="text-sm text-gray-400">en dessous du besoin</p>
+              <p className="text-sm text-gray-400">à écouler aujourd'hui</p>
             </div>
           </div>
 
-          {/* ── Fresh items (commandes fournisseur) ── */}
+          {/* ── Unified table: what's in the fridge for tomorrow ── */}
           <div>
-            <h2 className="text-xl font-bold text-gray-900 mb-4">🥩 Produits frais — Commandes fournisseur</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">
+              Frigo pour {DAY_NAMES[isoDay(tomorrow)].toLowerCase()} {fmtDate(tomorrow)}
+            </h2>
+            <p className="text-gray-500 text-sm mb-4">
+              Prévision basée sur les ventes des {weeksBack} dernières semaines (marge +{Math.round(margin * 100)}%)
+            </p>
+
             <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b">
                     <th className="text-left px-5 py-3 font-semibold text-gray-600">Article</th>
-                    <th className="text-center px-3 py-3 font-semibold text-gray-600">DLC</th>
-                    <th className="text-center px-3 py-3 font-semibold text-gray-600">En stock</th>
-                    <th className="text-center px-3 py-3 font-semibold text-gray-600">
-                      Besoin ({today.toLocaleDateString('fr-BE', { weekday: 'short' })} +{freshPlans[0]?.item.dlc_days || '?'}j)
+                    <th className="text-center px-3 py-3 font-semibold text-gray-600">Type</th>
+                    <th className="text-center px-3 py-3 font-semibold text-blue-600 bg-blue-50">
+                      Il faut demain
                     </th>
-                    <th className="text-center px-3 py-3 font-semibold text-gray-600">Manque</th>
-                    <th className="text-center px-3 py-3 font-semibold text-gray-600">Pack</th>
-                    <th className="text-center px-3 py-3 font-semibold text-orange-600 bg-orange-50">À commander</th>
+                    <th className="text-center px-3 py-3 font-semibold text-green-600 bg-green-50">
+                      Dans le frigo
+                    </th>
+                    <th className="text-center px-3 py-3 font-semibold text-gray-600">
+                      Statut
+                    </th>
+                    <th className="text-center px-3 py-3 font-semibold text-orange-600 bg-orange-50">
+                      Action
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {freshPlans.map((p, i) => {
-                    const deficit = Math.max(0, p.neededForPeriod - p.currentStock)
-                    const isUrgent = deficit > 0
+                  {/* Show items that need attention first, then OK items */}
+                  {[...plans]
+                    .filter(p => p.neededTomorrow > 0 || p.inFridge > 0)
+                    .sort((a, b) => a.delta - b.delta)
+                    .map((p, i) => {
+                    const missing = Math.max(0, -p.delta)
                     return (
-                      <tr key={p.item.id} className={`border-b ${i % 2 === 0 ? '' : 'bg-gray-50'} ${isUrgent ? '' : ''}`}>
-                        <td className="px-5 py-3 font-medium">{p.item.name}</td>
-                        <td className="text-center px-3 py-3 text-gray-500">{p.item.dlc_days}j</td>
-                        <td className="text-center px-3 py-3">
-                          <span className={`inline-block px-2 py-1 rounded-lg text-xs font-semibold ${
-                            p.currentStock > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {p.currentStock}
-                          </span>
-                        </td>
-                        <td className="text-center px-3 py-3 font-medium">{p.neededForPeriod}</td>
-                        <td className="text-center px-3 py-3">
-                          {deficit > 0 ? (
-                            <span className="text-red-600 font-bold">{deficit}</span>
-                          ) : (
-                            <span className="text-green-600">OK</span>
+                      <tr key={p.item.id} className={`border-b ${
+                        p.delta < 0 ? 'bg-red-50' : i % 2 === 0 ? '' : 'bg-gray-50'
+                      }`}>
+                        <td className="px-5 py-3">
+                          <span className="font-medium">{p.item.name}</span>
+                          {p.portionsPerPack && (
+                            <span className="block text-xs text-gray-400">
+                              Pack {p.item.pack_weight_g! / 1000}kg = {p.portionsPerPack} portions
+                            </span>
                           )}
                         </td>
-                        <td className="text-center px-3 py-3 text-gray-500">
-                          {p.portionsPerPack ? (
-                            <span>{p.item.pack_weight_g! / 1000}kg = {p.portionsPerPack} pcs</span>
-                          ) : '—'}
+                        <td className="text-center px-3 py-3">
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                            p.item.stock_type === 'fresh' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {p.item.stock_type === 'fresh' ? 'Frais' : 'Surgelé'}
+                          </span>
                         </td>
-                        <td className="text-center px-3 py-3 bg-orange-50">
-                          {p.packsNeeded !== null && p.packsNeeded > 0 ? (
-                            <span className="inline-block px-3 py-1 rounded-xl bg-orange-500 text-white font-bold">
-                              {p.packsNeeded} pack{p.packsNeeded > 1 ? 's' : ''}
+                        <td className="text-center px-3 py-3 bg-blue-50 font-bold text-lg">
+                          {p.neededTomorrow > 0 ? p.neededTomorrow : '—'}
+                        </td>
+                        <td className="text-center px-3 py-3 bg-green-50 font-bold text-lg">
+                          {p.inFridge > 0 ? p.inFridge : (
+                            <span className="text-gray-300">0</span>
+                          )}
+                        </td>
+                        <td className="text-center px-3 py-3">
+                          {p.delta >= 0 && p.neededTomorrow > 0 ? (
+                            <span className="inline-block px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold text-xs">
+                              ✓ OK {p.delta > 0 ? `(+${p.delta})` : ''}
+                            </span>
+                          ) : p.delta < 0 ? (
+                            <span className="inline-block px-3 py-1 rounded-full bg-red-100 text-red-700 font-semibold text-xs">
+                              Manque {missing}
                             </span>
                           ) : (
-                            <span className="text-green-600 font-medium">✓</span>
+                            <span className="text-gray-400 text-xs">—</span>
                           )}
                         </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* ── Frozen items (décongélation) ── */}
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 mb-4">🧊 Surgelés — À décongeler</h2>
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b">
-                    <th className="text-left px-5 py-3 font-semibold text-gray-600">Article</th>
-                    <th className="text-center px-3 py-3 font-semibold text-gray-600">En stock décongelé</th>
-                    <th className="text-center px-3 py-3 font-semibold text-gray-600">Expire auj.</th>
-                    <th className="text-center px-3 py-3 font-semibold text-gray-600">Besoin (3j)</th>
-                    <th className="text-center px-3 py-3 font-semibold text-orange-600 bg-orange-50">À décongeler</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {frozenPlans.map((p, i) => {
-                    const deficit = Math.max(0, p.neededForPeriod - p.currentStock)
-                    return (
-                      <tr key={p.item.id} className={`border-b ${i % 2 === 0 ? '' : 'bg-gray-50'}`}>
-                        <td className="px-5 py-3 font-medium">{p.item.name}</td>
-                        <td className="text-center px-3 py-3">
-                          <span className={`inline-block px-2 py-1 rounded-lg text-xs font-semibold ${
-                            p.currentStock > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {p.currentStock}
-                          </span>
-                        </td>
-                        <td className="text-center px-3 py-3">
-                          {p.expiringToday > 0 ? (
-                            <span className="text-red-600 font-semibold">{p.expiringToday} ⚠️</span>
-                          ) : '—'}
-                        </td>
-                        <td className="text-center px-3 py-3 font-medium">{p.neededForPeriod}</td>
                         <td className="text-center px-3 py-3 bg-orange-50">
-                          {deficit > 0 ? (
+                          {p.delta < 0 ? (
                             <button
                               onClick={() => {
                                 setDefrostItemId(p.item.id)
-                                setDefrostQty(deficit)
+                                setDefrostQty(missing)
                                 setShowDefrostModal(true)
                               }}
-                              className="inline-block px-3 py-1 rounded-xl bg-orange-500 text-white font-bold hover:bg-orange-600 transition-colors"
+                              className="inline-block px-3 py-1 rounded-xl bg-orange-500 text-white font-bold hover:bg-orange-600 transition-colors text-xs"
                             >
-                              {deficit} pièces
+                              {p.item.stock_type === 'fresh' 
+                                ? `${p.packsNeeded} pack${(p.packsNeeded||0) > 1 ? 's' : ''}`
+                                : `Sortir ${missing}`
+                              }
                             </button>
                           ) : (
-                            <span className="text-green-600 font-medium">✓</span>
+                            <span className="text-green-600">✓</span>
                           )}
                         </td>
                       </tr>
@@ -504,6 +498,35 @@ export default function StockPlanningPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          {/* ── Aperçu semaine ── */}
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Aperçu de la semaine</h2>
+            <div className="grid grid-cols-7 gap-2">
+              {[1, 2, 3, 4, 5, 6, 7].map(d => {
+                const date = addDays(today, d - isoDay(today) + (d <= isoDay(today) ? 7 : 0))
+                const isTomorrow = d === isoDay(tomorrow)
+                const totalNeeded = plans.reduce((s, p) => s + Math.ceil((p.avgPerDay[d] || 0) * (1 + margin)), 0)
+                return (
+                  <div key={d} className={`rounded-xl p-3 text-center ${
+                    isTomorrow 
+                      ? 'bg-orange-500 text-white' 
+                      : 'bg-white border border-gray-100'
+                  }`}>
+                    <p className={`text-xs font-medium ${isTomorrow ? 'text-orange-100' : 'text-gray-500'}`}>
+                      {DAY_SHORT[d]}
+                    </p>
+                    <p className={`text-xl font-bold ${isTomorrow ? '' : 'text-gray-900'}`}>
+                      {totalNeeded}
+                    </p>
+                    <p className={`text-xs ${isTomorrow ? 'text-orange-100' : 'text-gray-400'}`}>
+                      portions
+                    </p>
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -593,7 +616,7 @@ export default function StockPlanningPage() {
                   <th className="text-center px-3 py-3 font-semibold text-gray-600">Type</th>
                   {[1, 2, 3, 4, 5, 6, 7].map(d => (
                     <th key={d} className={`text-center px-3 py-3 font-semibold ${
-                      d === isoDay(today) ? 'text-orange-600 bg-orange-50' : 'text-gray-600'
+                      d === isoDay(tomorrow) ? 'text-orange-600 bg-orange-50' : 'text-gray-600'
                     }`}>
                       {DAY_SHORT[d]}
                     </th>
@@ -618,7 +641,7 @@ export default function StockPlanningPage() {
                         const val = p.avgPerDay[d] || 0
                         return (
                           <td key={d} className={`text-center px-3 py-3 ${
-                            d === isoDay(today) ? 'bg-orange-50 font-semibold' : ''
+                            d === isoDay(tomorrow) ? 'bg-orange-50 font-semibold' : ''
                           } ${val === 0 ? 'text-gray-300' : val >= 5 ? 'text-red-600 font-semibold' : ''}`}>
                             {val > 0 ? val.toFixed(1) : '—'}
                           </td>
@@ -640,7 +663,7 @@ export default function StockPlanningPage() {
           <div className="bg-white rounded-2xl w-full max-w-md">
             <div className="p-6 border-b">
               <h2 className="text-2xl font-bold">📦 Enregistrer une sortie</h2>
-              <p className="text-gray-500 text-sm mt-1">Décongélation ou réception de frais</p>
+              <p className="text-gray-500 text-sm mt-1">Décongélation ce soir ou réception de frais pour demain</p>
             </div>
             <div className="p-6 space-y-4">
               <div>
@@ -718,14 +741,15 @@ export default function StockPlanningPage() {
               {(() => {
                 const selected = stockItems.find(i => i.id === defrostItemId)
                 if (selected) {
-                  const expires = addDays(new Date(), selected.dlc_days)
+                  const tomorrowPreview = addDays(new Date(), 1)
+                  const expiresPreview = addDays(tomorrowPreview, selected.dlc_days - 1)
                   return (
                     <div className="bg-gray-50 rounded-xl p-4 text-sm">
                       <p className="text-gray-600">
                         <strong>{defrostQty}</strong> portions de <strong>{selected.name}</strong>
                       </p>
                       <p className="text-gray-500">
-                        Expire le <strong>{expires.toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' })}</strong>
+                        Disponible dès demain — expire le <strong>{expiresPreview.toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' })}</strong>
                       </p>
                     </div>
                   )
