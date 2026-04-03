@@ -306,18 +306,18 @@ export default function StockPlanningPage() {
   const today = new Date()
 
   return (
-    <div className="p-8">
+    <div className="p-4 lg:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Gestion du stock</h1>
-          <p className="text-gray-500">Ce qu'il faut sortir ce soir pour {DAY_NAMES[isoDay(tomorrow)].toLowerCase()}</p>
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Gestion du stock</h1>
+          <p className="text-gray-500 text-sm lg:text-base">Ce qu'il faut sortir ce soir pour {DAY_NAMES[isoDay(tomorrow)].toLowerCase()}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 lg:gap-3">
           <select
             value={margin}
             onChange={e => setMargin(parseFloat(e.target.value))}
-            className="px-4 py-2 rounded-xl border border-gray-200 text-sm"
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm flex-1 lg:flex-none"
           >
             <option value={0}>Marge: 0%</option>
             <option value={0.2}>Marge: +20%</option>
@@ -326,7 +326,7 @@ export default function StockPlanningPage() {
           <select
             value={weeksBack}
             onChange={e => setWeeksBack(parseInt(e.target.value))}
-            className="px-4 py-2 rounded-xl border border-gray-200 text-sm"
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm flex-1 lg:flex-none"
           >
             <option value={4}>Historique: 4 sem.</option>
             <option value={8}>Historique: 8 sem.</option>
@@ -337,7 +337,7 @@ export default function StockPlanningPage() {
               setDefrostItemId(stockItems[0]?.id || '')
               setShowDefrostModal(true)
             }}
-            className="bg-orange-500 text-white font-semibold px-6 py-2 rounded-xl hover:bg-orange-600 transition-colors"
+            className="bg-orange-500 text-white font-semibold px-4 py-2 rounded-xl hover:bg-orange-600 transition-colors text-sm w-full lg:w-auto"
           >
             📦 Enregistrer une sortie
           </button>
@@ -345,7 +345,7 @@ export default function StockPlanningPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 overflow-x-auto pb-1 -mx-4 px-4 lg:mx-0 lg:px-0">
         {([
           { key: 'planning' as ActiveTab, label: '📋 Planning', },
           { key: 'defrost' as ActiveTab, label: '📦 Stock actuel', },
@@ -354,7 +354,7 @@ export default function StockPlanningPage() {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-5 py-3 rounded-xl font-medium transition-colors ${
+            className={`px-5 py-3 rounded-xl font-medium transition-colors whitespace-nowrap text-sm lg:text-base ${
               activeTab === tab.key
                 ? 'bg-orange-500 text-white'
                 : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
@@ -369,7 +369,7 @@ export default function StockPlanningPage() {
       {activeTab === 'planning' && (
         <div className="space-y-8">
           {/* ── Summary cards ── */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
             <div className="bg-white rounded-2xl p-5 border border-gray-100">
               <p className="text-sm text-gray-500">Dans le frigo pour</p>
               <p className="text-2xl font-bold text-gray-900">{DAY_NAMES[isoDay(tomorrow)]}</p>
@@ -407,8 +407,8 @@ export default function StockPlanningPage() {
               Prévision basée sur les ventes des {weeksBack} dernières semaines (marge +{Math.round(margin * 100)}%)
             </p>
 
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px]">
                 <thead>
                   <tr className="bg-gray-50 border-b">
                     <th className="text-left px-5 py-3 font-semibold text-gray-600">Article</th>
@@ -504,13 +504,13 @@ export default function StockPlanningPage() {
           {/* ── Aperçu semaine ── */}
           <div>
             <h2 className="text-xl font-bold text-gray-900 mb-4">Aperçu de la semaine</h2>
-            <div className="grid grid-cols-7 gap-2">
+            <div className="grid grid-cols-7 gap-1 lg:gap-2">
               {[1, 2, 3, 4, 5, 6, 7].map(d => {
                 const date = addDays(today, d - isoDay(today) + (d <= isoDay(today) ? 7 : 0))
                 const isTomorrow = d === isoDay(tomorrow)
                 const totalNeeded = plans.reduce((s, p) => s + Math.ceil((p.avgPerDay[d] || 0) * (1 + margin)), 0)
                 return (
-                  <div key={d} className={`rounded-xl p-3 text-center ${
+                  <div key={d} className={`rounded-xl p-2 lg:p-3 text-center ${
                     isTomorrow 
                       ? 'bg-orange-500 text-white' 
                       : 'bg-white border border-gray-100'
@@ -609,7 +609,7 @@ export default function StockPlanningPage() {
           <p className="text-gray-500 mb-6">Consommation moyenne en portions par jour de la semaine, calculée automatiquement à partir des ventes.</p>
 
           <div className="bg-white rounded-2xl border border-gray-100 overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="bg-gray-50 border-b">
                   <th className="text-left px-5 py-3 font-semibold text-gray-600 sticky left-0 bg-gray-50">Article</th>
@@ -660,7 +660,7 @@ export default function StockPlanningPage() {
       {/* ═══════════════ MODAL: ENREGISTRER SORTIE ═══════════════ */}
       {showDefrostModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md">
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b">
               <h2 className="text-2xl font-bold">📦 Enregistrer une sortie</h2>
               <p className="text-gray-500 text-sm mt-1">Décongélation ce soir ou réception de frais pour demain</p>

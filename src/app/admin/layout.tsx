@@ -33,6 +33,7 @@ export default function AdminLayout({
   const router = useRouter()
   const supabase = createClient()
   const [user, setUser] = useState<any>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     async function getUser() {
@@ -41,6 +42,11 @@ export default function AdminLayout({
     }
     getUser()
   }, [])
+
+  // Close sidebar on navigation (mobile)
+  useEffect(() => {
+    setSidebarOpen(false)
+  }, [pathname])
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -53,12 +59,50 @@ export default function AdminLayout({
     return <>{children}</>
   }
 
+  // Find current page name for mobile header
+  const currentPage = navigation.find(
+    n => pathname === n.href || (n.href !== '/admin' && pathname.startsWith(n.href))
+  )
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
+      {/* Mobile top bar */}
+      <div className="lg:hidden bg-gray-900 text-white flex items-center justify-between px-4 py-3 sticky top-0 z-40">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🍟</span>
+          <span className="font-bold text-orange-500">FritOS</span>
+          {currentPage && <span className="text-gray-400 text-sm">— {currentPage.name}</span>}
+        </div>
+        <div className="w-10" /> {/* Spacer for centering */}
+      </div>
+
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 bg-gray-900 text-white flex flex-col">
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white flex flex-col
+        transform transition-transform duration-200 ease-in-out
+        lg:relative lg:translate-x-0 lg:flex-shrink-0
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
         {/* Logo */}
-        <div className="p-6 border-b border-gray-800">
+        <div className="p-6 border-b border-gray-800 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
             <span className="text-3xl">🍟</span>
             <div>
@@ -66,6 +110,16 @@ export default function AdminLayout({
               <p className="text-xs text-gray-400">MDjambo Jurbise</p>
             </div>
           </Link>
+          {/* Close button (mobile only) */}
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden p-2 hover:bg-gray-800 rounded-lg text-gray-400 hover:text-white"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
 
         {/* Navigation */}
@@ -113,7 +167,7 @@ export default function AdminLayout({
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto min-w-0">
         {children}
       </main>
     </div>
