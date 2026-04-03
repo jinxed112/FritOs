@@ -134,7 +134,7 @@ export default function CounterPage() {
   
   // Cart state
   const [cart, setCart] = useState<CartItem[]>([])
-  const [orderType, setOrderType] = useState<OrderType>('eat_in')
+  const [orderType, setOrderType] = useState<OrderType>('takeaway')
   
   // Payment modal state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -880,16 +880,6 @@ export default function CounterPage() {
           <div className="flex items-center gap-4">
             {/* Type de commande - Boutons tablette */}
             <div className="flex gap-3">
-              <button
-                onClick={() => setOrderType('eat_in')}
-                className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
-                  orderType === 'eat_in' 
-                    ? 'bg-orange-500 text-white shadow-lg' 
-                    : 'bg-slate-700 text-gray-300'
-                }`}
-              >
-                🍽️ Sur place
-              </button>
               <button
                 onClick={() => setOrderType('takeaway')}
                 className={`px-6 py-3 rounded-xl font-semibold text-lg transition-all active:scale-95 ${
