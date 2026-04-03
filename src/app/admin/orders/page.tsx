@@ -223,46 +223,46 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 lg:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-4 lg:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Commandes</h1>
-          <p className="text-gray-500">{filteredOrders.length} commande(s)</p>
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Commandes</h1>
+          <p className="text-gray-500 text-sm">{filteredOrders.length} commande(s)</p>
         </div>
       </div>
 
       {/* Stats rapides */}
-      <div className="grid grid-cols-5 gap-4 mb-6">
-        <div className="bg-orange-50 rounded-xl p-4 text-center">
-          <p className="text-3xl font-bold text-orange-600">{stats.pending}</p>
-          <p className="text-sm text-orange-600">En attente</p>
+      <div className="flex gap-3 lg:gap-4 mb-4 lg:mb-6 overflow-x-auto pb-1 -mx-4 px-4 lg:mx-0 lg:px-0">
+        <div className="bg-orange-50 rounded-xl p-3 lg:p-4 text-center min-w-[90px] flex-1">
+          <p className="text-2xl lg:text-3xl font-bold text-orange-600">{stats.pending}</p>
+          <p className="text-xs lg:text-sm text-orange-600">En attente</p>
         </div>
-        <div className="bg-blue-50 rounded-xl p-4 text-center">
-          <p className="text-3xl font-bold text-blue-600">{stats.preparing}</p>
-          <p className="text-sm text-blue-600">En préparation</p>
+        <div className="bg-blue-50 rounded-xl p-3 lg:p-4 text-center min-w-[90px] flex-1">
+          <p className="text-2xl lg:text-3xl font-bold text-blue-600">{stats.preparing}</p>
+          <p className="text-xs lg:text-sm text-blue-600">En prép.</p>
         </div>
-        <div className="bg-green-50 rounded-xl p-4 text-center">
-          <p className="text-3xl font-bold text-green-600">{stats.ready}</p>
-          <p className="text-sm text-green-600">Prêtes</p>
+        <div className="bg-green-50 rounded-xl p-3 lg:p-4 text-center min-w-[90px] flex-1">
+          <p className="text-2xl lg:text-3xl font-bold text-green-600">{stats.ready}</p>
+          <p className="text-xs lg:text-sm text-green-600">Prêtes</p>
         </div>
-        <div className="bg-gray-50 rounded-xl p-4 text-center">
-          <p className="text-3xl font-bold text-gray-600">{stats.completed}</p>
-          <p className="text-sm text-gray-600">Terminées</p>
+        <div className="bg-gray-50 rounded-xl p-3 lg:p-4 text-center min-w-[90px] flex-1">
+          <p className="text-2xl lg:text-3xl font-bold text-gray-600">{stats.completed}</p>
+          <p className="text-xs lg:text-sm text-gray-600">Terminées</p>
         </div>
-        <div className="bg-purple-50 rounded-xl p-4 text-center">
-          <p className="text-3xl font-bold text-purple-600">{stats.revenue.toFixed(2)}€</p>
-          <p className="text-sm text-purple-600">CA période</p>
+        <div className="bg-purple-50 rounded-xl p-3 lg:p-4 text-center min-w-[100px] flex-1">
+          <p className="text-xl lg:text-3xl font-bold text-purple-600">{stats.revenue.toFixed(2)}€</p>
+          <p className="text-xs lg:text-sm text-purple-600">CA période</p>
         </div>
       </div>
 
       {/* Filtres */}
-      <div className="flex items-center gap-4 mb-6 flex-wrap">
+      <div className="space-y-3 lg:space-y-0 lg:flex lg:items-center lg:gap-4 mb-4 lg:mb-6">
         {/* Période */}
         <select
           value={filterPeriod}
           onChange={(e) => setFilterPeriod(e.target.value as FilterPeriod)}
-          className="px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          className="w-full lg:w-auto px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
         >
           <option value="today">Aujourd'hui</option>
           <option value="yesterday">Hier</option>
@@ -272,12 +272,12 @@ export default function OrdersPage() {
         </select>
 
         {/* Status */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 lg:mx-0 lg:px-0">
           {(['all', 'pending', 'preparing', 'ready', 'completed', 'cancelled'] as FilterStatus[]).map(status => (
             <button
               key={status}
               onClick={() => setFilterStatus(status)}
-              className={`px-4 py-2 rounded-xl font-medium transition-colors ${
+              className={`px-3 lg:px-4 py-2 rounded-xl font-medium transition-colors text-sm whitespace-nowrap ${
                 filterStatus === status
                   ? 'bg-orange-500 text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -295,10 +295,10 @@ export default function OrdersPage() {
         {/* Recherche */}
         <input
           type="text"
-          placeholder="🔍 N° commande, nom, téléphone..."
+          placeholder="🔍 N° commande, nom, tél..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="flex-1 max-w-xs px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          className="w-full lg:flex-1 lg:max-w-xs px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
         />
       </div>
 
@@ -312,7 +312,8 @@ export default function OrdersPage() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <table className="w-full">
+          {/* Desktop table */}
+          <table className="w-full hidden lg:table">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="text-left px-6 py-4 font-semibold text-gray-600">N°</th>
@@ -402,17 +403,75 @@ export default function OrdersPage() {
               ))}
             </tbody>
           </table>
+
+          {/* Mobile cards */}
+          <div className="lg:hidden divide-y divide-gray-100">
+            {filteredOrders.map(order => (
+              <div
+                key={order.id}
+                className={`p-4 active:bg-gray-50 ${order.is_offered ? 'bg-purple-50' : ''}`}
+                onClick={() => setSelectedOrder(order)}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-lg">{order.order_number}</span>
+                    <span className="text-lg">{order.eat_in ? '🍽️' : '🥡'}</span>
+                    {order.is_offered && <span>🎁</span>}
+                  </div>
+                  <span className="font-bold text-lg">{(order.total_amount || order.total || 0).toFixed(2)}€</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {getStatusBadge(order.status)}
+                    {getPaymentBadge(order.payment_status)}
+                    <span className="text-xs text-gray-400">{formatDate(order.created_at)}</span>
+                  </div>
+                  <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                    {order.status === 'pending' && (
+                      <button
+                        onClick={() => updateStatus(order.id, 'preparing')}
+                        className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm"
+                      >
+                        🍳
+                      </button>
+                    )}
+                    {order.status === 'preparing' && (
+                      <button
+                        onClick={() => updateStatus(order.id, 'ready')}
+                        className="px-2 py-1 bg-green-100 text-green-700 rounded text-sm"
+                      >
+                        ✅
+                      </button>
+                    )}
+                    {order.status === 'ready' && (
+                      <button
+                        onClick={() => updateStatus(order.id, 'completed')}
+                        className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-sm"
+                      >
+                        🏁
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {(order.customer_name || order.customer_phone) && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    👤 {order.customer_name || order.customer_phone}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Modal détail */}
       {selectedOrder && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-end lg:items-center justify-center z-50 lg:p-4">
+          <div className="bg-white rounded-t-2xl lg:rounded-2xl w-full lg:max-w-2xl h-[95vh] lg:h-auto lg:max-h-[90vh] overflow-y-auto">
             {/* Header */}
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+            <div className="p-4 lg:p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
               <div>
-                <h2 className="text-2xl font-bold">
+                <h2 className="text-xl lg:text-2xl font-bold">
                   Commande {selectedOrder.order_number}
                   {selectedOrder.is_offered && <span className="ml-2 text-purple-500">🎁 Offert</span>}
                 </h2>
@@ -427,16 +486,16 @@ export default function OrdersPage() {
             </div>
 
             {/* Content */}
-            <div className="p-6 space-y-6">
+            <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
               {/* Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-50 rounded-xl p-4">
+              <div className="grid grid-cols-2 gap-3 lg:gap-4">
+                <div className="bg-gray-50 rounded-xl p-3 lg:p-4">
                   <p className="text-sm text-gray-500 mb-1">Type</p>
                   <p className="font-medium text-lg">
                     {selectedOrder.eat_in ? '🍽️ Sur place' : '🥡 À emporter'}
                   </p>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-4">
+                <div className="bg-gray-50 rounded-xl p-3 lg:p-4">
                   <p className="text-sm text-gray-500 mb-1">Source</p>
                   <p className="font-medium text-lg">
                     {selectedOrder.source === 'kiosk' ? '🖥️ Borne' : 
@@ -444,11 +503,11 @@ export default function OrdersPage() {
                      selectedOrder.source || '-'}
                   </p>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-4">
+                <div className="bg-gray-50 rounded-xl p-3 lg:p-4">
                   <p className="text-sm text-gray-500 mb-1">Status</p>
                   {getStatusBadge(selectedOrder.status)}
                 </div>
-                <div className="bg-gray-50 rounded-xl p-4">
+                <div className="bg-gray-50 rounded-xl p-3 lg:p-4">
                   <p className="text-sm text-gray-500 mb-1">Paiement</p>
                   {getPaymentBadge(selectedOrder.payment_status)}
                   {selectedOrder.payment_method && (
@@ -486,7 +545,7 @@ export default function OrdersPage() {
                   {selectedOrder.order_items.map(item => {
                     const options = item.options_selected || []
                     return (
-                      <div key={item.id} className="bg-gray-50 rounded-xl p-4">
+                      <div key={item.id} className="bg-gray-50 rounded-xl p-3 lg:p-4">
                         <div className="flex items-start justify-between">
                           <div>
                             <p className="font-medium">
@@ -546,7 +605,7 @@ export default function OrdersPage() {
             </div>
 
             {/* Footer actions */}
-            <div className="p-6 border-t border-gray-100 flex gap-3">
+            <div className="p-4 lg:p-6 border-t border-gray-100 flex gap-3 sticky bottom-0 bg-white">
               <button
                 onClick={() => setSelectedOrder(null)}
                 className="flex-1 px-6 py-3 rounded-xl border border-gray-200 font-semibold"
