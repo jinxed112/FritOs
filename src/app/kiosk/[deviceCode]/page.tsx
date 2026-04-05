@@ -597,6 +597,7 @@ export default function KioskDevicePage() {
         .insert({
           establishment_id: device.establishmentId,
           order_type: orderType,
+          eat_in: orderType === 'eat_in',
           status: 'awaiting_payment',
           subtotal: subtotalHT,
           tax_amount: taxAmount,

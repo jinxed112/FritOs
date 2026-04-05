@@ -607,6 +607,7 @@ export default function CounterPage() {
       const orderData: any = {
         establishment_id: device!.establishmentId,
         order_type: orderType === 'delivery' ? 'delivery' : 'takeaway',
+        eat_in: false,
         status: 'pending',
         subtotal: subtotalHT,
         tax_amount: taxAmount,
