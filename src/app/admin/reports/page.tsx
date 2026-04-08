@@ -463,6 +463,38 @@ export default function ReportsPage() {
     const wsRecap = XLSX.utils.aoa_to_sheet([recapHeaders, ...recapRows])
     XLSX.utils.book_append_sheet(wbCA, wsRecap, 'Récapitulatif')
 
+    // ── Feuille Transactions Test ──
+    const testPhone = '+32497753554'
+    const { data: testOrders } = await supabase
+      .from('orders')
+      .select('order_number, created_at, total_amount, total, payment_method, source')
+      .eq('establishment_id', establishmentId)
+      .eq('customer_phone', testPhone)
+      .gte('created_at', dateRange.start + 'T00:00:00')
+      .lte('created_at', dateRange.end + 'T23:59:59')
+      .eq('payment_status', 'paid')
+      .order('created_at', { ascending: false })
+
+    if (testOrders && testOrders.length > 0) {
+      const testHeaders = ['Date', 'N° Commande', 'Montant TTC', 'Paiement', 'Source']
+      const testRows: any[][] = []
+      let testTotal = 0
+      testOrders.forEach((t: any) => {
+        const montant = Number(t.total_amount) || Number(t.total) || 0
+        testTotal += montant
+        testRows.push([
+          t.created_at.split('T')[0].replace(/-/g, '/'),
+          t.order_number,
+          r(montant),
+          t.payment_method === 'cash' ? 'Espèces' : 'Carte',
+          t.source
+        ])
+      })
+      testRows.push(['Total', '', r(testTotal), '', ''])
+      const wsTest = XLSX.utils.aoa_to_sheet([testHeaders, ...testRows])
+      XLSX.utils.book_append_sheet(wbCA, wsTest, 'Tests')
+    }
+
     XLSX.writeFile(wbCA, `CA_${dateRange.start}_${dateRange.end}.xlsx`)
 
     // ── DetailSales.xlsx ──
