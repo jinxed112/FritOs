@@ -18,6 +18,11 @@ type Order = {
   customer_name?: string
   customer_phone?: string
   source: string
+  is_offered: boolean
+  delivery_fee: number
+  promo_discount: number
+  loyalty_discount: number
+  discount_amount: number
   order_items: OrderItem[]
 }
 
@@ -161,6 +166,7 @@ export default function ReportsPage() {
         .gte('created_at', dateRange.start + 'T00:00:00')
         .lte('created_at', dateRange.end + 'T23:59:59')
         .in('payment_status', ['paid', 'refunded'])
+        .or('customer_phone.neq.+32497753554,customer_phone.is.null')
         .order('created_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1)
 
@@ -196,7 +202,7 @@ export default function ReportsPage() {
   }
 
   function getOrderTypeLabel(type: string) {
-    const labels: Record<string, string> = { eat_in: '🍽️ Sur place', takeaway: '🥡 Emporter', delivery: '🚗 Livraison' }
+    const labels: Record<string, string> = { eat_in: '🍽️ Sur place', dine_in: '🍽️ Sur place', takeaway: '🥡 Emporter', delivery: '🚗 Livraison', pickup: '🥡 Click&Collect' }
     return labels[type] || type
   }
 
@@ -214,20 +220,18 @@ export default function ReportsPage() {
 
   // ─── Export Excel ────────────────────────────────────────────────────────────
   async function exportExcel() {
-    // Réutilise les orders déjà chargés, sinon les charge maintenant
     const exportOrders = ordersLoaded ? orders : await loadOrders()
-    const paidOrders = exportOrders.filter(o => o.payment_status === 'paid' && o.status !== 'cancelled')
+    const validOrders = exportOrders.filter(o => o.payment_status === 'paid' && o.status !== 'cancelled')
 
-    if (paidOrders.length === 0) {
+    if (validOrders.length === 0) {
       alert('Aucune donnée à exporter')
       return
     }
 
     const dailyData = new Map<string, any>()
     const itemsSales = new Map<string, { qty: number, total: number, category: string }>()
-    const categoryTotals = new Map<string, number>()
 
-    paidOrders.forEach(order => {
+    validOrders.forEach(order => {
       const dateKey = order.created_at.split('T')[0].replace(/-/g, '/')
       const existing = dailyData.get(dateKey) || {
         date: dateKey,
@@ -235,22 +239,51 @@ export default function ReportsPage() {
         ttc21: 0, ttc12: 0, ttc6: 0, ttc0: 0,
         htva21: 0, htva12: 0, htva6: 0, htva0: 0,
         tva21: 0, tva12: 0, tva6: 0,
-        cash: 0, card: 0, tickets: 0
+        cash: 0, card: 0, tickets: 0,
+        offertCount: 0, offertTotal: 0,
+        remises: 0
       }
 
-      const orderTotal = Number(order.total_amount) || 0
+      const orderTotal = Number(order.total_amount) || Number(order.total) || 0
+      const isOffered = order.is_offered === true
+      const deliveryFee = Number(order.delivery_fee) || 0
+      const promoDiscount = Number(order.promo_discount) || 0
+      const loyaltyDiscount = Number(order.loyalty_discount) || 0
+      const discountAmount = Number(order.discount_amount) || 0
+      const totalRemises = promoDiscount + loyaltyDiscount + discountAmount
+
+      // ── Commandes offertes : séparées du CA ──
+      if (isOffered) {
+        existing.offertCount++
+        existing.offertTotal += orderTotal
+        dailyData.set(dateKey, existing)
+        return // ne pas compter dans le CA
+      }
+
+      // ── CA TTC (hors offerts) ──
       existing.caTTC += orderTotal
       existing.tickets++
+      existing.remises += totalRemises
 
-      if (order.order_type === 'eat_in') existing.caPlace += orderTotal
-      else if (order.order_type === 'delivery') existing.caDelivery += orderTotal
-      else existing.caEmporter += orderTotal
+      // ── Par type de commande ──
+      if (order.order_type === 'eat_in' || order.order_type === 'dine_in') {
+        existing.caPlace += orderTotal
+      } else if (order.order_type === 'delivery') {
+        existing.caDelivery += orderTotal
+      } else {
+        // takeaway + pickup → emporter
+        existing.caEmporter += orderTotal
+      }
 
+      // ── Par mode de paiement ──
       if (order.payment_method === 'cash') existing.cash += orderTotal
       else existing.card += orderTotal
 
+      // ── Ventilation TVA depuis les order_items ──
       ;(order.order_items || []).forEach((item: OrderItem) => {
-        const vatRate = item.vat_rate || (order.order_type === 'eat_in' ? 12 : 6)
+        const vatRate = item.vat_rate || (
+          (order.order_type === 'eat_in' || order.order_type === 'dine_in') ? 12 : 6
+        )
         const lineTTC = item.line_total || 0
         const lineHT = lineTTC / (1 + vatRate / 100)
         const lineTVA = lineTTC - lineHT
@@ -270,10 +303,16 @@ export default function ReportsPage() {
         itemData.qty += item.quantity
         itemData.total += lineTTC
         itemsSales.set(itemKey, itemData)
-
-        const cat = itemData.category
-        categoryTotals.set(cat, (categoryTotals.get(cat) || 0) + lineTTC)
       })
+
+      // ── Frais de livraison → TVA 21% ──
+      if (deliveryFee > 0) {
+        const feeHT = deliveryFee / 1.21
+        const feeTVA = deliveryFee - feeHT
+        existing.ttc21 += deliveryFee
+        existing.htva21 += feeHT
+        existing.tva21 += feeTVA
+      }
 
       dailyData.set(dateKey, existing)
     })
@@ -285,8 +324,8 @@ export default function ReportsPage() {
       'TTC 21%', 'TTC 12%', 'TTC 6%', 'TTC 0%', 'HTVA 21%', 'HTVA 12%', 'HTVA 6%', 'HTVA 0%',
       'TVA 21%', 'TVA 12%', 'TVA 6%', 'Cash', 'Carte banque', 'Virement bancaire',
       'Bonsai', 'Mollie', 'Chèque repas', 'Chèque cadeau', 'Chèque culture/sport',
-      'Ecochèque', 'Chèque transport', 'Arrondi', 'Libre1', 'Libre2', 'Libre3',
-      'Libre4', 'Libre5', 'Libre6', 'Libre7', 'Tickets']
+      'Ecochèque', 'Chèque transport', 'Arrondi', 'Remises', 'Nb Offerts', 'Total Offerts',
+      'Libre1', 'Libre2', 'Libre3', 'Libre4', 'Tickets']
 
     const caRows: any[][] = []
     let totals_ca = {
@@ -294,7 +333,8 @@ export default function ReportsPage() {
       ttc21: 0, ttc12: 0, ttc6: 0, ttc0: 0,
       htva21: 0, htva12: 0, htva6: 0, htva0: 0,
       tva21: 0, tva12: 0, tva6: 0,
-      cash: 0, card: 0, tickets: 0
+      cash: 0, card: 0, tickets: 0,
+      remises: 0, offertCount: 0, offertTotal: 0
     }
 
     Array.from(dailyData.values()).forEach(d => {
@@ -303,7 +343,9 @@ export default function ReportsPage() {
         r(d.ttc21), r(d.ttc12), r(d.ttc6), r(d.ttc0),
         r(d.htva21), r(d.htva12), r(d.htva6), r(d.htva0),
         r(d.tva21), r(d.tva12), r(d.tva6),
-        r(d.cash), r(d.card), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, d.tickets
+        r(d.cash), r(d.card), 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        r(d.remises), d.offertCount, r(d.offertTotal),
+        0, 0, 0, 0, d.tickets
       ])
       Object.keys(totals_ca).forEach(k => totals_ca[k as keyof typeof totals_ca] += d[k] || 0)
     })
@@ -313,7 +355,9 @@ export default function ReportsPage() {
       r(totals_ca.ttc21), r(totals_ca.ttc12), r(totals_ca.ttc6), r(totals_ca.ttc0),
       r(totals_ca.htva21), r(totals_ca.htva12), r(totals_ca.htva6), r(totals_ca.htva0),
       r(totals_ca.tva21), r(totals_ca.tva12), r(totals_ca.tva6),
-      r(totals_ca.cash), r(totals_ca.card), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, totals_ca.tickets
+      r(totals_ca.cash), r(totals_ca.card), 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      r(totals_ca.remises), totals_ca.offertCount, r(totals_ca.offertTotal),
+      0, 0, 0, 0, totals_ca.tickets
     ])
 
     const wbCA = XLSX.utils.book_new()
