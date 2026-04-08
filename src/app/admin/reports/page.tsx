@@ -314,12 +314,68 @@ export default function ReportsPage() {
         existing.tva21 += feeTVA
       }
 
+      // ── Répartir les remises proportionnellement sur les bandes TVA ──
+      if (totalRemises > 0) {
+        const sumBands = existing.ttc21 + existing.ttc12 + existing.ttc6 + existing.ttc0
+        if (sumBands > 0) {
+          const bands = [
+            { key: '21', ttc: existing.ttc21, rate: 21 },
+            { key: '12', ttc: existing.ttc12, rate: 12 },
+            { key: '6',  ttc: existing.ttc6,  rate: 6 },
+            { key: '0',  ttc: existing.ttc0,  rate: 0 },
+          ]
+          // On répartit au prorata du poids TTC de chaque bande
+          // mais on cumule sur le daily, donc on doit soustraire la part de CETTE commande
+          // Recalculer les bandes TTC de cette commande uniquement
+          let orderTTC21 = 0, orderTTC12 = 0, orderTTC6 = 0, orderTTC0 = 0
+          ;(order.order_items || []).forEach((item: OrderItem) => {
+            const vatRate = item.vat_rate || (
+              (order.order_type === 'eat_in' || order.order_type === 'dine_in') ? 12 : 6
+            )
+            const lineTTC = item.line_total || 0
+            if (vatRate === 21) orderTTC21 += lineTTC
+            else if (vatRate === 12) orderTTC12 += lineTTC
+            else if (vatRate === 6) orderTTC6 += lineTTC
+            else orderTTC0 += lineTTC
+          })
+          if (deliveryFee > 0) orderTTC21 += deliveryFee
+
+          const orderTotal_bands = orderTTC21 + orderTTC12 + orderTTC6 + orderTTC0
+          if (orderTotal_bands > 0) {
+            const distribute = (bandTTC: number, rate: number) => {
+              const share = totalRemises * (bandTTC / orderTotal_bands)
+              const shareTTC = share
+              const shareHT = share / (1 + rate / 100)
+              const shareTVA = share - shareHT
+              return { shareTTC, shareHT, shareTVA }
+            }
+
+            if (orderTTC21 > 0) {
+              const d = distribute(orderTTC21, 21)
+              existing.ttc21 -= d.shareTTC; existing.htva21 -= d.shareHT; existing.tva21 -= d.shareTVA
+            }
+            if (orderTTC12 > 0) {
+              const d = distribute(orderTTC12, 12)
+              existing.ttc12 -= d.shareTTC; existing.htva12 -= d.shareHT; existing.tva12 -= d.shareTVA
+            }
+            if (orderTTC6 > 0) {
+              const d = distribute(orderTTC6, 6)
+              existing.ttc6 -= d.shareTTC; existing.htva6 -= d.shareHT; existing.tva6 -= d.shareTVA
+            }
+            if (orderTTC0 > 0) {
+              const d = distribute(orderTTC0, 0)
+              existing.ttc0 -= d.shareTTC; existing.htva0 -= d.shareHT
+            }
+          }
+        }
+      }
+
       dailyData.set(dateKey, existing)
     })
 
     const r = (n: number) => Math.round(n * 100) / 100
 
-    // ── CA.xlsx ──
+    // ── CA.xlsx — une feuille par mois + récapitulatif ──
     const caHeaders = ['Date', 'CA TTC', 'CA TTC /place', 'CA TTC /emporter', 'CA TTC /delivery',
       'TTC 21%', 'TTC 12%', 'TTC 6%', 'TTC 0%', 'HTVA 21%', 'HTVA 12%', 'HTVA 6%', 'HTVA 0%',
       'TVA 21%', 'TVA 12%', 'TVA 6%', 'Cash', 'Carte banque', 'Virement bancaire',
@@ -327,41 +383,86 @@ export default function ReportsPage() {
       'Ecochèque', 'Chèque transport', 'Arrondi', 'Remises', 'Nb Offerts', 'Total Offerts',
       'Libre1', 'Libre2', 'Libre3', 'Libre4', 'Tickets']
 
-    const caRows: any[][] = []
-    let totals_ca = {
+    const monthNames: Record<string, string> = {
+      '01': 'Janvier', '02': 'Février', '03': 'Mars', '04': 'Avril',
+      '05': 'Mai', '06': 'Juin', '07': 'Juillet', '08': 'Août',
+      '09': 'Septembre', '10': 'Octobre', '11': 'Novembre', '12': 'Décembre'
+    }
+
+    const makeTotals = () => ({
       caTTC: 0, caPlace: 0, caEmporter: 0, caDelivery: 0,
       ttc21: 0, ttc12: 0, ttc6: 0, ttc0: 0,
       htva21: 0, htva12: 0, htva6: 0, htva0: 0,
       tva21: 0, tva12: 0, tva6: 0,
       cash: 0, card: 0, tickets: 0,
       remises: 0, offertCount: 0, offertTotal: 0
-    }
-
-    Array.from(dailyData.values()).forEach(d => {
-      caRows.push([
-        d.date, r(d.caTTC), r(d.caPlace), r(d.caEmporter), r(d.caDelivery),
-        r(d.ttc21), r(d.ttc12), r(d.ttc6), r(d.ttc0),
-        r(d.htva21), r(d.htva12), r(d.htva6), r(d.htva0),
-        r(d.tva21), r(d.tva12), r(d.tva6),
-        r(d.cash), r(d.card), 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        r(d.remises), d.offertCount, r(d.offertTotal),
-        0, 0, 0, 0, d.tickets
-      ])
-      Object.keys(totals_ca).forEach(k => totals_ca[k as keyof typeof totals_ca] += d[k] || 0)
     })
 
-    caRows.push([
-      'Total', r(totals_ca.caTTC), r(totals_ca.caPlace), r(totals_ca.caEmporter), r(totals_ca.caDelivery),
-      r(totals_ca.ttc21), r(totals_ca.ttc12), r(totals_ca.ttc6), r(totals_ca.ttc0),
-      r(totals_ca.htva21), r(totals_ca.htva12), r(totals_ca.htva6), r(totals_ca.htva0),
-      r(totals_ca.tva21), r(totals_ca.tva12), r(totals_ca.tva6),
-      r(totals_ca.cash), r(totals_ca.card), 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      r(totals_ca.remises), totals_ca.offertCount, r(totals_ca.offertTotal),
-      0, 0, 0, 0, totals_ca.tickets
-    ])
+    const makeRow = (d: any) => [
+      d.date, r(d.caTTC), r(d.caPlace), r(d.caEmporter), r(d.caDelivery),
+      r(d.ttc21), r(d.ttc12), r(d.ttc6), r(d.ttc0),
+      r(d.htva21), r(d.htva12), r(d.htva6), r(d.htva0),
+      r(d.tva21), r(d.tva12), r(d.tva6),
+      r(d.cash), r(d.card), 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      r(d.remises), d.offertCount, r(d.offertTotal),
+      0, 0, 0, 0, d.tickets
+    ]
+
+    const makeTotalRow = (label: string, t: any) => [
+      label, r(t.caTTC), r(t.caPlace), r(t.caEmporter), r(t.caDelivery),
+      r(t.ttc21), r(t.ttc12), r(t.ttc6), r(t.ttc0),
+      r(t.htva21), r(t.htva12), r(t.htva6), r(t.htva0),
+      r(t.tva21), r(t.tva12), r(t.tva6),
+      r(t.cash), r(t.card), 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      r(t.remises), t.offertCount, r(t.offertTotal),
+      0, 0, 0, 0, t.tickets
+    ]
+
+    // Grouper les données par mois
+    const monthlyData = new Map<string, any[]>()
+    Array.from(dailyData.values()).forEach(d => {
+      const monthKey = d.date.substring(0, 7) // "2026/01"
+      const existing = monthlyData.get(monthKey) || []
+      existing.push(d)
+      monthlyData.set(monthKey, existing)
+    })
 
     const wbCA = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wbCA, XLSX.utils.aoa_to_sheet([caHeaders, ...caRows]), 'CA')
+    const globalTotals = makeTotals()
+    const recapRows: any[][] = []
+
+    // Trier les mois chronologiquement
+    const sortedMonths = Array.from(monthlyData.keys()).sort()
+
+    sortedMonths.forEach(monthKey => {
+      const days = monthlyData.get(monthKey)!
+      const monthNum = monthKey.split('/')[1]
+      const sheetName = monthNames[monthNum] || monthKey
+      const monthTotals = makeTotals()
+      const rows: any[][] = []
+
+      days.forEach(d => {
+        rows.push(makeRow(d))
+        Object.keys(monthTotals).forEach(k => monthTotals[k as keyof typeof monthTotals] += d[k] || 0)
+      })
+
+      rows.push(makeTotalRow('Total', monthTotals))
+
+      const ws = XLSX.utils.aoa_to_sheet([caHeaders, ...rows])
+      XLSX.utils.book_append_sheet(wbCA, ws, sheetName)
+
+      // Accumuler le récap global
+      Object.keys(globalTotals).forEach(k => globalTotals[k as keyof typeof globalTotals] += monthTotals[k as keyof typeof monthTotals])
+      recapRows.push(makeTotalRow(sheetName, monthTotals))
+    })
+
+    // Feuille Récapitulatif
+    recapRows.push(makeTotalRow('TOTAL', globalTotals))
+    const recapHeaders = [...caHeaders]
+    recapHeaders[0] = 'Mois'
+    const wsRecap = XLSX.utils.aoa_to_sheet([recapHeaders, ...recapRows])
+    XLSX.utils.book_append_sheet(wbCA, wsRecap, 'Récapitulatif')
+
     XLSX.writeFile(wbCA, `CA_${dateRange.start}_${dateRange.end}.xlsx`)
 
     // ── DetailSales.xlsx ──
