@@ -33,6 +33,8 @@ type Order = {
   metadata?: { source?: string; slot_date?: string; slot_time?: string; delivery_duration?: number; delivery_address?: string; delivery_lat?: number; delivery_lng?: number; travel_minutes?: number } | null
   total_amount?: number | null
   total?: number | null
+  preparation_started_at?: string | null
+  ready_at?: string | null
 }
 
 type ParsedOption = { item_name: string; price: number }
@@ -351,7 +353,7 @@ export default function KitchenPage() {
     // Charger : toutes les commandes non-terminées + commandes du jour
     const { data } = await supabase
       .from('orders')
-      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, notes, payment_status, metadata, total_amount, total, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
+      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, notes, payment_status, metadata, total_amount, total, preparation_started_at, ready_at, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
       .eq('establishment_id', estId)
       .neq('status', 'cancelled')
       .neq('status', 'awaiting_payment')
@@ -467,13 +469,31 @@ export default function KitchenPage() {
     return checkedItems[orderId]?.has(itemKey) || false
   }
 
+  function formatDuration(diffMinutes: number): string {
+    if (diffMinutes < 1) return '< 1m'
+    if (diffMinutes < 60) return `${diffMinutes}m`
+    return `${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}`
+  }
+
   function getTimeSinceLaunch(order: Order): { display: string } {
     const now = currentTime.getTime()
-    const launchTs = getLaunchTimestamp(order)
-    const slotTime = order.scheduled_slot_start || order.scheduled_time
 
-    // Si commande programmée avec un créneau futur → afficher compte à rebours vers le lancement
+    // En cours → temps depuis début préparation
+    if (order.status === 'preparing' && order.preparation_started_at) {
+      const diff = Math.floor((now - new Date(order.preparation_started_at).getTime()) / (60 * 1000))
+      return { display: formatDuration(diff) }
+    }
+
+    // Prêt → temps depuis ready
+    if (order.status === 'ready' && order.ready_at) {
+      const diff = Math.floor((now - new Date(order.ready_at).getTime()) / (60 * 1000))
+      return { display: formatDuration(diff) }
+    }
+
+    // Pending : commande programmée → countdown vers le lancement
+    const slotTime = order.scheduled_slot_start || order.scheduled_time
     if (slotTime && isClickAndCollect(order)) {
+      const launchTs = getLaunchTimestamp(order)
       const diffMs = now - launchTs
       const diffMinutes = Math.floor(Math.abs(diffMs) / (60 * 1000))
 
@@ -482,28 +502,42 @@ export default function KitchenPage() {
         if (diffMinutes >= 60) return { display: `-${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}` }
         return { display: `-${diffMinutes}m` }
       }
-      // Après le lancement → temps écoulé depuis le lancement
-      if (diffMinutes < 1) return { display: '< 1m' }
-      if (diffMinutes < 60) return { display: `${diffMinutes}m` }
-      return { display: `${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}` }
+      return { display: formatDuration(diffMinutes) }
     }
 
     // Commande sans créneau (kiosk, caisse) → temps depuis création
     const created = new Date(order.created_at).getTime()
     const diffMinutes = Math.floor((now - created) / (60 * 1000))
-    if (diffMinutes < 1) return { display: '< 1m' }
-    if (diffMinutes < 60) return { display: `${diffMinutes}m` }
-    return { display: `${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}` }
+    return { display: formatDuration(diffMinutes) }
   }
 
   function getTimeColor(order: Order): string {
     const now = currentTime.getTime()
-    const slotTime = order.scheduled_slot_start || order.scheduled_time
 
+    // En cours → couleur basée sur temps de préparation
+    if (order.status === 'preparing' && order.preparation_started_at) {
+      const diffMinutes = Math.floor((now - new Date(order.preparation_started_at).getTime()) / (60 * 1000))
+      if (diffMinutes < 5) return 'text-green-400'
+      if (diffMinutes < 10) return 'text-yellow-400'
+      if (diffMinutes < 15) return 'text-orange-400'
+      return 'text-red-400'
+    }
+
+    // Prêt → couleur basée sur temps d'attente
+    if (order.status === 'ready' && order.ready_at) {
+      const diffMinutes = Math.floor((now - new Date(order.ready_at).getTime()) / (60 * 1000))
+      if (diffMinutes < 3) return 'text-green-400'
+      if (diffMinutes < 5) return 'text-yellow-400'
+      if (diffMinutes < 10) return 'text-orange-400'
+      return 'text-red-400'
+    }
+
+    // Pending programmée → gris avant lancement, vert→rouge après
+    const slotTime = order.scheduled_slot_start || order.scheduled_time
     if (slotTime && isClickAndCollect(order)) {
       const launchTs = getLaunchTimestamp(order)
       const diffMs = now - launchTs
-      if (diffMs < 0) return 'text-gray-400' // Avant le lancement → gris neutre
+      if (diffMs < 0) return 'text-gray-400'
       const diffMinutes = Math.floor(diffMs / (60 * 1000))
       if (diffMinutes < 5) return 'text-green-400'
       if (diffMinutes < 10) return 'text-yellow-400'
