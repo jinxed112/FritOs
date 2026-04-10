@@ -6,12 +6,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Calcul de distance Haversine (en km)
+// Fallback: Haversine (en km)
 function haversineDistance(
   lat1: number, lng1: number,
   lat2: number, lng2: number
 ): number {
-  const R = 6371 // Rayon de la Terre en km
+  const R = 6371
   const dLat = (lat2 - lat1) * Math.PI / 180
   const dLng = (lng2 - lng1) * Math.PI / 180
   const a = 
@@ -20,11 +20,6 @@ function haversineDistance(
     Math.sin(dLng / 2) * Math.sin(dLng / 2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return R * c
-}
-
-// Estimation du temps de trajet (vitesse moyenne 30 km/h en ville)
-function estimateDuration(distanceKm: number): number {
-  return Math.ceil(distanceKm / 30 * 60) // minutes
 }
 
 export async function POST(request: NextRequest) {
@@ -59,7 +54,17 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Récupérer les zones de livraison actives (triées par max_minutes)
+    const estLat = establishment.latitude
+    const estLng = establishment.longitude
+
+    if (!estLat || !estLng) {
+      return NextResponse.json(
+        { error: 'Coordonnées de l\'établissement non configurées' },
+        { status: 500 }
+      )
+    }
+
+    // Récupérer les zones de livraison actives
     const { data: zones, error: zonesError } = await supabase
       .from('delivery_zones')
       .select('*')
@@ -75,26 +80,46 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Calculer la distance depuis l'établissement
-    const estLat = establishment.latitude
-    const estLng = establishment.longitude
+    // Calculer le temps de trajet avec Google Directions API
+    let duration = 0
+    let distance = 0
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY
 
-    if (!estLat || !estLng) {
-      return NextResponse.json(
-        { error: 'Coordonnées de l\'établissement non configurées' },
-        { status: 500 }
-      )
+    if (apiKey) {
+      try {
+        const origin = `${estLat},${estLng}`
+        const destination = `${latitude},${longitude}`
+        const directionsUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=driving&language=fr&key=${apiKey}`
+
+        const res = await fetch(directionsUrl)
+        const data = await res.json()
+
+        if (data.status === 'OK' && data.routes?.length) {
+          const leg = data.routes[0].legs[0]
+          duration = Math.ceil(leg.duration.value / 60)
+          distance = Math.round(leg.distance.value / 100) / 10
+        } else {
+          // Fallback Haversine
+          distance = Math.round(haversineDistance(estLat, estLng, latitude, longitude) * 10) / 10
+          duration = Math.ceil(distance / 30 * 60)
+        }
+      } catch (e) {
+        console.error('Erreur Google Directions:', e)
+        distance = Math.round(haversineDistance(estLat, estLng, latitude, longitude) * 10) / 10
+        duration = Math.ceil(distance / 30 * 60)
+      }
+    } else {
+      // Pas de clé Google — fallback Haversine
+      distance = Math.round(haversineDistance(estLat, estLng, latitude, longitude) * 10) / 10
+      duration = Math.ceil(distance / 30 * 60)
     }
-
-    const distance = haversineDistance(estLat, estLng, latitude, longitude)
-    const duration = estimateDuration(distance)
 
     // Si pas de zones configurées, utiliser une zone par défaut (20 min, 3€)
     if (!zones || zones.length === 0) {
       if (duration <= 20) {
         return NextResponse.json({
           isDeliverable: true,
-          distance: Math.round(distance * 10) / 10,
+          distance,
           duration,
           fee: 3.00,
           zoneName: 'Zone standard',
@@ -102,20 +127,20 @@ export async function POST(request: NextRequest) {
       } else {
         return NextResponse.json({
           isDeliverable: false,
-          distance: Math.round(distance * 10) / 10,
+          distance,
           duration,
           reason: 'Adresse trop éloignée (max 20 min)',
         })
       }
     }
 
-    // Trouver la zone applicable (basée sur le temps de trajet estimé)
+    // Trouver la zone applicable
     const applicableZone = zones.find(zone => duration <= zone.max_minutes)
 
     if (applicableZone) {
       return NextResponse.json({
         isDeliverable: true,
-        distance: Math.round(distance * 10) / 10,
+        distance,
         duration,
         fee: parseFloat(applicableZone.delivery_fee) || 0,
         zoneName: applicableZone.name,
@@ -126,7 +151,7 @@ export async function POST(request: NextRequest) {
     const maxZone = zones[zones.length - 1]
     return NextResponse.json({
       isDeliverable: false,
-      distance: Math.round(distance * 10) / 10,
+      distance,
       duration,
       reason: `Adresse trop éloignée (max ${maxZone.max_minutes} min de trajet)`,
     })

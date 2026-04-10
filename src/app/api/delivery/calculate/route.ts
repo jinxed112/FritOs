@@ -41,51 +41,68 @@ export async function POST(request: NextRequest) {
       .eq('is_active', true)
       .order('min_minutes')
 
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY
+    if (!apiKey) {
+      return NextResponse.json({ error: 'GOOGLE_MAPS_API_KEY non configuree' }, { status: 500 })
+    }
+
     let destLat = latitude
     let destLng = longitude
 
+    // Si pas de coordonnées, géocoder avec Google
     if (!destLat || !destLng) {
       if (!address) {
         return NextResponse.json({ error: 'Adresse ou coordonnees requises' }, { status: 400 })
       }
 
-      const apiKey = process.env.OPENROUTE_API_KEY || process.env.NEXT_PUBLIC_OPENROUTE_API_KEY
-      const geoResponse = await fetch(
-        `https://api.openrouteservice.org/geocode/search?api_key=${apiKey}&text=${encodeURIComponent(address)}&boundary.country=BE&size=1`
-      )
+      const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&region=be&language=fr&key=${apiKey}`
+      const geoResponse = await fetch(geocodeUrl)
       const geoData = await geoResponse.json()
 
-      if (!geoData.features?.length) {
+      if (geoData.status !== 'OK' || !geoData.results?.length) {
         return NextResponse.json({ deliverable: false, reason: 'Adresse non trouvee' })
       }
 
-      [destLng, destLat] = geoData.features[0].geometry.coordinates
-      
-      // DEBUG: Log les coordonnees trouvees
+      destLat = geoData.results[0].geometry.location.lat
+      destLng = geoData.results[0].geometry.location.lng
+
       console.log('=== DEBUG GEOCODE ===')
       console.log('Adresse recherchee:', address)
       console.log('Coordonnees trouvees:', destLat, destLng)
-      console.log('Adresse trouvee:', geoData.features[0].properties.label)
+      console.log('Adresse trouvee:', geoData.results[0].formatted_address)
     }
 
-    // DEBUG: Log les coordonnees de depart
+    // Calcul du trajet avec Google Directions API
     console.log('=== DEBUG ROUTE ===')
     console.log('Etablissement:', establishment.latitude, establishment.longitude)
     console.log('Destination:', destLat, destLng)
 
-    const apiKey = process.env.OPENROUTE_API_KEY || process.env.NEXT_PUBLIC_OPENROUTE_API_KEY
-    const routeResponse = await fetch(
-      `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${apiKey}&start=${establishment.longitude},${establishment.latitude}&end=${destLng},${destLat}`
-    )
-    const routeData = await routeResponse.json()
+    let durationMinutes = 0
+    let distanceKm = 0
 
-    if (!routeData.features?.length) {
-      return NextResponse.json({ deliverable: false, reason: 'Impossible de calculer itineraire' })
+    try {
+      const origin = `${establishment.latitude},${establishment.longitude}`
+      const destination = `${destLat},${destLng}`
+      const directionsUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=driving&language=fr&key=${apiKey}`
+
+      const routeResponse = await fetch(directionsUrl)
+      const routeData = await routeResponse.json()
+
+      if (routeData.status === 'OK' && routeData.routes?.length) {
+        const leg = routeData.routes[0].legs[0]
+        durationMinutes = Math.ceil(leg.duration.value / 60)
+        distanceKm = Math.round(leg.distance.value / 100) / 10 // arrondi à 0.1 km
+      } else {
+        console.error('Google Directions: pas de route trouvee', routeData.status)
+        // Fallback Haversine
+        distanceKm = haversineDistance(establishment.latitude, establishment.longitude, destLat, destLng)
+        durationMinutes = Math.ceil(distanceKm / 30 * 60)
+      }
+    } catch (e) {
+      console.error('Erreur Google Directions:', e)
+      distanceKm = haversineDistance(establishment.latitude, establishment.longitude, destLat, destLng)
+      durationMinutes = Math.ceil(distanceKm / 30 * 60)
     }
-
-    const segment = routeData.features[0].properties.segments[0]
-    const durationMinutes = Math.round(segment.duration / 60)
-    const distanceKm = Math.round(segment.distance / 1000 * 10) / 10
 
     console.log('Distance:', distanceKm, 'km')
     console.log('Duree:', durationMinutes, 'min')
@@ -122,4 +139,16 @@ export async function POST(request: NextRequest) {
     console.error('Erreur calcul livraison:', error)
     return NextResponse.json({ error: 'Erreur serveur', details: error.message }, { status: 500 })
   }
+}
+
+// Fallback Haversine
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return Math.round(R * c * 10) / 10
 }
