@@ -414,7 +414,27 @@ export default function KitchenPage() {
   }
 
   // ==================== HELPERS ====================
-  const allOrders = [...orders, ...offeredOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+  // Calcule le timestamp de lancement effectif d'une commande
+  function getLaunchTimestamp(order: Order): number {
+    const slotTime = order.scheduled_slot_start || order.scheduled_time
+    if (!slotTime || !isClickAndCollect(order)) {
+      // Pas de créneau → lancement immédiat = created_at
+      return new Date(order.created_at).getTime()
+    }
+    const scheduled = new Date(slotTime).getTime()
+    const travelMin = order.metadata?.travel_minutes || 0
+    const isDelivery = order.order_type === 'delivery'
+    const offset = isDelivery ? (travelMin + avgPrepTime) : avgPrepTime
+    return scheduled - offset * 60 * 1000
+  }
+
+  const allOrders = [...orders, ...offeredOrders].sort((a, b) => {
+    // Pour les colonnes pending : trier par urgence (launch time le plus proche en premier)
+    // Pour les autres colonnes : trier par created_at
+    const aLaunch = getLaunchTimestamp(a)
+    const bLaunch = getLaunchTimestamp(b)
+    return aLaunch - bLaunch
+  })
 
   function toggleSection(orderId: string, categoryName: string) {
     setCollapsedSections(prev => {
@@ -446,8 +466,28 @@ export default function KitchenPage() {
   }
 
   function getTimeSinceLaunch(order: Order): { display: string } {
-    const created = new Date(order.created_at).getTime()
     const now = currentTime.getTime()
+    const launchTs = getLaunchTimestamp(order)
+    const slotTime = order.scheduled_slot_start || order.scheduled_time
+
+    // Si commande programmée avec un créneau futur → afficher compte à rebours vers le lancement
+    if (slotTime && isClickAndCollect(order)) {
+      const diffMs = now - launchTs
+      const diffMinutes = Math.floor(Math.abs(diffMs) / (60 * 1000))
+
+      if (diffMs < 0) {
+        // Avant le lancement → compte à rebours négatif
+        if (diffMinutes >= 60) return { display: `-${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}` }
+        return { display: `-${diffMinutes}m` }
+      }
+      // Après le lancement → temps écoulé depuis le lancement
+      if (diffMinutes < 1) return { display: '< 1m' }
+      if (diffMinutes < 60) return { display: `${diffMinutes}m` }
+      return { display: `${Math.floor(diffMinutes / 60)}h${(diffMinutes % 60).toString().padStart(2, '0')}` }
+    }
+
+    // Commande sans créneau (kiosk, caisse) → temps depuis création
+    const created = new Date(order.created_at).getTime()
     const diffMinutes = Math.floor((now - created) / (60 * 1000))
     if (diffMinutes < 1) return { display: '< 1m' }
     if (diffMinutes < 60) return { display: `${diffMinutes}m` }
@@ -455,7 +495,21 @@ export default function KitchenPage() {
   }
 
   function getTimeColor(order: Order): string {
-    const diffMinutes = Math.floor((currentTime.getTime() - new Date(order.created_at).getTime()) / (60 * 1000))
+    const now = currentTime.getTime()
+    const slotTime = order.scheduled_slot_start || order.scheduled_time
+
+    if (slotTime && isClickAndCollect(order)) {
+      const launchTs = getLaunchTimestamp(order)
+      const diffMs = now - launchTs
+      if (diffMs < 0) return 'text-gray-400' // Avant le lancement → gris neutre
+      const diffMinutes = Math.floor(diffMs / (60 * 1000))
+      if (diffMinutes < 5) return 'text-green-400'
+      if (diffMinutes < 10) return 'text-yellow-400'
+      if (diffMinutes < 15) return 'text-orange-400'
+      return 'text-red-400'
+    }
+
+    const diffMinutes = Math.floor((now - new Date(order.created_at).getTime()) / (60 * 1000))
     if (diffMinutes < 5) return 'text-green-400'
     if (diffMinutes < 10) return 'text-yellow-400'
     if (diffMinutes < 15) return 'text-orange-400'
@@ -575,6 +629,12 @@ export default function KitchenPage() {
                 <span className={`text-xs px-2 py-1 rounded font-bold ${launchInfo.isPast ? 'bg-red-500 text-white' : launchInfo.isNow ? 'bg-red-500 text-white' : launchInfo.isUpcoming ? 'bg-orange-500 text-white' : isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'}`}>
                   {launchInfo.isNow ? '🔥 GO!' : launchInfo.isPast ? '⚠️ RETARD' : isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
                 </span>
+                {/* En cours / Prêt : toujours afficher l'heure de livraison demandée si GO/RETARD */}
+                {isCC && (launchInfo.isNow || launchInfo.isPast) && column.key !== 'pending' && (
+                  <span className="text-xs px-2 py-1 rounded font-bold bg-cyan-500/30 text-cyan-300">
+                    ⏰ {launchInfo.time}
+                  </span>
+                )}
                 {isCC && launchInfo.launchTime && column.key === 'pending' && (
                   <span className={`text-xs px-2 py-1 rounded font-bold ${launchInfo.isPast ? 'bg-red-500/80 text-white' : launchInfo.isNow ? 'bg-red-500/80 text-white' : launchInfo.isUpcoming ? 'bg-orange-500/80 text-white' : 'bg-blue-500/30 text-blue-300'}`}>
                     🔧 {launchInfo.launchTime}
