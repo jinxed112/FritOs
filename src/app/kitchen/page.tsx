@@ -31,6 +31,8 @@ type Order = {
   notes?: string | null
   payment_status?: string | null
   metadata?: { source?: string; slot_date?: string; slot_time?: string; delivery_duration?: number; delivery_address?: string; delivery_lat?: number; delivery_lng?: number; travel_minutes?: number } | null
+  total_amount?: number | null
+  total?: number | null
 }
 
 type ParsedOption = { item_name: string; price: number }
@@ -349,7 +351,7 @@ export default function KitchenPage() {
     // Charger : toutes les commandes non-terminées + commandes du jour
     const { data } = await supabase
       .from('orders')
-      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, notes, payment_status, metadata, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
+      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, notes, payment_status, metadata, total_amount, total, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
       .eq('establishment_id', estId)
       .neq('status', 'cancelled')
       .neq('status', 'awaiting_payment')
@@ -629,8 +631,8 @@ export default function KitchenPage() {
                 <span className={`text-xs px-2 py-1 rounded font-bold ${launchInfo.isPast ? 'bg-red-500 text-white' : launchInfo.isNow ? 'bg-red-500 text-white' : launchInfo.isUpcoming ? 'bg-orange-500 text-white' : isCC ? 'bg-cyan-500/30 text-cyan-300' : 'bg-slate-500 text-gray-300'}`}>
                   {launchInfo.isNow ? '🔥 GO!' : launchInfo.isPast ? '⚠️ RETARD' : isCC ? `⏰ ${launchInfo.time}` : '🍽️'}
                 </span>
-                {/* En cours / Prêt : toujours afficher l'heure de livraison demandée si GO/RETARD */}
-                {isCC && (launchInfo.isNow || launchInfo.isPast) && column.key !== 'pending' && (
+                {/* Toujours afficher l'heure de livraison demandée quand GO/RETARD */}
+                {isCC && (launchInfo.isNow || launchInfo.isPast) && (
                   <span className="text-xs px-2 py-1 rounded font-bold bg-cyan-500/30 text-cyan-300">
                     ⏰ {launchInfo.time}
                   </span>
@@ -664,7 +666,7 @@ export default function KitchenPage() {
               {order.order_type === 'delivery' && order.delivery_notes && ` - ${order.delivery_notes}`}
               {order.customer_phone && ` • ${order.customer_phone}`}
               {order.order_type === 'delivery' && order.payment_status !== 'paid' && (
-                <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white font-bold rounded text-xs animate-pulse">💵 CASH</span>
+                <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white font-bold rounded text-xs animate-pulse">💵 {((order.total_amount ?? order.total) || 0).toFixed(2)}€</span>
               )}
             </div>
             {order.order_type === 'delivery' && launchInfo.travelMin > 0 && column.key === 'pending' && (
