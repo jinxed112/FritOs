@@ -9,6 +9,9 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'DeliDjambo',
   },
+  icons: {
+    apple: '/delidjambo-icon-192.png',
+  },
 }
 
 export const viewport: Viewport = {
@@ -20,31 +23,5 @@ export const viewport: Viewport = {
 }
 
 export default function DriverLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      <head>
-        <link rel="apple-touch-icon" href="/delidjambo-icon-192.png" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="mobile-web-app-capable" content="yes" />
-      </head>
-      <RegisterSW />
-      {children}
-    </>
-  )
-}
-
-function RegisterSW() {
-  return (
-    <script
-      dangerouslySetInnerHTML={{
-        __html: `
-          if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
-              navigator.serviceWorker.register('/delidjambo-sw.js', { scope: '/driver' })
-            })
-          }
-        `,
-      }}
-    />
-  )
+  return <>{children}</>
 }
