@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 // ==================== TYPES ====================
@@ -35,6 +35,9 @@ type DeliveryRoundStop = {
   latitude: number | null
   longitude: number | null
   customer_slot_start: string | null
+  delivered_lat: number | null
+  delivered_lng: number | null
+  delivered_distance_m: number | null
   order: DeliveryOrder
 }
 
