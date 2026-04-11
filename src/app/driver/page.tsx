@@ -17,6 +17,8 @@ type DeliveryOrder = {
   delivery_lat: number | null
   delivery_lng: number | null
   delivery_notes: string | null
+  payment_method: string | null
+  delivery_fee: number | null
   order_items: {
     id: string
     product_name: string
@@ -373,33 +375,42 @@ export default function DriverPage() {
     }
 
     // 2. Commandes livrables
-    const maxTime = new Date(Date.now() + 24 * 3600000).toISOString()
     const { data: ordersData } = await supabase
       .from('orders')
       .select(`
         id, order_number, status, total, total_amount,
         customer_name, customer_phone,
-        scheduled_time, delivery_notes, metadata,
+        scheduled_time, scheduled_slot_start,
+        delivery_notes, delivery_fee, payment_method, metadata,
         order_items (id, product_name, quantity, options_selected)
       `)
       .eq('establishment_id', ESTABLISHMENT_ID)
       .eq('order_type', 'delivery')
       .in('status', ['ready', 'preparing', 'pending'])
       .is('delivery_round_id', null)
-      .gte('scheduled_time', new Date().toISOString())
-      .lte('scheduled_time', maxTime)
-      .order('scheduled_time')
+      .order('scheduled_slot_start', { ascending: true, nullsFirst: false })
 
-    const orders: DeliveryOrder[] = (ordersData || []).map((o: any) => {
-      const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
-      return {
-        ...o,
-        total_amount: o.total_amount || o.total || 0,
-        delivery_address: meta.delivery_address || o.delivery_notes || 'Adresse non spécifiée',
-        delivery_lat: meta.delivery_lat || null,
-        delivery_lng: meta.delivery_lng || null,
-      }
-    })
+    const nowMs = Date.now()
+    const maxMs = nowMs + 24 * 3600000
+
+    const orders: DeliveryOrder[] = (ordersData || [])
+      .filter((o: any) => {
+        const slot = o.scheduled_slot_start || o.scheduled_time
+        if (!slot) return true
+        const slotMs = new Date(slot).getTime()
+        return slotMs >= nowMs - 3600000 && slotMs <= maxMs
+      })
+      .map((o: any) => {
+        const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
+        return {
+          ...o,
+          total_amount: o.total_amount || o.total || 0,
+          scheduled_time: o.scheduled_slot_start || o.scheduled_time || o.created_at,
+          delivery_address: meta.delivery_address || o.delivery_notes || 'Adresse non spécifiée',
+          delivery_lat: meta.delivery_lat || null,
+          delivery_lng: meta.delivery_lng || null,
+        }
+      })
 
     setAvailableOrders(orders)
   }
@@ -744,6 +755,12 @@ export default function DriverPage() {
                         </div>
                         <div className="text-right">
                           <span className="font-bold text-orange-500">{order.total_amount.toFixed(2)}€</span>
+                          {order.payment_method === 'cash' && (
+                            <span className="ml-1 text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-semibold">CASH</span>
+                          )}
+                          {order.payment_method === 'online' && (
+                            <span className="ml-1 text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">Payé</span>
+                          )}
                           <p className={`text-xs mt-0.5 ${isLate ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
                             {timeLeft}
                           </p>
@@ -919,6 +936,9 @@ export default function DriverPage() {
                       <span className="font-semibold text-orange-500">
                         {(order?.total_amount || order?.total || 0).toFixed(2)}€
                       </span>
+                      {order?.payment_method === 'cash' && (
+                        <span className="block text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-semibold mt-0.5">CASH</span>
+                      )}
                       {distToStop !== null && isCurrent && (
                         <p className="text-xs text-gray-500 mt-0.5">
                           {distToStop > 1000 ? `${(distToStop / 1000).toFixed(1)} km` : `${Math.round(distToStop)} m`}
