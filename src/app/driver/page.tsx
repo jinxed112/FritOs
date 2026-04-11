@@ -167,7 +167,7 @@ export default function DriverPage() {
     if (!driver) return
     loadData()
     const iv = setInterval(loadData, DATA_REFRESH_MS)
-
+    
     // Realtime subscription pour les nouvelles commandes
     const channel = supabase
       .channel('driver-orders')
@@ -201,7 +201,7 @@ export default function DriverPage() {
     if (!currentStop.latitude || !currentStop.longitude) return
 
     const dist = haversineM(position.lat, position.lng, Number(currentStop.latitude), Number(currentStop.longitude))
-
+    
     if (dist < AUTO_CLOSE_DISTANCE_M) {
       setAutoCloseCandidate(currentStop.id)
     } else {
@@ -249,13 +249,13 @@ export default function DriverPage() {
   async function logPosition(geo: GeoPosition) {
     if (!driver) return
     const last = lastLoggedPosRef.current
-
+    
     // Ne logger que si assez de temps écoulé ou distance parcourue
     if (last) {
       const timeDiff = geo.timestamp - last.time
       const dist = haversineM(last.lat, last.lng, geo.lat, geo.lng)
       if (timeDiff < GPS_INTERVAL_MS && dist < 20) return // skip si < 10s ET < 20m
-
+      
       // Ajouter au compteur km session
       if (dist > 5 && dist < 5000) { // filtrer les sauts GPS aberrants
         setSessionKm(prev => prev + dist / 1000)
@@ -264,22 +264,15 @@ export default function DriverPage() {
 
     lastLoggedPosRef.current = { lat: geo.lat, lng: geo.lng, time: geo.timestamp }
 
-    // Update position du livreur en DB
-    await supabase.from('drivers').update({
-      last_lat: geo.lat,
-      last_lng: geo.lng,
-      last_seen_at: new Date().toISOString(),
-    }).eq('id', driver.id)
-
-    // Logger le point GPS (si tournée en cours, inclure round_id)
-    await supabase.from('driver_location_logs').insert({
-      driver_id: driver.id,
-      round_id: myRound?.status === 'in_progress' ? myRound.id : null,
-      latitude: geo.lat,
-      longitude: geo.lng,
-      accuracy: geo.accuracy,
-      speed: geo.speed,
-      heading: geo.heading,
+    // Update position + log via RPC sécurisé
+    await supabase.rpc('driver_update_position', {
+      p_driver_id: driver.id,
+      p_lat: geo.lat,
+      p_lng: geo.lng,
+      p_accuracy: geo.accuracy,
+      p_speed: geo.speed,
+      p_heading: geo.heading,
+      p_round_id: myRound?.status === 'in_progress' ? myRound.id : null,
     })
   }
 
@@ -289,44 +282,33 @@ export default function DriverPage() {
     if (pin.length !== 6) { setError('Code PIN à 6 chiffres'); return }
     setLoading(true); setError('')
 
-    const { data, error: e } = await supabase.from('drivers')
-      .select('id, name, phone, status')
-      .eq('establishment_id', ESTABLISHMENT_ID)
-      .eq('pin_code', pin).eq('is_active', true).single()
+    const { data, error: e } = await supabase.rpc('driver_login', {
+      p_pin: pin,
+      p_establishment_id: ESTABLISHMENT_ID,
+    })
 
-    if (e || !data) { setError('Code PIN invalide'); setLoading(false); return }
+    if (e || !data?.success) { setError('Code PIN invalide'); setLoading(false); return }
 
-    setDriver(data)
-    localStorage.setItem('driver_id', data.id)
-    await supabase.from('drivers').update({
-      status: 'available',
-      session_started_at: new Date().toISOString(),
-      session_km_today: 0,
-    }).eq('id', data.id)
+    setDriver(data.driver)
+    localStorage.setItem('driver_id', data.driver.id)
     setSessionKm(0)
     setLoading(false)
   }
 
   async function loadDriver(id: string) {
-    const { data } = await supabase.from('drivers')
-      .select('id, name, phone, status').eq('id', id).single()
-    if (data) {
-      setDriver(data)
-      // Restaurer km de la session
-      const { data: driverData } = await supabase.from('drivers')
-        .select('session_km_today').eq('id', id).single()
-      if (driverData?.session_km_today) setSessionKm(Number(driverData.session_km_today))
+    const { data } = await supabase.rpc('driver_get_session', { p_driver_id: id })
+    if (data?.success) {
+      setDriver(data.driver)
+      if (data.driver.session_km) setSessionKm(Number(data.driver.session_km))
+    } else {
+      localStorage.removeItem('driver_id')
     }
-    else localStorage.removeItem('driver_id')
   }
 
   async function logout() {
     if (driver) {
       stopGPS()
-      await supabase.from('drivers').update({
-        status: 'offline',
-        session_km_today: sessionKm,
-      }).eq('id', driver.id)
+      await supabase.rpc('driver_logout', { p_driver_id: driver.id, p_session_km: sessionKm })
     }
     setDriver(null)
     localStorage.removeItem('driver_id')
@@ -364,8 +346,8 @@ export default function DriverPage() {
 
     if (roundData) {
       // Si completed depuis plus de 15 min, ignorer
-      const isOldCompleted = roundData.status === 'completed'
-        && roundData.actual_return
+      const isOldCompleted = roundData.status === 'completed' 
+        && roundData.actual_return 
         && (Date.now() - new Date(roundData.actual_return).getTime()) > 15 * 60000
 
       if (isOldCompleted) {
@@ -412,16 +394,16 @@ export default function DriverPage() {
         return slotMs >= nowMs - 3600000 && slotMs <= maxMs
       })
       .map((o: any) => {
-        const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
-        return {
-          ...o,
-          total_amount: o.total_amount || o.total || 0,
-          scheduled_time: o.scheduled_slot_start || o.scheduled_time || o.created_at,
-          delivery_address: meta.delivery_address || o.delivery_notes || 'Adresse non spécifiée',
-          delivery_lat: meta.delivery_lat || null,
-          delivery_lng: meta.delivery_lng || null,
-        }
-      })
+      const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {})
+      return {
+        ...o,
+        total_amount: o.total_amount || o.total || 0,
+        scheduled_time: o.scheduled_slot_start || o.scheduled_time || o.created_at,
+        delivery_address: meta.delivery_address || o.delivery_notes || 'Adresse non spécifiée',
+        delivery_lat: meta.delivery_lat || null,
+        delivery_lng: meta.delivery_lng || null,
+      }
+    })
 
     setAvailableOrders(orders)
   }
@@ -455,10 +437,10 @@ export default function DriverPage() {
       })
 
       await supabase.from('orders').update({ delivery_round_id: round.id }).eq('id', orderId)
-      await supabase.from('drivers').update({ status: 'delivering' }).eq('id', driver.id)
+      await supabase.rpc('driver_set_status', { p_driver_id: driver.id, p_status: 'delivering' })
       await loadData()
-    } catch (e) {
-      console.error(e); setError('Erreur prise de commande')
+    } catch (e) { 
+      console.error(e); setError('Erreur prise de commande') 
     }
     setLoading(false)
   }
@@ -490,7 +472,7 @@ export default function DriverPage() {
       status: 'in_progress',
       actual_departure: new Date().toISOString(),
     }).eq('id', myRound.id)
-    await supabase.from('drivers').update({ status: 'delivering' }).eq('id', driver!.id)
+    await supabase.rpc('driver_set_status', { p_driver_id: driver!.id, p_status: 'delivering' })
     await loadData()
     setLoading(false)
   }
@@ -521,32 +503,29 @@ export default function DriverPage() {
     // Vérifier si dernier stop
     const stop = myRound.stops.find(s => s.id === stopId)
     const otherPending = myRound.stops.filter(s => s.id !== stopId && s.status !== 'delivered')
-
+    
     if (otherPending.length === 0) {
       // Tournée terminée
-      await supabase.from('delivery_rounds').update({
+      await supabase.from('delivery_rounds').update({ 
         status: 'completed',
         actual_return: new Date().toISOString(),
         actual_distance_km: sessionKm > 0 ? sessionKm : null,
       }).eq('id', myRound.id)
-      await supabase.from('drivers').update({
-        status: 'available',
-        session_km_today: sessionKm,
-      }).eq('id', driver!.id)
-
+      await supabase.rpc('driver_set_status', { p_driver_id: driver!.id, p_status: 'available', p_session_km: sessionKm })
+      
       // Compléter les commandes livrées
       for (const s of myRound.stops) {
-        await supabase.from('orders').update({
-          status: 'completed',
-          completed_at: new Date().toISOString()
+        await supabase.from('orders').update({ 
+          status: 'completed', 
+          completed_at: new Date().toISOString() 
         }).eq('id', s.order_id)
       }
     } else {
       // Compléter cette commande
       if (stop) {
-        await supabase.from('orders').update({
-          status: 'completed',
-          completed_at: new Date().toISOString()
+        await supabase.from('orders').update({ 
+          status: 'completed', 
+          completed_at: new Date().toISOString() 
         }).eq('id', stop.order_id)
       }
     }
@@ -565,7 +544,7 @@ export default function DriverPage() {
       const newTotal = myRound.total_stops - 1
       if (newTotal === 0) {
         await supabase.from('delivery_rounds').delete().eq('id', myRound.id)
-        await supabase.from('drivers').update({ status: 'available' }).eq('id', driver!.id)
+        await supabase.rpc('driver_set_status', { p_driver_id: driver!.id, p_status: 'available' })
       } else {
         await supabase.from('delivery_rounds').update({ total_stops: newTotal }).eq('id', myRound.id)
       }
@@ -576,7 +555,7 @@ export default function DriverPage() {
 
   async function markOrderReady(orderId: string) {
     setLoading(true)
-    await supabase.from('orders').update({
+    await supabase.from('orders').update({ 
       status: 'ready',
       ready_at: new Date().toISOString(),
     }).eq('id', orderId)
@@ -587,7 +566,7 @@ export default function DriverPage() {
   async function unmarkDelivered(stopId: string, orderId: string) {
     if (!myRound) return
     setLoading(true)
-
+    
     // Remettre le stop en pending
     await supabase.from('delivery_round_stops').update({
       status: 'pending',
@@ -618,10 +597,10 @@ export default function DriverPage() {
   function openNavigation(address: string, lat?: number | null, lng?: number | null) {
     // Essayer d'abord l'intent natif qui ouvre Waze/Google Maps/Apple Maps
     const dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(address)
-
+    
     // Détection iOS vs Android
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-
+    
     if (isIOS) {
       // Apple Maps en natif, ou Google Maps si installé
       window.location.href = `maps://maps.apple.com/?daddr=${dest}&dirflg=d`
@@ -633,7 +612,7 @@ export default function DriverPage() {
         window.location.href = `google.navigation:q=${encodeURIComponent(address)}&mode=d`
       }
     }
-
+    
     // Fallback: si l'intent ne marche pas après 500ms, ouvrir dans le navigateur
     setTimeout(() => {
       const url = lat && lng
@@ -707,10 +686,11 @@ export default function DriverPage() {
             <div className="relative">
               <span className="text-2xl">🛵</span>
               {/* GPS indicator */}
-              <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-gray-900 ${gpsStatus === 'active' ? 'bg-green-400' :
-                  gpsStatus === 'acquiring' ? 'bg-yellow-400 animate-pulse' :
-                    gpsStatus === 'error' ? 'bg-red-400' : 'bg-gray-500'
-                }`} />
+              <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-gray-900 ${
+                gpsStatus === 'active' ? 'bg-green-400' :
+                gpsStatus === 'acquiring' ? 'bg-yellow-400 animate-pulse' :
+                gpsStatus === 'error' ? 'bg-red-400' : 'bg-gray-500'
+              }`} />
             </div>
             <div>
               <p className="font-semibold">{driver.name}</p>
@@ -736,10 +716,11 @@ export default function DriverPage() {
           <button
             key={tab.key}
             onClick={() => setView(tab.key)}
-            className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-all ${view === tab.key
+            className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-all ${
+              view === tab.key
                 ? 'bg-orange-500 text-white'
                 : 'bg-gray-800 text-gray-400'
-              }`}
+            }`}
           >
             {tab.label} {tab.count > 0 && `(${tab.count})`}
           </button>
@@ -783,19 +764,21 @@ export default function DriverPage() {
             const isLate = timeLeft === 'En retard'
 
             return (
-              <div key={order.id} className={`bg-white rounded-2xl overflow-hidden shadow-sm border-l-4 ${isReady ? 'border-green-500' : order.status === 'preparing' ? 'border-orange-400' : 'border-gray-300'
-                }`}>
-                <button
+              <div key={order.id} className={`bg-white rounded-2xl overflow-hidden shadow-sm border-l-4 ${
+                isReady ? 'border-green-500' : order.status === 'preparing' ? 'border-orange-400' : 'border-gray-300'
+              }`}>
+                <button 
                   onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
                   className="w-full p-4 text-left"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <span className="text-lg font-bold text-gray-900">#{order.order_number}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReady ? 'bg-green-100 text-green-700' :
-                          order.status === 'preparing' ? 'bg-orange-100 text-orange-700' :
-                            'bg-gray-100 text-gray-600'
-                        }`}>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        isReady ? 'bg-green-100 text-green-700' :
+                        order.status === 'preparing' ? 'bg-orange-100 text-orange-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
                         {isReady ? 'Prêt' : order.status === 'preparing' ? 'En prépa' : 'En attente'}
                       </span>
                     </div>
@@ -884,7 +867,7 @@ export default function DriverPage() {
                         className="w-full bg-orange-500 text-white py-4 rounded-xl font-bold text-lg active:scale-[0.98] transition-transform disabled:opacity-50"
                       >
                         {myRound ? `Ajouter à ma tournée (${myRound.total_stops}/${MAX_DELIVERIES})` :
-                          'Prendre cette livraison'}
+                         'Prendre cette livraison'}
                       </button>
                     )}
                   </div>
@@ -941,11 +924,12 @@ export default function DriverPage() {
             <div className="bg-white rounded-2xl p-4">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="font-bold text-lg text-gray-900">Ma tournée</h2>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${myRound.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                    isDelivering ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                  }`}>
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  myRound.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                  isDelivering ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                }`}>
                   {myRound.status === 'completed' ? '✅ Terminée' :
-                    isDelivering ? `${stopsDelivered}/${myRound.total_stops} livrées` : 'Prête au départ'}
+                   isDelivering ? `${stopsDelivered}/${myRound.total_stops} livrées` : 'Prête au départ'}
                 </span>
               </div>
 
@@ -988,7 +972,7 @@ export default function DriverPage() {
                       await supabase.from('delivery_round_stops').delete().eq('round_id', myRound.id)
                       await supabase.from('orders').update({ delivery_round_id: null }).in('id', orderIds)
                       await supabase.from('delivery_rounds').delete().eq('id', myRound.id)
-                      await supabase.from('drivers').update({ status: 'available' }).eq('id', driver.id)
+                      await supabase.rpc('driver_set_status', { p_driver_id: driver.id, p_status: 'available' })
                       await loadData()
                       setLoading(false)
                     }}
@@ -1013,16 +997,19 @@ export default function DriverPage() {
               return (
                 <div
                   key={stop.id}
-                  className={`bg-white rounded-2xl overflow-hidden transition-all ${isCurrent ? 'ring-2 ring-orange-500 shadow-lg' :
-                      isDone ? 'opacity-50' : ''
-                    }`}
+                  className={`bg-white rounded-2xl overflow-hidden transition-all ${
+                    isCurrent ? 'ring-2 ring-orange-500 shadow-lg' :
+                    isDone ? 'opacity-50' : ''
+                  }`}
                 >
                   {/* Stop header */}
-                  <div className={`px-4 py-3 flex items-center gap-3 ${isCurrent ? 'bg-orange-50' : isDone ? 'bg-green-50' : 'bg-gray-50'
+                  <div className={`px-4 py-3 flex items-center gap-3 ${
+                    isCurrent ? 'bg-orange-50' : isDone ? 'bg-green-50' : 'bg-gray-50'
+                  }`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                      isDone ? 'bg-green-500 text-white' :
+                      isCurrent ? 'bg-orange-500 text-white' : 'bg-gray-300 text-gray-600'
                     }`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${isDone ? 'bg-green-500 text-white' :
-                        isCurrent ? 'bg-orange-500 text-white' : 'bg-gray-300 text-gray-600'
-                      }`}>
                       {isDone ? '✓' : stop.stop_order}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1065,10 +1052,11 @@ export default function DriverPage() {
                       </div>
 
                       {/* Scheduled time */}
-                      <div className={`text-center text-sm py-2 rounded-lg ${timeUntil(order?.scheduled_time) === 'En retard'
-                          ? 'bg-red-50 text-red-600 font-medium'
+                      <div className={`text-center text-sm py-2 rounded-lg ${
+                        timeUntil(order?.scheduled_time) === 'En retard' 
+                          ? 'bg-red-50 text-red-600 font-medium' 
                           : 'bg-blue-50 text-blue-600'
-                        }`}>
+                      }`}>
                         Livraison prévue : {formatDateTime(order?.scheduled_time)} ({timeUntil(order?.scheduled_time)})
                       </div>
 
