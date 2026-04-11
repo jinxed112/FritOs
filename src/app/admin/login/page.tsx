@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
@@ -8,27 +8,62 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
   
   const supabase = createClient()
+
+  // Vérifier si déjà connecté au chargement
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setIsLoggedIn(true)
+    })
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
 
-    if (error) {
-      setError(error.message)
+    if (authError) {
+      setError('Email ou mot de passe incorrect')
       setLoading(false)
       return
     }
 
-    // Force redirect avec window.location
+    // Vérifier le profil/rôle avant de rediriger
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', data.user.id)
+      .single()
+
+    const allowedRoles = ['super_admin', 'admin', 'manager', 'employee']
+    
+    if (!profile || !allowedRoles.includes(profile.role)) {
+      // Pas le bon rôle → déconnecter et afficher erreur
+      await supabase.auth.signOut()
+      setError('Accès non autorisé. Ce compte n\'a pas les droits d\'accès au back-office.')
+      setLoading(false)
+      return
+    }
+
+    // Tout est bon → rediriger
     window.location.href = '/admin'
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    setIsLoggedIn(false)
+    setError('')
+    setEmail('')
+    setPassword('')
+    // Vider le cache pour être sûr
+    window.location.reload()
   }
 
   return (
@@ -41,10 +76,39 @@ export default function LoginPage() {
           <p className="text-gray-500">Connexion au back-office</p>
         </div>
 
+        {/* Déjà connecté → bouton déconnexion */}
+        {isLoggedIn && !error && (
+          <div className="text-center mb-6">
+            <p className="text-gray-600 mb-4">Vous êtes déjà connecté.</p>
+            <div className="flex gap-3">
+              <a
+                href="/admin"
+                className="flex-1 bg-orange-500 text-white font-bold py-3 rounded-xl text-center hover:bg-orange-600 transition-colors"
+              >
+                Aller au back-office
+              </a>
+              <button
+                onClick={handleLogout}
+                className="flex-1 bg-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-300 transition-colors"
+              >
+                Se déconnecter
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Error message */}
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6">
-            {error}
+            <p>{error}</p>
+            {isLoggedIn && (
+              <button
+                onClick={handleLogout}
+                className="mt-2 text-sm underline text-red-600 hover:text-red-800"
+              >
+                Se déconnecter et réessayer
+              </button>
+            )}
           </div>
         )}
 
