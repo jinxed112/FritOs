@@ -755,11 +755,10 @@ export default function DriverPage() {
                         </div>
                         <div className="text-right">
                           <span className="font-bold text-orange-500">{order.total_amount.toFixed(2)}€</span>
-                          {order.payment_method === 'cash' && (
-                            <span className="ml-1 text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-semibold">CASH</span>
-                          )}
-                          {order.payment_method === 'online' && (
-                            <span className="ml-1 text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">Payé</span>
+                          {order.payment_method === 'cash' ? (
+                            <p className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold mt-1">À encaisser</p>
+                          ) : (
+                            <p className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium mt-1">Payé en ligne</p>
                           )}
                           <p className={`text-xs mt-0.5 ${isLate ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
                             {timeLeft}
@@ -936,8 +935,10 @@ export default function DriverPage() {
                       <span className="font-semibold text-orange-500">
                         {(order?.total_amount || order?.total || 0).toFixed(2)}€
                       </span>
-                      {order?.payment_method === 'cash' && (
-                        <span className="block text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-semibold mt-0.5">CASH</span>
+                      {order?.payment_method === 'cash' ? (
+                        <p className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold mt-0.5">À encaisser</p>
+                      ) : (
+                        <p className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium mt-0.5">Payé en ligne</p>
                       )}
                       {distToStop !== null && isCurrent && (
                         <p className="text-xs text-gray-500 mt-0.5">
