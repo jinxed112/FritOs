@@ -371,6 +371,10 @@ export default function KitchenPage() {
   }
 
   async function updateStatus(orderId: string, newStatus: string) {
+    // Bloquer la clôture des commandes delivery — c'est le livreur qui clôture
+    const order = [...orders, ...offeredOrders].find(o => o.id === orderId)
+    if (order?.order_type === 'delivery' && newStatus === 'completed') return
+    
     const isOffered = offeredOrders.some(o => o.id === orderId)
     
     // Optimistic update - UI instantanée
@@ -681,13 +685,18 @@ export default function KitchenPage() {
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-xs font-mono font-bold ${getTimeColor(order)}`}>{timeSince.display}</span>
-            {column.nextStatus && (
+            {column.nextStatus && !(column.key === 'ready' && order.order_type === 'delivery') && (
               <button
                 onClick={() => updateStatus(order.id, column.nextStatus!)}
                 className={`${colors.bg} hover:brightness-110 active:scale-95 text-white text-sm px-3 py-1.5 rounded font-bold transition-all`}
               >
                 ▶
               </button>
+            )}
+            {column.key === 'ready' && order.order_type === 'delivery' && (
+              <span className="text-xs bg-purple-500/30 text-purple-300 px-2 py-1 rounded font-medium">
+                🛵 Livreur
+              </span>
             )}
           </div>
         </div>
