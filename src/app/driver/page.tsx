@@ -18,6 +18,7 @@ type DeliveryOrder = {
   delivery_lng: number | null
   delivery_notes: string | null
   payment_method: string | null
+  payment_status: string | null
   delivery_fee: number | null
   order_items: {
     id: string
@@ -381,7 +382,7 @@ export default function DriverPage() {
         id, order_number, status, total, total_amount,
         customer_name, customer_phone,
         scheduled_time, scheduled_slot_start,
-        delivery_notes, delivery_fee, payment_method, metadata,
+        delivery_notes, delivery_fee, payment_method, payment_status, metadata,
         order_items (id, product_name, quantity, options_selected)
       `)
       .eq('establishment_id', ESTABLISHMENT_ID)
@@ -755,7 +756,7 @@ export default function DriverPage() {
                         </div>
                         <div className="text-right">
                           <span className="font-bold text-orange-500">{order.total_amount.toFixed(2)}€</span>
-                          {order.payment_method === 'cash' ? (
+                          {order.payment_status !== 'paid' ? (
                             <p className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold mt-1">À encaisser</p>
                           ) : (
                             <p className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium mt-1">Payé en ligne</p>
@@ -935,7 +936,7 @@ export default function DriverPage() {
                       <span className="font-semibold text-orange-500">
                         {(order?.total_amount || order?.total || 0).toFixed(2)}€
                       </span>
-                      {order?.payment_method === 'cash' ? (
+                      {order?.payment_status !== 'paid' ? (
                         <p className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold mt-0.5">À encaisser</p>
                       ) : (
                         <p className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium mt-0.5">Payé en ligne</p>
