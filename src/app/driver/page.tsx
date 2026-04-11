@@ -344,32 +344,42 @@ export default function DriverPage() {
     const { data: roundData } = await supabase
       .from('delivery_rounds')
       .select(`
-        id, status, planned_departure, total_stops, actual_distance_km,
+        id, status, planned_departure, actual_return, total_stops, actual_distance_km,
         delivery_round_stops (
           id, stop_order, order_id, address, status, estimated_arrival,
           latitude, longitude, customer_slot_start, delivered_lat, delivered_lng,
           order:orders (
             id, order_number, status, total, total_amount,
             customer_name, customer_phone, scheduled_time, 
-            delivery_notes, metadata,
+            delivery_notes, payment_status, metadata,
             order_items (id, product_name, quantity, options_selected)
           )
         )
       `)
       .eq('driver_id', driver.id)
-      .in('status', ['ready', 'in_progress'])
+      .in('status', ['ready', 'in_progress', 'completed'])
       .order('created_at', { ascending: false })
       .limit(1)
       .single()
 
     if (roundData) {
-      const stops = (roundData.delivery_round_stops || [])
-        .sort((a: any, b: any) => a.stop_order - b.stop_order)
-        .map((s: any) => ({ ...s, order: s.order }))
-      setMyRound({ ...roundData, stops })
-      setView('round')
-      const next = stops.findIndex((s: any) => s.status !== 'delivered')
-      setCurrentStopIdx(next >= 0 ? next : stops.length - 1)
+      // Si completed depuis plus de 15 min, ignorer
+      const isOldCompleted = roundData.status === 'completed'
+        && roundData.actual_return
+        && (Date.now() - new Date(roundData.actual_return).getTime()) > 15 * 60000
+
+      if (isOldCompleted) {
+        setMyRound(null)
+        if (view === 'round') setView('orders')
+      } else {
+        const stops = (roundData.delivery_round_stops || [])
+          .sort((a: any, b: any) => a.stop_order - b.stop_order)
+          .map((s: any) => ({ ...s, order: s.order }))
+        setMyRound({ ...roundData, stops })
+        if (roundData.status !== 'completed') setView('round')
+        const next = stops.findIndex((s: any) => s.status !== 'delivered')
+        setCurrentStopIdx(next >= 0 ? next : stops.length - 1)
+      }
     } else {
       setMyRound(null)
       if (view === 'round') setView('orders')
@@ -564,6 +574,47 @@ export default function DriverPage() {
     setLoading(false)
   }
 
+  async function markOrderReady(orderId: string) {
+    setLoading(true)
+    await supabase.from('orders').update({
+      status: 'ready',
+      ready_at: new Date().toISOString(),
+    }).eq('id', orderId)
+    await loadData()
+    setLoading(false)
+  }
+
+  async function unmarkDelivered(stopId: string, orderId: string) {
+    if (!myRound) return
+    setLoading(true)
+
+    // Remettre le stop en pending
+    await supabase.from('delivery_round_stops').update({
+      status: 'pending',
+      actual_arrival: null,
+      delivered_lat: null,
+      delivered_lng: null,
+      delivered_distance_m: null,
+    }).eq('id', stopId)
+
+    // Remettre la commande en ready (pas completed)
+    await supabase.from('orders').update({
+      status: 'ready',
+      completed_at: null,
+    }).eq('id', orderId)
+
+    // Si la tournée avait été complétée (dernier stop annulé), la remettre en cours
+    if (myRound.status === 'completed') {
+      await supabase.from('delivery_rounds').update({
+        status: 'in_progress',
+        actual_return: null,
+      }).eq('id', myRound.id)
+    }
+
+    await loadData()
+    setLoading(false)
+  }
+
   function openNavigation(address: string, lat?: number | null, lng?: number | null) {
     // Essayer d'abord l'intent natif qui ouvre Waze/Google Maps/Apple Maps
     const dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(address)
@@ -721,128 +772,167 @@ export default function DriverPage() {
       <div className="p-4 space-y-3">
 
         {/* ── ORDERS VIEW ── */}
-        {view === 'orders' && (
-          <>
-            {availableOrders.length === 0 ? (
-              <div className="bg-white rounded-2xl p-10 text-center">
-                <span className="text-5xl block mb-3">📭</span>
-                <p className="text-gray-500 font-medium">Aucune livraison en attente</p>
-                <p className="text-gray-400 text-sm mt-1">Les nouvelles commandes apparaîtront automatiquement</p>
-              </div>
-            ) : (
-              availableOrders.map(order => {
-                const isExpanded = expandedOrder === order.id
-                const isReady = order.status === 'ready'
-                const timeLeft = timeUntil(order.scheduled_time)
-                const isLate = timeLeft === 'En retard'
+        {view === 'orders' && (() => {
+          const readyOrders = availableOrders.filter(o => o.status === 'ready')
+          const otherOrders = availableOrders.filter(o => o.status !== 'ready')
 
-                return (
-                  <div key={order.id} className={`bg-white rounded-2xl overflow-hidden shadow-sm border-l-4 ${isReady ? 'border-green-500' : order.status === 'preparing' ? 'border-orange-400' : 'border-gray-300'
-                    }`}>
-                    {/* Order header - clickable */}
-                    <button
-                      onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
-                      className="w-full p-4 text-left"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="text-lg font-bold text-gray-900">#{order.order_number}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReady ? 'bg-green-100 text-green-700' :
-                              order.status === 'preparing' ? 'bg-orange-100 text-orange-700' :
-                                'bg-gray-100 text-gray-600'
-                            }`}>
-                            {isReady ? 'Prêt' : order.status === 'preparing' ? 'En prépa' : 'En attente'}
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-bold text-orange-500">{order.total_amount.toFixed(2)}€</span>
-                          {order.payment_status !== 'paid' ? (
-                            <p className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold mt-1">À encaisser</p>
-                          ) : (
-                            <p className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium mt-1">Payé en ligne</p>
-                          )}
-                          <p className={`text-xs mt-0.5 ${isLate ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
-                            {timeLeft}
-                          </p>
-                        </div>
-                      </div>
+          const renderOrderCard = (order: DeliveryOrder) => {
+            const isExpanded = expandedOrder === order.id
+            const isReady = order.status === 'ready'
+            const timeLeft = timeUntil(order.scheduled_time)
+            const isLate = timeLeft === 'En retard'
 
-                      <div className="mt-2 flex items-center gap-2 text-sm text-gray-600">
-                        <span>📍</span>
-                        <span className="truncate">{order.delivery_address}</span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
-                        <span>👤</span>
-                        <span>{order.customer_name || 'Client'}</span>
-                        <span>•</span>
-                        <span>{formatDateTime(order.scheduled_time)}</span>
-                      </div>
-                    </button>
+            return (
+              <div key={order.id} className={`bg-white rounded-2xl overflow-hidden shadow-sm border-l-4 ${isReady ? 'border-green-500' : order.status === 'preparing' ? 'border-orange-400' : 'border-gray-300'
+                }`}>
+                <button
+                  onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
+                  className="w-full p-4 text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-bold text-gray-900">#{order.order_number}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReady ? 'bg-green-100 text-green-700' :
+                          order.status === 'preparing' ? 'bg-orange-100 text-orange-700' :
+                            'bg-gray-100 text-gray-600'
+                        }`}>
+                        {isReady ? 'Prêt' : order.status === 'preparing' ? 'En prépa' : 'En attente'}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-orange-500">{order.total_amount.toFixed(2)}€</span>
+                      {order.payment_status !== 'paid' ? (
+                        <p className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold mt-1">À encaisser</p>
+                      ) : (
+                        <p className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium mt-1">Payé en ligne</p>
+                      )}
+                      <p className={`text-xs mt-0.5 ${isLate ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
+                        {timeLeft}
+                      </p>
+                    </div>
+                  </div>
 
-                    {/* Expanded details */}
-                    {isExpanded && (
-                      <div className="px-4 pb-4 space-y-3">
-                        {/* Order items */}
-                        <div className="bg-gray-50 rounded-xl p-3">
-                          <p className="font-medium text-sm text-gray-700 mb-2">Contenu de la commande :</p>
-                          {order.order_items.map(item => (
-                            <div key={item.id} className="py-1">
-                              <div className="flex justify-between text-sm">
-                                <span>{item.quantity}x {item.product_name}</span>
-                              </div>
-                              {parseOptions(item.options_selected).map((opt, i) => (
-                                <p key={i} className="text-xs text-gray-500 ml-4">+ {opt}</p>
-                              ))}
-                            </div>
+                  <div className="mt-2 flex items-center gap-2 text-sm text-gray-600">
+                    <span>📍</span>
+                    <span className="truncate">{order.delivery_address}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+                    <span>👤</span>
+                    <span>{order.customer_name || 'Client'}</span>
+                    <span>•</span>
+                    <span>{formatDateTime(order.scheduled_time)}</span>
+                  </div>
+                </button>
+
+                {isExpanded && (
+                  <div className="px-4 pb-4 space-y-3">
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <p className="font-medium text-sm text-gray-700 mb-2">Contenu :</p>
+                      {order.order_items.map(item => (
+                        <div key={item.id} className="py-1">
+                          <div className="flex justify-between text-sm">
+                            <span>{item.quantity}x {item.product_name}</span>
+                          </div>
+                          {parseOptions(item.options_selected).map((opt, i) => (
+                            <p key={i} className="text-xs text-gray-500 ml-4">+ {opt}</p>
                           ))}
                         </div>
+                      ))}
+                    </div>
 
-                        {/* Notes */}
-                        {order.delivery_notes && (
-                          <div className="bg-yellow-50 rounded-xl p-3 text-sm">
-                            <span className="font-medium">Note :</span> {order.delivery_notes}
-                          </div>
-                        )}
-
-                        {/* Quick actions */}
-                        <div className="flex gap-2">
-                          {order.customer_phone && (
-                            <>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); callCustomer(order.customer_phone!) }}
-                                className="flex-1 bg-blue-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
-                              >
-                                📞 Appeler
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); smsCustomer(order.customer_phone!, order.order_number) }}
-                                className="bg-blue-100 text-blue-700 px-4 py-3 rounded-xl font-medium active:scale-[0.97] transition-transform"
-                              >
-                                💬
-                              </button>
-                            </>
-                          )}
-                        </div>
-
-                        {/* Take order button */}
-                        <button
-                          onClick={() => myRound ? addToRound(order.id) : takeOrder(order.id)}
-                          disabled={loading || !isReady || (myRound !== null && myRound.total_stops >= MAX_DELIVERIES)}
-                          className={`w-full py-4 rounded-xl font-bold text-lg active:scale-[0.98] transition-transform disabled:opacity-50 ${isReady ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'
-                            }`}
-                        >
-                          {!isReady ? 'En préparation...' :
-                            myRound ? `Ajouter à ma tournée (${myRound.total_stops}/${MAX_DELIVERIES})` :
-                              'Prendre cette livraison'}
-                        </button>
+                    {order.delivery_notes && (
+                      <div className="bg-yellow-50 rounded-xl p-3 text-sm">
+                        <span className="font-medium">Note :</span> {order.delivery_notes}
                       </div>
                     )}
+
+                    <div className="flex gap-2">
+                      {order.customer_phone && (
+                        <>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); callCustomer(order.customer_phone!) }}
+                            className="flex-1 bg-blue-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                          >
+                            📞 Appeler
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); smsCustomer(order.customer_phone!, order.order_number) }}
+                            className="bg-blue-100 text-blue-700 px-4 py-3 rounded-xl font-medium active:scale-[0.97] transition-transform"
+                          >
+                            💬
+                          </button>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Bouton passer en prêt SI pas encore ready */}
+                    {!isReady && (
+                      <button
+                        onClick={() => markOrderReady(order.id)}
+                        disabled={loading}
+                        className="w-full bg-yellow-500 text-white py-3 rounded-xl font-bold active:scale-[0.98] transition-transform disabled:opacity-50"
+                      >
+                        👨‍🍳 Passer en PRÊT
+                      </button>
+                    )}
+
+                    {/* Bouton prendre la livraison SI ready */}
+                    {isReady && (
+                      <button
+                        onClick={() => myRound ? addToRound(order.id) : takeOrder(order.id)}
+                        disabled={loading || (myRound !== null && myRound.total_stops >= MAX_DELIVERIES)}
+                        className="w-full bg-orange-500 text-white py-4 rounded-xl font-bold text-lg active:scale-[0.98] transition-transform disabled:opacity-50"
+                      >
+                        {myRound ? `Ajouter à ma tournée (${myRound.total_stops}/${MAX_DELIVERIES})` :
+                          'Prendre cette livraison'}
+                      </button>
+                    )}
                   </div>
-                )
-              })
-            )}
-          </>
-        )}
+                )}
+              </div>
+            )
+          }
+
+          return (
+            <>
+              {availableOrders.length === 0 ? (
+                <div className="bg-white rounded-2xl p-10 text-center">
+                  <span className="text-5xl block mb-3">📭</span>
+                  <p className="text-gray-500 font-medium">Aucune livraison en attente</p>
+                  <p className="text-gray-400 text-sm mt-1">Les nouvelles commandes apparaîtront automatiquement</p>
+                </div>
+              ) : (
+                <>
+                  {/* === PRÊTES À LIVRER === */}
+                  {readyOrders.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-3 h-3 bg-green-500 rounded-full"></span>
+                        <h3 className="font-bold text-gray-800">Prêtes à livrer ({readyOrders.length})</h3>
+                      </div>
+                      <div className="space-y-3">
+                        {readyOrders.map(renderOrderCard)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* === EN PRÉPARATION / EN ATTENTE === */}
+                  {otherOrders.length > 0 && (
+                    <div className={readyOrders.length > 0 ? 'mt-6' : ''}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-3 h-3 bg-orange-400 rounded-full"></span>
+                        <h3 className="font-medium text-gray-600">En préparation ({otherOrders.length})</h3>
+                      </div>
+                      <div className="space-y-3 opacity-80">
+                        {otherOrders.map(renderOrderCard)}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )
+        })()}
 
         {/* ── ROUND VIEW ── */}
         {view === 'round' && myRound && (
@@ -851,11 +941,21 @@ export default function DriverPage() {
             <div className="bg-white rounded-2xl p-4">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="font-bold text-lg text-gray-900">Ma tournée</h2>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${isDelivering ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${myRound.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                    isDelivering ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
                   }`}>
-                  {isDelivering ? `${stopsDelivered}/${myRound.total_stops} livrées` : 'Prête au départ'}
+                  {myRound.status === 'completed' ? '✅ Terminée' :
+                    isDelivering ? `${stopsDelivered}/${myRound.total_stops} livrées` : 'Prête au départ'}
                 </span>
               </div>
+
+              {/* Bandeau tournée terminée */}
+              {myRound.status === 'completed' && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 mt-2 text-center">
+                  <p className="text-green-700 font-bold text-lg mb-1">Toutes les livraisons sont terminées !</p>
+                  <p className="text-green-600 text-sm">En cas d'erreur, vous pouvez annuler une livraison ci-dessous</p>
+                </div>
+              )}
 
               {/* Stats bar */}
               {isDelivering && (
@@ -1023,10 +1123,19 @@ export default function DriverPage() {
                     </div>
                   )}
 
-                  {/* Done badge */}
-                  {isDone && stop.delivered_distance_m !== undefined && (
-                    <div className="px-4 py-2 text-xs text-gray-500">
-                      Livré à {stop.delivered_distance_m}m du point
+                  {/* Done — undo button */}
+                  {isDone && (
+                    <div className="px-4 py-3 flex items-center justify-between">
+                      <span className="text-xs text-gray-500">
+                        {stop.delivered_distance_m != null ? `Livré à ${stop.delivered_distance_m}m du point` : 'Livré'}
+                      </span>
+                      <button
+                        onClick={() => unmarkDelivered(stop.id, stop.order_id)}
+                        disabled={loading}
+                        className="text-xs bg-gray-100 text-red-600 px-3 py-1.5 rounded-lg font-medium active:bg-red-100 disabled:opacity-50"
+                      >
+                        ↩️ Annuler la livraison
+                      </button>
                     </div>
                   )}
                 </div>
