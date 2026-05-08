@@ -4,6 +4,9 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { EstablishmentSwitcher } from '@/components/admin/EstablishmentSwitcher'
+import { EstablishmentSelectModal } from '@/components/admin/EstablishmentSelectModal'
+import { useEstablishmentContext } from '@/lib/establishment/client'
 
 const navigation = [
   { name: 'Dashboard', href: '/admin', icon: '📊' },
@@ -34,6 +37,7 @@ export default function AdminLayout({
   const supabase = createClient()
   const [user, setUser] = useState<any>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { user: establishmentUser } = useEstablishmentContext()
 
   useEffect(() => {
     async function getUser() {
@@ -50,6 +54,11 @@ export default function AdminLayout({
 
   async function handleLogout() {
     await supabase.auth.signOut()
+    // Clear the establishment cookie too — otherwise the next user lands with
+    // a stale selection. Best-effort, ignore network errors.
+    try {
+      await fetch('/api/admin/select-establishment', { method: 'DELETE' })
+    } catch {}
     router.push('/admin/login')
     router.refresh()
   }
@@ -107,7 +116,7 @@ export default function AdminLayout({
             <span className="text-3xl">🍟</span>
             <div>
               <h1 className="text-xl font-bold text-orange-500">FritOS</h1>
-              <p className="text-xs text-gray-400">MDjambo Jurbise</p>
+              <p className="text-xs text-gray-400">Back-office</p>
             </div>
           </Link>
           {/* Close button (mobile only) */}
@@ -121,6 +130,8 @@ export default function AdminLayout({
             </svg>
           </button>
         </div>
+
+        <EstablishmentSwitcher />
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
@@ -153,7 +164,11 @@ export default function AdminLayout({
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-medium truncate">{user?.email || 'Admin'}</p>
-              <p className="text-xs text-gray-400">Super Admin</p>
+              <p className="text-xs text-gray-400 capitalize">
+                {establishmentUser?.role
+                  ? establishmentUser.role.replace('_', ' ')
+                  : 'Admin'}
+              </p>
             </div>
             <button 
               onClick={handleLogout}
@@ -170,6 +185,8 @@ export default function AdminLayout({
       <main className="flex-1 overflow-auto min-w-0">
         {children}
       </main>
+
+      <EstablishmentSelectModal />
     </div>
   )
 }
