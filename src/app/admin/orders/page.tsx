@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 type OrderItem = {
   id: string
@@ -56,16 +57,18 @@ export default function OrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
 
   useEffect(() => {
+    if (!establishment) return
+
     loadOrders()
-    
-    // Realtime subscription
+
+    // Realtime subscription scoped to the active establishment.
     const channel = supabase
-      .channel('orders-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'orders', filter: `establishment_id=eq.${establishmentId}` },
+      .channel(`orders-changes-${establishment.id}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'orders', filter: `establishment_id=eq.${establishment.id}` },
         () => loadOrders()
       )
       .subscribe()
@@ -73,18 +76,19 @@ export default function OrdersPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [filterPeriod])
+  }, [filterPeriod, establishment?.id])
 
   async function loadOrders() {
+    if (!establishment) return
     setLoading(true)
-    
+
     let query = supabase
       .from('orders')
       .select(`
         *,
         order_items (*)
       `)
-      .eq('establishment_id', establishmentId)
+      .eq('establishment_id', establishment.id)
       .order('created_at', { ascending: false })
 
     // Filtre période
