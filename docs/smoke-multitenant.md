@@ -58,7 +58,7 @@ fuit l'establishment_id du mauvais utilisateur.
 | PR A (mergée) | `/admin/orders` pilote + helpers + endpoints + sidebar UI + suppression Zhistory dead-file |
 | PR B (cette PR) | 15 autres pages admin + `/counter/backoffice` (via cookie device) + `/api/reports/z-report` + cleanup `NEXT_PUBLIC_DEFAULT_ESTABLISHMENT` |
 | PR C (à venir) | Driver page + landing publique slug |
-| PR D (escaladée P0 J3) | `/api/orders` public — bind serveur-side via slug |
+| PR D | `/api/orders` public — bind serveur-side via slug + recalcul prix + Zod + atomic order_number trigger |
 | PR `fix/device-cookie-hmac` | Cookie `selected_device` (kiosk/KDS/counter), audit P0 #4 |
 
 ## Smoke PR B — checklist par page admin
@@ -94,3 +94,59 @@ Pour chaque page ci-dessous, vérifier :
 | Login counter device Boussu, naviguer `/counter/backoffice` | Liste ingrédients Boussu identique au pré-merge |
 | Aucune liste ne s'affiche si cookie `selected_device` absent | OK (page reste vide, pas de leak) |
 | Création d'un ingrédient → `establishment_id` = celui du device, pas hardcoded | OK |
+
+## Smoke PR D — `/api/orders` durci + trigger atomique
+
+### Pré-requis avant test
+
+- Migration `migrations/2026-05-09_atomic_order_number.sql` appliquée sur Supabase prod.
+- Confirmer via SQL editor :
+  ```sql
+  SELECT pg_get_functiondef('public.generate_order_number()'::regprocedure)
+         LIKE '%Europe/Brussels%'
+    AS trigger_has_tz_fix,
+       pg_get_functiondef('public.generate_order_number(uuid)'::regprocedure)
+         LIKE '%Europe/Brussels%'
+    AS rpc_has_tz_fix;
+  -- both should return true
+  ```
+
+### Flow nominal click & collect
+
+| Étape | Attendu |
+|---|---|
+| Aller sur `/order/boussu`, ajouter 1 produit, valider la commande | Commande créée avec `establishment_id` Boussu |
+| Idem `/order/jurbise` une fois Jurbise activé | Commande créée avec `establishment_id` Jurbise |
+| Le `subtotal` côté DB correspond aux prix produits Boussu | Pas de manipulation client possible |
+| `order_number` au format `A01`, `A02`, … | Trigger atomique fonctionne |
+
+### Tests sécurité (curl / DevTools)
+
+| Test | Attendu |
+|---|---|
+| `POST /api/orders` avec `body.establishmentId = '<jurbise_uuid>'` depuis `/order/boussu` | 400, "establishmentId not accepted in body" |
+| `POST` avec body sans `slug` ni cookie admin | 400, "Aucun établissement résolu" |
+| `POST` avec un `productId` Boussu mais `slug=jurbise` | 400, "Produit non disponible pour cet établissement" |
+| `POST` avec `loyaltyPointsUsed: 99999` et un customer ayant 50 points | Order créé avec `loyalty_points_used = 50` (capé) |
+| `POST` avec `loyaltyPointsUsed: 50` mais aucun `customerId` | Order créé avec `loyalty_points_used = 0` |
+| `POST` avec `customerId` Boussu mais `slug=jurbise` | 403, "Client non rattaché à cet établissement" |
+| `POST` avec `deliveryFee: 9999` | 400 (Zod cap à 50) |
+| `POST` avec `items: []` | 400 (Zod min 1) |
+| `POST` avec body non-JSON | 400 "JSON invalide" |
+
+### Test race order_number (manuel, 2 onglets)
+
+1. Ouvrir 2 onglets `/order/boussu` simultanément.
+2. Préparer une commande dans chaque, cliquer "Valider" quasi-simultanément.
+3. Vérifier 2 `order_number` distincts (`A05` + `A06`, jamais `A05` + `A05`).
+
+Sans migration : risque de doublon. Avec migration : l'INSERT...ON CONFLICT DO UPDATE pose un row lock sur `order_number_sequences (establishment_id, sequence_date)`, le 2ème insert attend le commit du 1er.
+
+### Test TZ (à exécuter entre 00:00 et 02:00 Brussels)
+
+```sql
+SELECT (NOW() AT TIME ZONE 'Europe/Brussels')::date AS brussels_today,
+       CURRENT_DATE                                 AS server_today;
+```
+
+En heure d'hiver (CET), entre 00:00 et 01:00 Brussels les deux dates diffèrent. La séquence doit utiliser `brussels_today`.
