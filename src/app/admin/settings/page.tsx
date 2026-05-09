@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 type Establishment = {
   id: string
@@ -61,13 +62,16 @@ export default function SettingsPage() {
   })
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment: currentEstablishment } = useCurrentEstablishment()
+  const establishmentId = currentEstablishment?.id
 
   useEffect(() => {
+    if (!establishmentId) return
     loadData()
-  }, [])
+  }, [establishmentId])
 
   async function loadData() {
+    if (!establishmentId) return
     setLoading(true)
     
     // Charger l'établissement
@@ -106,6 +110,10 @@ export default function SettingsPage() {
 
   async function saveSettings(e: React.FormEvent) {
     e.preventDefault()
+    if (!establishmentId) {
+      alert('Aucun établissement sélectionné')
+      return
+    }
     setSaving(true)
     setSaved(false)
     
@@ -161,6 +169,10 @@ export default function SettingsPage() {
 
   async function saveZone(e: React.FormEvent) {
     e.preventDefault()
+    if (!establishmentId) {
+      alert('Aucun établissement sélectionné')
+      return
+    }
     setSaving(true)
 
     try {

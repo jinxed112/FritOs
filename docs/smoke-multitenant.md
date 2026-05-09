@@ -51,11 +51,46 @@ fuit l'establishment_id du mauvais utilisateur.
 | Rotater `ESTABLISHMENT_COOKIE_SECRET` puis recharger | Tous les cookies existants invalidés, modal réapparaît |
 | Logout puis login d'un autre admin | Le cookie du précédent admin est rejeté (`user_id` mismatch) |
 
-## Routes à NE PAS toucher dans cette PR A
+## Couverture par PR
 
-- `/api/orders` POST — accepte encore `establishmentId` du body. Fix planifié
-  dans PR D (`fix/orders-api-tenant-binding`).
-- Cookie `selected_device` (kiosk/KDS/counter) — toujours non signé. Fix
-  planifié dans PR séparée `fix/device-cookie-hmac`.
-- 20 pages admin restantes hardcodant l'UUID Boussu — PR B.
-- Driver + landing publique + `.env.example` cleanup — PR C.
+| PR | Surfaces couvertes |
+|---|---|
+| PR A (mergée) | `/admin/orders` pilote + helpers + endpoints + sidebar UI + suppression Zhistory dead-file |
+| PR B (cette PR) | 15 autres pages admin + `/counter/backoffice` (via cookie device) + `/api/reports/z-report` + cleanup `NEXT_PUBLIC_DEFAULT_ESTABLISHMENT` |
+| PR C (à venir) | Driver page + landing publique slug |
+| PR D (escaladée P0 J3) | `/api/orders` public — bind serveur-side via slug |
+| PR `fix/device-cookie-hmac` | Cookie `selected_device` (kiosk/KDS/counter), audit P0 #4 |
+
+## Smoke PR B — checklist par page admin
+
+Pour chaque page ci-dessous, vérifier :
+1. Switch sidebar → Boussu : la liste affiche les mêmes données qu'avant la PR.
+2. Switch sidebar → Jurbise : la liste se vide ou montre uniquement les données Jurbise.
+3. Switch retour Boussu : retour identique au snapshot.
+
+| Page | Vérifié Boussu | Vérifié Jurbise | Vérifié switch retour |
+|---|---|---|---|
+| `/admin` (dashboard / promo codes) | ☐ | ☐ | ☐ |
+| `/admin/categories` | ☐ | ☐ | ☐ |
+| `/admin/customers` | ☐ | ☐ | ☐ |
+| `/admin/deliveries` | ☐ | ☐ | ☐ |
+| `/admin/drivers` | ☐ | ☐ | ☐ |
+| `/admin/ingredients` | ☐ | ☐ | ☐ |
+| `/admin/products` | ☐ | ☐ | ☐ |
+| `/admin/promotions` | ☐ | ☐ | ☐ |
+| `/admin/propositions` (option_groups) | ☐ | ☐ | ☐ |
+| `/admin/reports` (dashboard tab) | ☐ | ☐ | ☐ |
+| `/admin/reports` (export Excel) | ☐ | n/a | ☐ |
+| `/admin/reports/z-history` | ☐ | ☐ | ☐ |
+| `/admin/settings` (general + zones) | ☐ | ☐ | ☐ |
+| `/admin/stock-planning` | ☐ | ☐ | ☐ |
+| `/admin/suppliers` | ☐ | ☐ | ☐ |
+| `/admin/suppliers/products` | ☐ | ☐ | ☐ |
+
+## Smoke PR B — counter/backoffice
+
+| Étape | Attendu |
+|---|---|
+| Login counter device Boussu, naviguer `/counter/backoffice` | Liste ingrédients Boussu identique au pré-merge |
+| Aucune liste ne s'affiche si cookie `selected_device` absent | OK (page reste vide, pas de leak) |
+| Création d'un ingrédient → `establishment_id` = celui du device, pas hardcoded | OK |

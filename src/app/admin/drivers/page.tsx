@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 type Driver = {
   id: string
@@ -35,17 +36,20 @@ export default function DriversPage() {
   const [formError, setFormError] = useState('')
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
   useEffect(() => {
+    if (!establishmentId) return
     loadDrivers()
-    
+
     // Refresh toutes les 30 secondes pour voir le statut en temps réel
     const interval = setInterval(loadDrivers, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [establishmentId])
 
   async function loadDrivers() {
+    if (!establishmentId) return
     setLoading(true)
     
     const { data, error } = await supabase
@@ -104,7 +108,11 @@ export default function DriversPage() {
       setFormError('Le code PIN doit contenir 6 chiffres')
       return
     }
-    
+    if (!establishmentId) {
+      setFormError('Aucun établissement sélectionné')
+      return
+    }
+
     setSaving(true)
     
     try {

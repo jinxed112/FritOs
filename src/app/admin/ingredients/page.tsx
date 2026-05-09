@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 // ==================== TYPES ====================
 
@@ -116,11 +117,16 @@ export default function IngredientsPage() {
   const [linkMode, setLinkMode] = useState<'category' | 'products'>('category')
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    if (!establishmentId) return
+    loadData()
+  }, [establishmentId])
 
   async function loadData() {
+    if (!establishmentId) return
     setLoading(true)
     
     const [
@@ -169,6 +175,7 @@ export default function IngredientsPage() {
   }
 
   async function loadProductsData() {
+    if (!establishmentId) return
     const [{ data: categoriesData }, { data: productsData }] = await Promise.all([
       supabase.from('categories')
         .select('id, name')

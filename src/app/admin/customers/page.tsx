@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 type Customer = {
   id: string
@@ -56,13 +57,16 @@ export default function CustomersPage() {
   const [formError, setFormError] = useState('')
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
   useEffect(() => {
+    if (!establishmentId) return
     loadCustomers()
-  }, [])
+  }, [establishmentId])
 
   async function loadCustomers() {
+    if (!establishmentId) return
     setLoading(true)
     
     const { data, error } = await supabase
@@ -135,7 +139,11 @@ export default function CustomersPage() {
       setFormError('Au moins un nom, email ou téléphone est requis')
       return
     }
-    
+    if (!establishmentId) {
+      setFormError('Aucun établissement sélectionné')
+      return
+    }
+
     setSaving(true)
     
     try {

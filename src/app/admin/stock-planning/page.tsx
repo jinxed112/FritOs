@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 // ─── Types ───────────────────────────────────────────────────────────
 type StockItem = {
@@ -69,7 +70,8 @@ function fmtDateISO(d: Date): string {
 // ─── Component ───────────────────────────────────────────────────────
 export default function StockPlanningPage() {
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<ActiveTab>('planning')
@@ -89,6 +91,7 @@ export default function StockPlanningPage() {
 
   // ─── Load all data ─────────────────────────────────────────────────
   const loadData = useCallback(async () => {
+    if (!establishmentId) return
     setLoading(true)
 
     // 1. Stock items
@@ -189,13 +192,14 @@ export default function StockPlanningPage() {
     setDefrostLogs(logs || [])
     setAvgData(avgs)
     setLoading(false)
-  }, [weeksBack])
+  }, [weeksBack, establishmentId])
 
   useEffect(() => { loadData() }, [loadData])
 
   // ─── Save defrost log ──────────────────────────────────────────────
   async function saveDefrost() {
     if (!defrostItemId || defrostQty <= 0) return
+    if (!establishmentId) return
     setSaving(true)
 
     const item = stockItems.find(i => i.id === defrostItemId)
