@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 type Product = {
   id: string
@@ -79,13 +80,16 @@ export default function PropositionsPage() {
   const [saving, setSaving] = useState(false)
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
   useEffect(() => {
+    if (!establishmentId) return
     loadData()
-  }, [])
+  }, [establishmentId])
 
   async function loadData() {
+    if (!establishmentId) return
     setLoading(true)
     
     // Charger les groupes avec leurs items
@@ -185,12 +189,16 @@ export default function PropositionsPage() {
   async function saveGroup(e: React.FormEvent) {
     e.preventDefault()
     setFormError('')
-    
+
     if (!groupForm.name.trim()) {
       setFormError('Le nom est obligatoire')
       return
     }
-    
+    if (!establishmentId) {
+      setFormError('Aucun établissement sélectionné')
+      return
+    }
+
     setSaving(true)
     
     try {

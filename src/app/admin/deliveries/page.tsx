@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 type DeliveryOrder = {
   id: string
@@ -60,17 +61,20 @@ export default function DeliveriesPage() {
   const [selectedDriver, setSelectedDriver] = useState<string>('')
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
   useEffect(() => {
+    if (!establishmentId) return
     loadData()
-    
+
     // Refresh toutes les 30 secondes
     const interval = setInterval(loadData, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [establishmentId])
 
   async function loadData() {
+    if (!establishmentId) return
     setLoading(true)
 
     // Charger les suggestions de clustering
@@ -150,6 +154,10 @@ export default function DeliveriesPage() {
   async function createRound() {
     if (selectedOrders.size === 0) {
       alert('Sélectionnez au moins une commande')
+      return
+    }
+    if (!establishmentId) {
+      alert('Aucun établissement sélectionné')
       return
     }
 

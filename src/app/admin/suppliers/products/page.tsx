@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 import Link from 'next/link'
 
 // ==================== TYPES ====================
@@ -86,11 +87,16 @@ export default function SupplierProductsPage() {
   const [linkSearchQuery, setLinkSearchQuery] = useState('')
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    if (!establishmentId) return
+    loadData()
+  }, [establishmentId])
 
   async function loadData() {
+    if (!establishmentId) return
     setLoading(true)
     
     const [

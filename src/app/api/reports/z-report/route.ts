@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getCurrentEstablishment } from '@/lib/establishment/server'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// Resolve the target establishment from either an explicit param (admin UI
+// passes ?establishmentId=…) or the signed admin cookie. The previous fallback
+// to the hardcoded Boussu UUID is gone — better to fail loudly than silently
+// leak Boussu data into a Jurbise admin's report.
+async function resolveEstablishmentId(explicit: string | null | undefined): Promise<string | null> {
+  if (explicit) return explicit
+  const current = await getCurrentEstablishment()
+  return current?.id ?? null
+}
 
 // Types
 type ZReportData = {
@@ -56,9 +67,12 @@ type TopProduct = {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const establishmentId = searchParams.get('establishmentId') || 'a0000000-0000-0000-0000-000000000001'
+    const establishmentId = await resolveEstablishmentId(searchParams.get('establishmentId'))
+    if (!establishmentId) {
+      return NextResponse.json({ error: 'Aucun établissement sélectionné' }, { status: 400 })
+    }
     const limit = parseInt(searchParams.get('limit') || '30')
-    
+
     const { data, error } = await supabase
       .from('z_reports')
       .select('*')
@@ -82,13 +96,17 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { 
-      establishmentId = 'a0000000-0000-0000-0000-000000000001',
+    const {
+      establishmentId: bodyEstablishmentId,
       periodStart,
       periodEnd,
-      closedBy 
+      closedBy
     } = body
-    
+    const establishmentId = await resolveEstablishmentId(bodyEstablishmentId)
+    if (!establishmentId) {
+      return NextResponse.json({ error: 'Aucun établissement sélectionné' }, { status: 400 })
+    }
+
     // Vérifier qu'il n'y a pas déjà une clôture pour cette période
     const { data: existing } = await supabase
       .from('z_reports')

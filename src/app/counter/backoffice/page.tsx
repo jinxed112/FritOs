@@ -72,13 +72,31 @@ export default function BackofficePage() {
   const [saving, setSaving] = useState(false)
   
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const [establishmentId, setEstablishmentId] = useState<string | null>(null)
 
+  // Source d'établissement = cookie device (selected_device), pas le cookie admin.
+  // Le contexte d'utilisation est une caisse physique authentifiée par device,
+  // pas un super_admin connecté au back-office.
   useEffect(() => {
-    loadData()
+    let cancelled = false
+    fetch('/api/device-auth')
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        const id = data?.device?.establishmentId
+        if (id) setEstablishmentId(id)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    if (!establishmentId) return
+    loadData()
+  }, [establishmentId])
+
   async function loadData() {
+    if (!establishmentId) return
     setLoading(true)
     
     // Charger les ingrédients avec leurs allergènes
@@ -231,7 +249,8 @@ export default function BackofficePage() {
   async function saveIngredient(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim()) return
-    
+    if (!establishmentId) return
+
     setSaving(true)
     
     try {

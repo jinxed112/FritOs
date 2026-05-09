@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 type PromoCode = {
   id: string
@@ -62,11 +63,16 @@ export default function PromotionsPage() {
   const [formError, setFormError] = useState('')
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    if (!establishmentId) return
+    loadData()
+  }, [establishmentId])
 
   async function loadData() {
+    if (!establishmentId) return
     setLoading(true)
     const [{ data: codes }, { data: promos }] = await Promise.all([
       supabase.from('promo_codes').select('*').eq('establishment_id', establishmentId).order('created_at', { ascending: false }),
@@ -100,6 +106,7 @@ export default function PromotionsPage() {
   async function saveCode(e: React.FormEvent) {
     e.preventDefault()
     if (!codeForm.code.trim()) { setFormError('Code obligatoire'); return }
+    if (!establishmentId) { setFormError('Aucun établissement sélectionné'); return }
     setSaving(true)
     try {
       const data = {
@@ -140,6 +147,7 @@ export default function PromotionsPage() {
   async function savePromo(e: React.FormEvent) {
     e.preventDefault()
     if (!promoForm.name.trim()) { setFormError('Nom obligatoire'); return }
+    if (!establishmentId) { setFormError('Aucun établissement sélectionné'); return }
     setSaving(true)
     try {
       const data = {

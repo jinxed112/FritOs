@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 import Link from 'next/link'
 
 type Ingredient = {
@@ -57,11 +58,16 @@ export default function SuppliersPage() {
   const [formError, setFormError] = useState('')
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    if (!establishmentId) return
+    loadData()
+  }, [establishmentId])
 
   async function loadData() {
+    if (!establishmentId) return
     setLoading(true)
     
     const [{ data: suppliersData }, { data: ingredientsData }] = await Promise.all([
@@ -113,6 +119,7 @@ export default function SuppliersPage() {
   async function saveSupplier(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim()) { setFormError('Nom obligatoire'); return }
+    if (!establishmentId) { setFormError('Aucun établissement sélectionné'); return }
     setSaving(true)
     
     try {

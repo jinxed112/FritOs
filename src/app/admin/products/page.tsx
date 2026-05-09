@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 import { Search } from 'lucide-react'
 
 type Category = {
@@ -110,13 +111,16 @@ export default function ProductsPage() {
   const [formError, setFormError] = useState('')
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
   useEffect(() => {
+    if (!establishmentId) return
     loadData()
-  }, [])
+  }, [establishmentId])
 
   async function loadData() {
+    if (!establishmentId) return
     setLoading(true)
     
     // Charger les produits avec leurs propositions et ingrédients
@@ -317,7 +321,12 @@ export default function ProductsPage() {
       setFormError('La catégorie est obligatoire')
       return
     }
-    
+
+    if (!establishmentId) {
+      setFormError('Aucun établissement sélectionné')
+      return
+    }
+
     setSaving(true)
     
     try {

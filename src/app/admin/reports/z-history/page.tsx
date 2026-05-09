@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 import { format, startOfDay, endOfDay } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
@@ -39,26 +40,30 @@ export default function ZReportsHistoryPage() {
   const [establishment, setEstablishment] = useState<any>(null)
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment: currentEstablishment } = useCurrentEstablishment()
+  const establishmentId = currentEstablishment?.id
 
   useEffect(() => {
+    if (!establishmentId) return
     loadReports()
     loadEstablishment()
-  }, [])
+  }, [establishmentId])
 
   async function loadEstablishment() {
+    if (!establishmentId) return
     const { data } = await supabase
       .from('establishments')
       .select('name, address, phone, vat_number')
       .eq('id', establishmentId)
       .single()
-    
+
     setEstablishment(data)
   }
 
   async function loadReports() {
+    if (!establishmentId) return
     setLoading(true)
-    
+
     try {
       const response = await fetch(`/api/reports/z-report?establishmentId=${establishmentId}&limit=50`)
       const data = await response.json()
@@ -74,8 +79,12 @@ export default function ZReportsHistoryPage() {
   }
 
   async function closeDay() {
+    if (!establishmentId) {
+      alert('Aucun établissement sélectionné')
+      return
+    }
     setClosing(true)
-    
+
     const periodStart = startOfDay(new Date(closeDate)).toISOString()
     const periodEnd = endOfDay(new Date(closeDate)).toISOString()
     

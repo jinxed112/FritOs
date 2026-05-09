@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 import * as XLSX from 'xlsx'
 
 type Order = {
@@ -98,24 +99,28 @@ export default function ReportsPage() {
   })
 
   const supabase = createClient()
-  const establishmentId = 'a0000000-0000-0000-0000-000000000001'
+  const { establishment } = useCurrentEstablishment()
+  const establishmentId = establishment?.id
 
-  // Quand la plage de dates change : recharge le dashboard et invalide les orders
+  // Quand la plage de dates ou l'établissement change : recharge le dashboard et invalide les orders
   useEffect(() => {
+    if (!establishmentId) return
     loadDashboard()
     setOrders([])
     setOrdersLoaded(false)
-  }, [dateRange])
+  }, [dateRange, establishmentId])
 
   // Quand on bascule sur l'onglet Tickets : charge les orders si pas encore fait
   useEffect(() => {
+    if (!establishmentId) return
     if (activeTab === 'tickets' && !ordersLoaded) {
       loadOrders()
     }
-  }, [activeTab, ordersLoaded])
+  }, [activeTab, ordersLoaded, establishmentId])
 
   // ─── Dashboard via RPC (agrégation SQL, pas de limite de lignes) ────────────
   async function loadDashboard() {
+    if (!establishmentId) return
     setLoading(true)
 
     const [{ data: rpcData }, { data: zData }] = await Promise.all([
@@ -154,6 +159,7 @@ export default function ReportsPage() {
 
   // ─── Chargement paginé des orders (tickets + export) ────────────────────────
   async function fetchAllOrders(): Promise<Order[]> {
+    if (!establishmentId) return []
     const PAGE_SIZE = 1000
     const collected: Order[] = []
     let from = 0
@@ -220,6 +226,10 @@ export default function ReportsPage() {
 
   // ─── Export Excel ────────────────────────────────────────────────────────────
   async function exportExcel() {
+    if (!establishmentId) {
+      alert('Aucun établissement sélectionné')
+      return
+    }
     const exportOrders = ordersLoaded ? orders : await loadOrders()
     const validOrders = exportOrders.filter(o => o.payment_status === 'paid' && o.status !== 'cancelled')
 
