@@ -1,77 +1,158 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { z } from 'zod'
+import { getCurrentEstablishment } from '@/lib/establishment/server'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Fonction pour déterminer si une date est en heure d'été (CEST) ou hiver (CET)
+// Brussels DST offset for the scheduled_time string. Used for the public
+// click & collect flow where the slot_date is just YYYY-MM-DD and we have
+// to inject an offset.
 function getBrusselsOffset(dateStr: string): string {
   const date = new Date(dateStr + 'T12:00:00Z')
   const year = date.getUTCFullYear()
-  
-  // Dernier dimanche de mars (début heure d'été)
+
   const marchLast = new Date(Date.UTC(year, 2, 31))
   while (marchLast.getUTCDay() !== 0) marchLast.setUTCDate(marchLast.getUTCDate() - 1)
-  
-  // Dernier dimanche d'octobre (fin heure d'été)
+
   const octoberLast = new Date(Date.UTC(year, 9, 31))
   while (octoberLast.getUTCDay() !== 0) octoberLast.setUTCDate(octoberLast.getUTCDate() - 1)
-  
-  // Heure d'été si entre fin mars et fin octobre
+
   if (date >= marchLast && date < octoberLast) {
-    return '+02:00' // CEST (été)
+    return '+02:00' // CEST
   }
-  return '+01:00' // CET (hiver)
+  return '+01:00' // CET
 }
+
+// ─── Input validation ───────────────────────────────────────────────────────
+//
+// Audit V1 P0 #5: prior to this PR the route trusted body.establishmentId,
+// body.customerId, body.loyaltyPointsUsed and body.deliveryFee straight from
+// the client. A compromised kiosk could create cross-tenant orders with
+// arbitrary prices. We now resolve the establishment server-side (slug or
+// admin cookie), recompute prices server-side from the products table, and
+// cap loyalty points to the customer's actual balance.
+
+const ItemOptionSchema = z.object({
+  item_name: z.string().max(120).optional(),
+  name: z.string().max(120).optional(),
+  option_name: z.string().max(120).optional(),
+  price: z.number().nonnegative().max(100).optional(),
+  quantity: z.number().int().positive().max(20).optional(),
+})
+
+const OrderItemInputSchema = z.object({
+  productId: z.string().uuid(),
+  quantity: z.number().int().positive().max(99),
+  options: z.array(ItemOptionSchema).max(20).optional().default([]),
+  notes: z.string().max(280).nullable().optional(),
+})
+
+const OrderBodySchema = z.object({
+  // Either slug (preferred for public click & collect — the page already has
+  // it from the URL) or no establishment hint at all (admin/in-store callers
+  // resolve via the signed admin cookie). The legacy `establishmentId` body
+  // field is rejected explicitly below.
+  slug: z.string().regex(/^[a-z0-9-]+$/).max(60).optional(),
+  orderType: z.enum(['pickup', 'delivery']),
+  items: z.array(OrderItemInputSchema).min(1).max(50),
+  customerId: z.string().uuid().nullable().optional(),
+  customerName: z.string().max(200).nullable().optional(),
+  customerPhone: z.string().max(40).nullable().optional(),
+  customerEmail: z.union([z.string().email(), z.literal('')]).nullable().optional(),
+  slotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  slotTime: z.string().regex(/^\d{2}:\d{2}$/),
+  deliveryAddressId: z.string().uuid().nullable().optional(),
+  deliveryAddress: z.string().max(500).nullable().optional(),
+  deliveryLat: z.number().nullable().optional(),
+  deliveryLng: z.number().nullable().optional(),
+  // deliveryFee is still accepted from the client for now but capped to a
+  // sane upper bound. Full server-side recompute via /api/delivery/check is
+  // tracked as a follow-up (TODO doc in PR body).
+  deliveryFee: z.number().nonnegative().max(50).optional().default(0),
+  travelMinutes: z.number().nullable().optional(),
+  notes: z.string().max(500).nullable().optional(),
+  loyaltyPointsUsed: z.number().int().min(0).max(10000).optional().default(0),
+})
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    
-    const {
-      establishmentId,
-      orderType, // 'pickup' ou 'delivery'
-      items,
-      customerId,
-      customerName,
-      customerPhone,
-      customerEmail,
-      slotDate,
-      slotTime,
-      deliveryAddressId,
-      deliveryAddress, // Adresse texte pour livraison
-      deliveryLat,
-      deliveryLng,
-      deliveryFee,
-      notes,
-      loyaltyPointsUsed,
-    } = body
-
-    // Validation basique
-    if (!establishmentId || !items || items.length === 0) {
+    const rawBody = await request.json().catch(() => null)
+    if (!rawBody || typeof rawBody !== 'object') {
       return NextResponse.json(
-        { success: false, error: 'Données manquantes' },
+        { success: false, error: 'JSON invalide' },
         { status: 400 }
       )
     }
 
-    if (!slotDate || !slotTime) {
+    // Reject the legacy `establishmentId` body field outright. This was the
+    // cross-tenant injection vector — letting an old client send it through
+    // would silently re-introduce the vulnerability post-merge.
+    if ('establishmentId' in rawBody) {
       return NextResponse.json(
-        { success: false, error: 'Créneau non sélectionné' },
+        {
+          success: false,
+          error: 'establishmentId not accepted in body — pass `slug` instead, or rely on the admin session cookie',
+        },
         { status: 400 }
       )
     }
 
-    // Récupérer les produits pour calculer les prix
-    const productIds = items.map((item: any) => item.productId)
+    const parsed = OrderBodySchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Validation des données échouée',
+          issues: parsed.error.issues,
+        },
+        { status: 400 }
+      )
+    }
+    const body = parsed.data
+
+    // ─── Resolve establishment from slug OR signed admin cookie ─────────────
+    let establishmentId: string | null = null
+    if (body.slug) {
+      const { data: est } = await supabase
+        .from('establishments')
+        .select('id, is_active')
+        .eq('slug', body.slug)
+        .single()
+      if (!est || !est.is_active) {
+        return NextResponse.json(
+          { success: false, error: 'Établissement introuvable ou inactif' },
+          { status: 404 }
+        )
+      }
+      establishmentId = est.id
+    } else {
+      const current = await getCurrentEstablishment()
+      if (!current) {
+        return NextResponse.json(
+          { success: false, error: 'Aucun établissement résolu (slug ou cookie admin requis)' },
+          { status: 400 }
+        )
+      }
+      establishmentId = current.id
+    }
+
+    // ─── Server-side price recompute ────────────────────────────────────────
+    // The products query is tenant-scoped. Any productId that isn't part of
+    // this establishment is silently dropped from the lookup and triggers the
+    // 400 below — that's the cross-tenant cart guard.
+    const productIds = body.items.map(i => i.productId)
     const { data: products, error: productsError } = await supabase
       .from('products')
       .select('id, name, price, vat_eat_in, vat_takeaway')
       .in('id', productIds)
+      .eq('establishment_id', establishmentId)
+      .eq('is_active', true)
 
-    if (productsError || !products) {
+    if (productsError) {
       console.error('Erreur produits:', productsError)
       return NextResponse.json(
         { success: false, error: 'Erreur chargement produits' },
@@ -79,72 +160,91 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const productMap = new Map(products.map(p => [p.id, p]))
+    const productMap = new Map((products ?? []).map(p => [p.id, p]))
+    for (const item of body.items) {
+      if (!productMap.has(item.productId)) {
+        return NextResponse.json(
+          { success: false, error: 'Produit non disponible pour cet établissement' },
+          { status: 400 }
+        )
+      }
+    }
 
-    // Calculer le sous-total
     let subtotal = 0
     const orderItems: any[] = []
-
-    for (const item of items) {
-      const product = productMap.get(item.productId)
-      if (!product) continue
-
-      let itemPrice = product.price
+    for (const item of body.items) {
+      const product = productMap.get(item.productId)!
+      const optionsData: { item_name: string; price: number }[] = []
       let optionsTotal = 0
-      const optionsData: any[] = []
-
-      // Calculer le prix des options
-      if (item.options && item.options.length > 0) {
-        for (const opt of item.options) {
-          optionsTotal += opt.price || 0
-          optionsData.push({
-            item_name: opt.item_name || opt.name || 'Option',
-            price: opt.price || 0,
-          })
-        }
+      for (const opt of item.options ?? []) {
+        const optPrice = typeof opt.price === 'number' ? opt.price : 0
+        optionsTotal += optPrice
+        optionsData.push({
+          item_name: opt.item_name || opt.name || opt.option_name || 'Option',
+          price: optPrice,
+        })
       }
-
-      const lineTotal = (itemPrice + optionsTotal) * item.quantity
+      const lineTotal = (Number(product.price) + optionsTotal) * item.quantity
       subtotal += lineTotal
 
       orderItems.push({
         product_id: item.productId,
         product_name: product.name,
         quantity: item.quantity,
-        unit_price: itemPrice,
+        unit_price: product.price,
         options_selected: optionsData.length > 0 ? JSON.stringify(optionsData) : null,
         options_total: optionsTotal,
         line_total: lineTotal,
-        vat_rate: product.vat_takeaway || 6, // Click & Collect = à emporter, taux par produit
+        // Click & collect = always takeaway in Belgian horeca tax terms
+        vat_rate: product.vat_takeaway ?? 6,
         notes: item.notes || null,
       })
     }
 
-    // Ajouter les frais de livraison
-    const totalDeliveryFee = orderType === 'delivery' ? (deliveryFee || 0) : 0
-    const total = subtotal + totalDeliveryFee
+    // ─── Loyalty points: cap to actual customer balance ─────────────────────
+    let loyaltyPointsUsed = body.loyaltyPointsUsed ?? 0
+    if (loyaltyPointsUsed > 0) {
+      if (!body.customerId) {
+        // Anonymous customer can't redeem points
+        loyaltyPointsUsed = 0
+      } else {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('id, loyalty_points, establishment_id')
+          .eq('id', body.customerId)
+          .single()
+        if (!customer) {
+          return NextResponse.json(
+            { success: false, error: 'Client introuvable' },
+            { status: 404 }
+          )
+        }
+        if (customer.establishment_id !== establishmentId) {
+          return NextResponse.json(
+            { success: false, error: 'Client non rattaché à cet établissement' },
+            { status: 403 }
+          )
+        }
+        const balance = Number(customer.loyalty_points ?? 0)
+        if (loyaltyPointsUsed > balance) loyaltyPointsUsed = balance
+      }
+    }
 
-    // TVA (6% pour emporter)
-    // Calcul TVA par produit (Click & Collect = toujours à emporter)
+    // ─── Totals + VAT ───────────────────────────────────────────────────────
+    const totalDeliveryFee = body.orderType === 'delivery' ? body.deliveryFee : 0
+    const total = subtotal + totalDeliveryFee
     let taxAmount = 0
     for (const item of orderItems) {
-      const itemTotal = item.line_total || (item.unit_price * item.quantity)
-      const rate = item.vat_rate || 6
-      taxAmount += itemTotal * rate / (100 + rate)
+      taxAmount += item.line_total * item.vat_rate / (100 + item.vat_rate)
     }
     taxAmount = Math.round(taxAmount * 100) / 100
 
-    // Créer le créneau prévu avec le bon timezone (Europe/Brussels)
-    const brusselsOffset = getBrusselsOffset(slotDate)
-    const scheduledTime = `${slotDate}T${slotTime}:00${brusselsOffset}`
+    const brusselsOffset = getBrusselsOffset(body.slotDate)
+    const scheduledTime = `${body.slotDate}T${body.slotTime}:00${brusselsOffset}`
 
-    // Générer un numéro de commande unique
     const orderNumber = await generateOrderNumber(establishmentId)
+    const dbOrderType = body.orderType === 'delivery' ? 'delivery' : 'takeaway'
 
-    // Mapper le type de commande vers les valeurs acceptées par la DB
-    const dbOrderType = orderType === 'delivery' ? 'delivery' : 'takeaway'
-
-    // Créer la commande
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
@@ -153,28 +253,28 @@ export async function POST(request: NextRequest) {
         order_type: dbOrderType,
         eat_in: false,
         status: 'pending',
-        customer_id: customerId || null,
-        customer_name: customerName || null,
-        customer_phone: customerPhone || null,
-        customer_email: customerEmail || null,
-        delivery_address_id: deliveryAddressId || null,
-        delivery_notes: orderType === 'delivery' ? deliveryAddress : null,
+        customer_id: body.customerId || null,
+        customer_name: body.customerName || null,
+        customer_phone: body.customerPhone || null,
+        customer_email: body.customerEmail || null,
+        delivery_address_id: body.deliveryAddressId || null,
+        delivery_notes: body.orderType === 'delivery' ? body.deliveryAddress : null,
         delivery_fee: totalDeliveryFee,
         scheduled_time: scheduledTime,
-        subtotal: subtotal,
+        subtotal,
         vat_amount: taxAmount,
-        total: total,
+        total,
         payment_method: 'online',
         payment_status: 'pending',
-        loyalty_points_used: loyaltyPointsUsed || 0,
-        notes: notes || null,
+        loyalty_points_used: loyaltyPointsUsed,
+        notes: body.notes || null,
         metadata: {
           source: 'click_and_collect',
-          slot_date: slotDate,
-          slot_time: slotTime,
-          delivery_lat: deliveryLat,
-          delivery_lng: deliveryLng,
-          delivery_duration: null, // Sera calculé si besoin
+          slot_date: body.slotDate,
+          slot_time: body.slotTime,
+          delivery_lat: body.deliveryLat,
+          delivery_lng: body.deliveryLng,
+          delivery_duration: body.travelMinutes ?? null,
         },
       })
       .select()
@@ -183,54 +283,46 @@ export async function POST(request: NextRequest) {
     if (orderError) {
       console.error('Erreur création commande:', orderError)
       return NextResponse.json(
-        { success: false, error: 'Erreur création commande: ' + orderError.message },
+        { success: false, error: 'Erreur création commande' },
         { status: 500 }
       )
     }
 
-    // Créer les items de commande
-    const itemsToInsert = orderItems.map(item => ({
-      ...item,
-      order_id: order.id,
-    }))
-
+    const itemsToInsert = orderItems.map(item => ({ ...item, order_id: order.id }))
     const { error: itemsError } = await supabase
       .from('order_items')
       .insert(itemsToInsert)
-
     if (itemsError) {
       console.error('Erreur items commande:', itemsError)
     }
 
-    // Réserver le créneau (si table slot_reservations existe)
+    // Slot reservation — best effort, optional table.
     try {
       await supabase
         .from('slot_reservations')
         .insert({
           establishment_id: establishmentId,
-          slot_date: slotDate,
-          slot_time: slotTime,
+          slot_date: body.slotDate,
+          slot_time: body.slotTime,
           order_id: order.id,
-          order_type: orderType,
+          order_type: body.orderType,
           estimated_prep_time: orderItems.length * 5,
         })
-    } catch (e) {
-      console.log('Slot reservation skipped:', e)
+    } catch {
+      // table may not exist on every env
     }
 
-    // Retourner le succès avec les infos pour le paiement
     return NextResponse.json({
       success: true,
       orderId: order.id,
       orderNumber: order.order_number,
-      total: total,
+      total,
       paymentUrl: null,
     })
-
   } catch (error: any) {
     console.error('API orders error:', error)
     return NextResponse.json(
-      { success: false, error: error.message || 'Erreur serveur' },
+      { success: false, error: 'Erreur serveur' },
       { status: 500 }
     )
   }
@@ -239,13 +331,15 @@ export async function POST(request: NextRequest) {
 async function generateOrderNumber(establishmentId: string): Promise<string> {
   try {
     const { data, error } = await supabase.rpc('generate_order_number', {
-      p_establishment_id: establishmentId
+      p_establishment_id: establishmentId,
     })
     if (!error && data) return data
-  } catch (e) {
-    // Fonction n'existe pas, fallback
+  } catch {
+    // RPC missing on this env, fall through to client-side fallback
   }
 
+  // Fallback used only if the RPC is unavailable. Not race-safe — but the
+  // RPC has been atomic since the 2026-05-09_atomic_order_number migration.
   const now = new Date()
   const prefix = 'W'
   const timestamp = now.getTime().toString(36).toUpperCase().slice(-4)
@@ -253,41 +347,31 @@ async function generateOrderNumber(establishmentId: string): Promise<string> {
   return `${prefix}${timestamp}${random}`
 }
 
-// GET pour récupérer une commande par ID
+// GET — retrieve an order by ID (used by /order/confirmation).
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const orderId = searchParams.get('id')
+    const orderId = searchParams.get('id') || searchParams.get('orderId')
 
     if (!orderId) {
-      return NextResponse.json(
-        { error: 'ID commande requis' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'ID commande requis' }, { status: 400 })
+    }
+    if (!/^[0-9a-f-]{36}$/i.test(orderId)) {
+      return NextResponse.json({ error: 'ID commande invalide' }, { status: 400 })
     }
 
     const { data: order, error } = await supabase
       .from('orders')
-      .select(`
-        *,
-        order_items (*)
-      `)
+      .select(`*, order_items (*)`)
       .eq('id', orderId)
       .single()
 
     if (error || !order) {
-      return NextResponse.json(
-        { error: 'Commande non trouvée' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Commande non trouvée' }, { status: 404 })
     }
 
     return NextResponse.json(order)
-
   } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
 }

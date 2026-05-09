@@ -675,7 +675,9 @@ export default function OrderPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          establishmentId: establishment.id,
+          // Server resolves the establishment from the slug — never trust
+          // an id sent from the client. See PR D / audit V1 P0 #5.
+          slug,
           orderType,
           items: cart.map(item => ({
             productId: item.productId,
