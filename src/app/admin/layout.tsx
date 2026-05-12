@@ -24,6 +24,7 @@ const navigation = [
   { name: 'Devices', href: '/admin/devices', icon: '📱' },
   { name: 'Stock', href: '/admin/stock-planning', icon: '📦' },
   { name: 'Rapports', href: '/admin/reports', icon: '📈' },
+  { name: 'Importer catalogue', href: '/admin/import', icon: '📥' },
   { name: 'Paramètres', href: '/admin/settings', icon: '⚙️' },
 ]
 
