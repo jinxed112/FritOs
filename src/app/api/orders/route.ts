@@ -362,7 +362,11 @@ export async function GET(request: NextRequest) {
 
     const { data: order, error } = await supabase
       .from('orders')
-      .select(`*, order_items (*)`)
+      .select(`
+        *,
+        order_items (*),
+        establishment:establishments (name, address, phone, vat_number)
+      `)
       .eq('id', orderId)
       .single()
 

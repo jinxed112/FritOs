@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 
 type OrderItem = {
   id: string
@@ -51,8 +50,6 @@ export default function TicketPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
-  
-  const supabase = createClient()
 
   useEffect(() => {
     loadOrder()
@@ -66,22 +63,15 @@ export default function TicketPage() {
     }
 
     try {
-      const { data, error: fetchError } = await supabase
-        .from('orders')
-        .select(`
-          id, order_number, order_type, status, total, created_at,
-          order_items (id, product_name, quantity, unit_price, options_selected),
-          establishment:establishments (name, address, phone, vat_number)
-        `)
-        .eq('id', orderId)
-        .single()
-
-      if (fetchError || !data) {
+      // Use /api/orders (service_role, bypass RLS) so anonymous clients
+      // scanning the QR code from the kiosk can fetch their own ticket.
+      const res = await fetch(`/api/orders?orderId=${encodeURIComponent(orderId)}`)
+      if (!res.ok) {
         setError('Commande introuvable')
         setLoading(false)
         return
       }
-
+      const data = await res.json()
       setOrder(data as Order)
     } catch (err) {
       console.error('Error loading order:', err)
