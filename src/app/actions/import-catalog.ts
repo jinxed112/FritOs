@@ -438,11 +438,18 @@ export async function executeImport(
               name: i.name,
               category: i.category,
               unit: i.unit,
-              stock_current: 0, // **TODO Michele** : stock reset à 0 pour
-              // le nouvel établissement (pas de sens de copier les stocks).
-              // À confirmer.
+              stock_current: 0, // stock reset (chaque site gère le sien)
               stock_min: i.stock_min,
-              cost_per_unit: i.cost_per_unit,
+              // Pricing: schéma actuel utilise purchase_price/quantity/unit
+              // (pas cost_per_unit qui n'existe pas). Cf incident 14/05.
+              purchase_price: i.purchase_price,
+              purchase_quantity: i.purchase_quantity,
+              purchase_unit: i.purchase_unit,
+              vat_rate: i.vat_rate,
+              description: i.description,
+              allergens: i.allergens,
+              image_url: i.image_url,
+              sku: i.sku,
               supplier_id: null, // FK fournisseur cross-tenant → null pour MVP
               is_available: i.is_available,
               is_active: i.is_active,
@@ -533,11 +540,12 @@ export async function executeImport(
               establishment_id: target.id,
               name: s.name,
               stock_type: s.stock_type,
-              unit: s.unit,
-              portions_per_unit: s.portions_per_unit,
-              stock_current: 0, // reset stock — chaque site gère le sien
-              stock_min: s.stock_min,
-              is_active: s.is_active,
+              // Schéma actuel : gestion grammes pas portions/unités.
+              // Colonnes is_active/unit/portions_per_unit/stock_current/
+              // stock_min n'existent plus. Cf incident 14/05.
+              pack_weight_g: s.pack_weight_g,
+              portion_weight_g: s.portion_weight_g,
+              dlc_days: s.dlc_days,
             }))
           )
           .select('id, name')
@@ -663,13 +671,15 @@ export async function executeImport(
           if (it.product_id && !tgtProd) return null
           return {
             option_group_id: tgtOg,
-            name: it.name,
-            description: it.description,
-            price_modifier: it.price_modifier,
+            // Schéma actuel : pas de name/description (items minimalistes).
+            // price_modifier renommé price_override. Cf incident 14/05.
+            price_override: it.price_modifier ?? it.price_override ?? null,
             product_id: tgtProd,
             display_order: it.display_order,
             is_default: it.is_default,
             is_active: it.is_active,
+            max_quantity: it.max_quantity,
+            triggers_option_group_id: it.triggers_option_group_id ?? null,
           }
         })
         .filter((x): x is NonNullable<typeof x> => x !== null)
