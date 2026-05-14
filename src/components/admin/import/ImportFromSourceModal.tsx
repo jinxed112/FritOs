@@ -359,6 +359,22 @@ function CatalogTab({
   }
   return (
     <div className="space-y-3">
+      <div className="flex gap-2 sticky top-0 bg-white pb-2 z-10">
+        <button
+          type="button"
+          onClick={() => categories.forEach((c) => onToggleCategory(c.id, true))}
+          className="text-xs px-3 py-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 font-medium"
+        >
+          Tout cocher
+        </button>
+        <button
+          type="button"
+          onClick={() => categories.forEach((c) => onToggleCategory(c.id, false))}
+          className="text-xs px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 font-medium"
+        >
+          Tout décocher
+        </button>
+      </div>
       {categories.map((cat) => {
         const catProducts = products.filter((p) => p.category_id === cat.id)
         const catChecked = !!selection.categories[cat.id]
@@ -458,6 +474,22 @@ function OptionsTab({
         Les propositions sont des groupes d&apos;options (suppléments, choix de
         cuisson, etc.). Cocher pour importer le groupe + ses items.
       </p>
+      <div className="flex gap-2 sticky top-0 bg-white pb-2 z-10">
+        <button
+          type="button"
+          onClick={() => optionGroups.forEach((og) => onToggle(og.id, true))}
+          className="text-xs px-3 py-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 font-medium"
+        >
+          Tout cocher
+        </button>
+        <button
+          type="button"
+          onClick={() => optionGroups.forEach((og) => onToggle(og.id, false))}
+          className="text-xs px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 font-medium"
+        >
+          Tout décocher
+        </button>
+      </div>
       {optionGroups.map((og) => {
         const checked = !!selection.optionGroups[og.id]
         return (
