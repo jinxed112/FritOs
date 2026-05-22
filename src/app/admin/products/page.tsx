@@ -65,6 +65,7 @@ type Product = {
   is_available: boolean
   is_active: boolean
   image_url: string | null
+  video_url: string | null
   product_option_groups?: ProductOptionGroup[]
   product_ingredients?: ProductIngredient[]
 }
@@ -93,6 +94,7 @@ export default function ProductsPage() {
     is_available: true,
     is_active: true,
     image_url: '' as string | null,
+    video_url: '' as string | null,
   })
   
   // Image upload
@@ -224,6 +226,7 @@ export default function ProductsPage() {
         is_available: product.is_available,
         is_active: product.is_active,
         image_url: product.image_url,
+        video_url: product.video_url || null,
       })
       setImagePreview(product.image_url)
       
@@ -258,6 +261,7 @@ export default function ProductsPage() {
         is_available: true,
         is_active: true,
         image_url: null,
+        video_url: null,
       })
       setAssignedPropositions([])
       setAssignedIngredients([])
@@ -351,6 +355,7 @@ export default function ProductsPage() {
             is_available: form.is_available,
             is_active: form.is_active,
             image_url: imageUrl,
+            video_url: form.video_url || null,
           })
           .eq('id', editingProduct.id)
         
@@ -377,6 +382,7 @@ export default function ProductsPage() {
             vat_takeaway: form.vat_takeaway,
             is_available: form.is_available,
             is_active: form.is_active,
+            video_url: form.video_url || null,
           })
           .select()
           .single()
@@ -969,6 +975,17 @@ export default function ProductsPage() {
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
                       rows={2}
                       placeholder="Description optionnelle..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">URL vidéo (TikTok, Instagram, YouTube…)</label>
+                    <input
+                      type="url"
+                      value={form.video_url || ''}
+                      onChange={e => setForm({ ...form, video_url: e.target.value })}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      placeholder="https://www.tiktok.com/@mdjambo/video/..."
                     />
                   </div>
 
