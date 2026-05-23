@@ -150,7 +150,10 @@ export default function CounterPage() {
   // Late orders state
   const [lateOrders, setLateOrders] = useState<LateOrder[]>([])
   const [showLateOrdersModal, setShowLateOrdersModal] = useState(false)
-  
+
+  // Mobile cart bottom-sheet (< lg breakpoint)
+  const [showMobileCart, setShowMobileCart] = useState(false)
+
   // Allergen modal state
   const [allergenModalProduct, setAllergenModalProduct] = useState<Product | null>(null)
 
@@ -961,8 +964,8 @@ export default function CounterPage() {
           </div>
         </div>
 
-        {/* Products grid - Optimisé tablette 10" FHD */}
-        <div className="flex-1 overflow-y-auto p-3">
+        {/* Products grid - Optimisé tablette 10" FHD + padding mobile pour bouton flottant */}
+        <div className="flex-1 overflow-y-auto p-3 pb-24 md:pb-3">
           {filteredProducts.length === 0 ? (
             <div className="text-center text-gray-400 py-12">
               <span className="text-5xl block mb-3">📦</span>
@@ -1027,8 +1030,8 @@ export default function CounterPage() {
         </div>
       </div>
 
-      {/* Cart sidebar */}
-      <div className="w-72 md:w-80 lg:w-96 bg-white shadow-xl flex flex-col flex-shrink-0 border-l">
+      {/* Cart sidebar — tablette portrait & + (≥ md, 768px). Caché sur smartphone. */}
+      <div className="hidden md:flex w-72 md:w-80 lg:w-96 bg-white shadow-xl flex-col flex-shrink-0 border-l">
         <div className="p-3 bg-slate-800 text-white flex-shrink-0">
           <h2 className="text-base font-bold">
             {orderType === 'delivery' ? '📞 Livraison' : isBux ? '🪵 BUX' : '🛒 Commande'}
@@ -1159,6 +1162,160 @@ export default function CounterPage() {
           )}
         </div>
       </div>
+
+      {/* Floating cart button — mobile only (< md, 768px) */}
+      {!showMobileCart && (
+        <button
+          onClick={() => setShowMobileCart(true)}
+          className="md:hidden fixed bottom-4 left-4 right-4 z-40 bg-orange-500 text-white font-bold py-4 rounded-2xl shadow-2xl flex items-center justify-between px-5 active:scale-[0.98] transition-transform"
+        >
+          <span className="flex items-center gap-2">
+            <span className="bg-white text-orange-500 rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm">
+              {cart.reduce((sum, item) => sum + item.quantity, 0)}
+            </span>
+            <span className="text-base">
+              {cart.length === 0 ? 'Panier vide' : 'Voir le panier'}
+            </span>
+          </span>
+          <span className="text-xl font-bold">{getCartTotal().toFixed(2)} €</span>
+        </button>
+      )}
+
+      {/* Bottom-sheet panier mobile (< md, 768px) */}
+      {showMobileCart && (
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col bg-white">
+          <div className="bg-slate-800 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+            <h2 className="text-lg font-bold">
+              {orderType === 'delivery' ? '📞 Livraison' : isBux ? '🪵 BUX' : '🛒 Commande'}
+            </h2>
+            <button
+              onClick={() => setShowMobileCart(false)}
+              className="text-white/80 hover:text-white text-3xl p-1"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {cart.length === 0 ? (
+              <div className="text-center text-gray-400 py-12">
+                <span className="text-6xl block mb-4">🛒</span>
+                <p className="text-lg">Panier vide</p>
+                <button
+                  onClick={() => setShowMobileCart(false)}
+                  className="mt-6 bg-orange-500 text-white px-6 py-3 rounded-xl font-semibold"
+                >
+                  Choisir des produits
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {cart.map(item => (
+                  <div key={item.id} className="bg-gray-50 rounded-xl p-3">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-base">{item.name}</h3>
+                        {item.options.length > 0 && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {item.options.slice(0, 3).map(o => (
+                              <div key={o.item_id} className="truncate">+ {o.item_name}</div>
+                            ))}
+                            {item.options.length > 3 && (
+                              <div className="text-gray-400">+{item.options.length - 3} autres</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => removeFromCart(item.id)}
+                        className="text-gray-400 active:text-red-500 p-2 -mr-2 text-xl"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateQuantity(item.id, -1)}
+                          className="w-11 h-11 rounded-full bg-gray-200 font-bold text-xl active:bg-gray-300"
+                        >
+                          -
+                        </button>
+                        <span className="font-bold w-10 text-center text-xl">{item.quantity}</span>
+                        <button
+                          onClick={() => updateQuantity(item.id, 1)}
+                          className="w-11 h-11 rounded-full bg-gray-200 font-bold text-xl active:bg-gray-300"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <span className="font-bold text-orange-500 text-xl">
+                        {((item.price + item.options_total) * item.quantity).toFixed(2)} €
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t p-4 bg-gray-50 flex-shrink-0">
+            {orderType === 'delivery' && (
+              <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-blue-700 font-bold text-sm">📞 Téléphone</span>
+                  <button onClick={startDeliveryOrder} className="text-blue-500 text-xs underline">
+                    Modifier
+                  </button>
+                </div>
+                {deliveryCustomerName && (
+                  <p className="text-sm text-blue-800">{deliveryCustomerName} • {deliveryCustomerPhone}</p>
+                )}
+                {deliveryAddress && (
+                  <p className="text-xs text-blue-600 truncate">{deliveryAddress}</p>
+                )}
+                {deliverySelectedTime && (
+                  <p className="text-xs text-blue-600">🕐 {deliveryTimeSlots.find(d => d.date === deliverySelectedDate)?.dayLabel} à {deliverySelectedTime}</p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-between mb-1 text-sm">
+              <span className="text-gray-600">Sous-total</span>
+              <span className="font-semibold">{getCartSubtotal().toFixed(2)} €</span>
+            </div>
+            {orderType === 'delivery' && deliveryFee > 0 && (
+              <div className="flex justify-between mb-1 text-sm">
+                <span className="text-gray-600">Livraison</span>
+                <span className="font-semibold">{deliveryFee.toFixed(2)} €</span>
+              </div>
+            )}
+            <div className="flex justify-between mb-4 text-lg">
+              <span className="font-bold">Total</span>
+              <span className="font-bold text-orange-500 text-2xl">{getCartTotal().toFixed(2)} €</span>
+            </div>
+
+            {orderType === 'delivery' ? (
+              <button
+                onClick={submitOrder}
+                disabled={cart.length === 0 || !deliveryValidated || !deliverySelectedTime || isSubmitting}
+                className="w-full bg-blue-500 text-white font-bold py-4 rounded-xl disabled:opacity-50 active:scale-[0.98] transition-transform text-lg"
+              >
+                {isSubmitting ? 'Envoi...' : '📞 Valider livraison (cash)'}
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowPaymentModal(true)}
+                disabled={cart.length === 0}
+                className="w-full bg-green-500 text-white font-bold py-4 rounded-xl disabled:opacity-50 active:scale-[0.98] transition-transform text-lg"
+              >
+                💶 Encaisser
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal Produit - Optimisé tablette */}
       {selectedProduct && (
