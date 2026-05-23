@@ -150,7 +150,12 @@ export default function CounterPage() {
   // Late orders state
   const [lateOrders, setLateOrders] = useState<LateOrder[]>([])
   const [showLateOrdersModal, setShowLateOrdersModal] = useState(false)
-  
+
+  // Hidden products state (indisponibles + inactifs)
+  type HiddenProduct = { id: string; name: string; price: number; is_active: boolean; is_available: boolean }
+  const [hiddenProducts, setHiddenProducts] = useState<HiddenProduct[]>([])
+  const [showHiddenProductsModal, setShowHiddenProductsModal] = useState(false)
+
   // Allergen modal state
   const [allergenModalProduct, setAllergenModalProduct] = useState<Product | null>(null)
 
@@ -209,6 +214,7 @@ export default function CounterPage() {
       // Load data with device's establishment
       loadData(data.device.establishmentId)
       loadLateOrders(data.device.establishmentId)
+      loadHiddenProducts(data.device.establishmentId)
       
       const interval = setInterval(() => loadLateOrders(data.device.establishmentId), 60000)
       return () => clearInterval(interval)
@@ -299,6 +305,31 @@ export default function CounterPage() {
     }
     
     setLoading(false)
+  }
+
+  async function loadHiddenProducts(establishmentId: string) {
+    const { data } = await supabase
+      .from('products')
+      .select('id, name, price, is_active, is_available')
+      .eq('establishment_id', establishmentId)
+      .or('is_active.eq.false,is_available.eq.false')
+      .order('name')
+    setHiddenProducts((data || []) as HiddenProduct[])
+  }
+
+  async function reactivateProduct(p: HiddenProduct) {
+    const { error } = await supabase
+      .from('products')
+      .update({ is_active: true, is_available: true })
+      .eq('id', p.id)
+    if (error) {
+      alert('Erreur lors de la réactivation : ' + error.message)
+      return
+    }
+    if (device?.establishmentId) {
+      await loadHiddenProducts(device.establishmentId)
+      await loadData(device.establishmentId)
+    }
   }
 
   async function loadLateOrders(establishmentId: string) {
@@ -932,6 +963,24 @@ export default function CounterPage() {
               )}
             </button>
             
+            {/* Bouton Produits coupés */}
+            <button
+              onClick={() => setShowHiddenProductsModal(true)}
+              className={`relative p-2 rounded-lg text-sm transition-all active:scale-95 ${
+                hiddenProducts.length > 0
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-slate-700 text-gray-400'
+              }`}
+              title="Produits coupés (indispos / inactifs)"
+            >
+              📦
+              {hiddenProducts.length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-yellow-900 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                  {hiddenProducts.length}
+                </span>
+              )}
+            </button>
+
             {/* Bouton Backoffice */}
             <Link
               href="/counter/backoffice"
@@ -1671,6 +1720,88 @@ export default function CounterPage() {
               >
                 🔄 Rafraîchir
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Produits coupés (indispos + inactifs) */}
+      {showHiddenProductsModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowHiddenProductsModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-4 bg-amber-500 text-white flex items-center justify-between flex-shrink-0">
+              <div>
+                <h2 className="text-xl font-bold">📦 Produits coupés</h2>
+                <p className="text-amber-50 text-sm">{hiddenProducts.length} produit(s) à réactiver</p>
+              </div>
+              <button
+                onClick={() => setShowHiddenProductsModal(false)}
+                className="text-white/80 hover:text-white text-3xl p-2"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1">
+              {hiddenProducts.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">Aucun produit coupé. Tout est dispo.</p>
+              ) : (
+                <>
+                  {hiddenProducts.filter(p => p.is_active && !p.is_available).length > 0 && (
+                    <div className="mb-5">
+                      <h3 className="text-sm font-bold text-amber-700 mb-2 uppercase tracking-wide">
+                        ⏸ Indisponibles temporairement ({hiddenProducts.filter(p => p.is_active && !p.is_available).length})
+                      </h3>
+                      <ul className="space-y-2">
+                        {hiddenProducts.filter(p => p.is_active && !p.is_available).map(p => (
+                          <li key={p.id} className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2 border border-amber-200">
+                            <span className="font-medium text-gray-900">
+                              {p.name}
+                              <span className="text-gray-500 font-normal"> — {p.price.toFixed(2)} €</span>
+                            </span>
+                            <button
+                              onClick={() => reactivateProduct(p)}
+                              className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-600 active:scale-95 transition-all"
+                            >
+                              Réactiver
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {hiddenProducts.filter(p => !p.is_active).length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-600 mb-2 uppercase tracking-wide">
+                        ❌ Inactifs ({hiddenProducts.filter(p => !p.is_active).length})
+                      </h3>
+                      <ul className="space-y-2">
+                        {hiddenProducts.filter(p => !p.is_active).map(p => (
+                          <li key={p.id} className="flex items-center justify-between bg-gray-100 rounded-lg px-3 py-2 border border-gray-200">
+                            <span className="font-medium text-gray-700">
+                              {p.name}
+                              <span className="text-gray-500 font-normal"> — {p.price.toFixed(2)} €</span>
+                            </span>
+                            <button
+                              onClick={() => reactivateProduct(p)}
+                              className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-600 active:scale-95 transition-all"
+                            >
+                              Réactiver
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
