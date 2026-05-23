@@ -880,40 +880,44 @@ export default function CounterPage() {
             >
               🔄
             </button>
-            <span className="text-xs text-gray-400 truncate max-w-[80px]">{device?.name}</span>
+            {/* Nom device : caché sur mobile pour économiser l'espace */}
+            <span className="hidden md:inline text-xs text-gray-400 truncate max-w-[80px]">{device?.name}</span>
           </div>
-          
-          <div className="flex items-center gap-1.5 flex-1 justify-center">
-            {/* Type de commande - boutons compacts */}
+
+          <div className="flex items-center gap-1.5 flex-1 justify-center min-w-0">
+            {/* Type de commande - icônes seules sur mobile, label dès md */}
             <button
               onClick={() => { setOrderType('takeaway'); setIsBux(true) }}
-              className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
-                isBux 
-                  ? 'bg-amber-600 text-white shadow-lg' 
+              className={`px-2.5 md:px-3 py-2 rounded-lg font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
+                isBux
+                  ? 'bg-amber-600 text-white shadow-lg'
                   : 'bg-slate-700 text-gray-300'
               }`}
+              aria-label="BUX"
             >
-              🪵 BUX
+              🪵<span className="hidden md:inline ml-1">BUX</span>
             </button>
             <button
               onClick={() => { setOrderType('takeaway'); setIsBux(false) }}
-              className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
+              className={`px-2.5 md:px-3 py-2 rounded-lg font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
                 orderType === 'takeaway' && !isBux
-                  ? 'bg-orange-500 text-white shadow-lg' 
+                  ? 'bg-orange-500 text-white shadow-lg'
                   : 'bg-slate-700 text-gray-300'
               }`}
+              aria-label="À emporter"
             >
-              🥡 Emporter
+              🥡<span className="hidden md:inline ml-1">Emporter</span>
             </button>
             <button
               onClick={startDeliveryOrder}
-              className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
-                orderType === 'delivery' 
-                  ? 'bg-blue-500 text-white shadow-lg' 
+              className={`px-2.5 md:px-3 py-2 rounded-lg font-semibold text-sm transition-all active:scale-95 whitespace-nowrap ${
+                orderType === 'delivery'
+                  ? 'bg-blue-500 text-white shadow-lg'
                   : 'bg-slate-700 text-gray-300'
               }`}
+              aria-label="Livraison"
             >
-              📞 Livraison
+              📞<span className="hidden md:inline ml-1">Livraison</span>
             </button>
           </div>
           
