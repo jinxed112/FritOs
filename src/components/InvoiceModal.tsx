@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 
 type CounterOrder = {
   id: string
@@ -26,7 +25,6 @@ const ORDER_TYPE_LABEL: Record<string, string> = {
 }
 
 export default function InvoiceModal({ establishmentId, isOpen, onClose }: Props) {
-  const supabase = createClient()
   const [orders, setOrders] = useState<CounterOrder[]>([])
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -45,25 +43,19 @@ export default function InvoiceModal({ establishmentId, isOpen, onClose }: Props
     if (!isOpen || !establishmentId) return
     setLoading(true)
     setError(null)
-    // Charge les commandes des 7 derniers jours, exclut déjà facturées (faute de jointure: fetch all, on filtre côté UI plus tard si besoin)
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-    supabase
-      .from('orders')
-      .select('id, order_number, order_type, total, status, created_at')
-      .eq('establishment_id', establishmentId)
-      .gte('created_at', sevenDaysAgo)
-      .neq('status', 'cancelled')
-      .order('created_at', { ascending: false })
-      .limit(100)
-      .then(({ data, error: e }) => {
-        if (e) {
-          setError(e.message)
-          return
+    // Fetch via API route service_role (RLS bypass) car le counter est auth par device cookie, pas Supabase auth
+    fetch(`/api/invoices/recent-orders?establishmentId=${encodeURIComponent(establishmentId)}&days=7`)
+      .then(async r => {
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}))
+          throw new Error(j.error || `HTTP ${r.status}`)
         }
-        setOrders(data || [])
+        return r.json()
       })
-      .then(() => setLoading(false))
-  }, [isOpen, establishmentId, supabase])
+      .then(data => setOrders(data.orders || []))
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [isOpen, establishmentId])
 
   function toggleSelect(id: string) {
     setSelected(prev => {
