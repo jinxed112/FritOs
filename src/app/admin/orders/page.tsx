@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentEstablishment } from '@/lib/establishment/client'
+import AdminInvoiceModal from '@/components/AdminInvoiceModal'
 
 type OrderItem = {
   id: string
@@ -55,6 +56,20 @@ export default function OrdersPage() {
   const [filterPeriod, setFilterPeriod] = useState<FilterPeriod>('today')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+
+  // Invoice selection state
+  const [selectedForInvoice, setSelectedForInvoice] = useState<Set<string>>(new Set())
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
+
+  function toggleSelectForInvoice(orderId: string, e: React.MouseEvent | React.ChangeEvent) {
+    e.stopPropagation()
+    setSelectedForInvoice(prev => {
+      const next = new Set(prev)
+      if (next.has(orderId)) next.delete(orderId)
+      else next.add(orderId)
+      return next
+    })
+  }
 
   const supabase = createClient()
   const { establishment } = useCurrentEstablishment()
@@ -234,7 +249,43 @@ export default function OrdersPage() {
           <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Commandes</h1>
           <p className="text-gray-500 text-sm">{filteredOrders.length} commande(s)</p>
         </div>
+        {selectedForInvoice.size > 0 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSelectedForInvoice(new Set())}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Désélectionner
+            </button>
+            <button
+              onClick={() => setInvoiceModalOpen(true)}
+              className="bg-[#E63329] text-white font-bold px-5 py-3 rounded-xl hover:bg-[#c12722] shadow-lg"
+            >
+              📄 Facturer {selectedForInvoice.size} commande{selectedForInvoice.size > 1 ? 's' : ''}
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Invoice modal (admin) */}
+      {establishment && invoiceModalOpen && (
+        <AdminInvoiceModal
+          establishmentId={establishment.id}
+          orders={filteredOrders
+            .filter(o => selectedForInvoice.has(o.id))
+            .map(o => ({
+              id: o.id,
+              order_number: o.order_number,
+              order_type: o.order_type,
+              total: o.total,
+            }))}
+          isOpen={invoiceModalOpen}
+          onClose={() => {
+            setInvoiceModalOpen(false)
+            setSelectedForInvoice(new Set())
+          }}
+        />
+      )}
 
       {/* Stats rapides */}
       <div className="flex gap-3 lg:gap-4 mb-4 lg:mb-6 overflow-x-auto pb-1 -mx-4 px-4 lg:mx-0 lg:px-0">
@@ -320,6 +371,7 @@ export default function OrdersPage() {
           <table className="w-full hidden lg:table">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
+                <th className="px-3 py-4 w-10"></th>
                 <th className="text-left px-6 py-4 font-semibold text-gray-600">N°</th>
                 <th className="text-left px-6 py-4 font-semibold text-gray-600">Date</th>
                 <th className="text-left px-6 py-4 font-semibold text-gray-600">Type</th>
@@ -333,11 +385,20 @@ export default function OrdersPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredOrders.map(order => (
-                <tr 
-                  key={order.id} 
-                  className={`hover:bg-gray-50 cursor-pointer ${order.is_offered ? 'bg-purple-50' : ''}`}
+                <tr
+                  key={order.id}
+                  className={`hover:bg-gray-50 cursor-pointer ${order.is_offered ? 'bg-purple-50' : ''} ${selectedForInvoice.has(order.id) ? 'bg-yellow-50' : ''}`}
                   onClick={() => setSelectedOrder(order)}
                 >
+                  <td className="px-3 py-4 w-10" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedForInvoice.has(order.id)}
+                      onChange={(e) => toggleSelectForInvoice(order.id, e)}
+                      className="w-5 h-5 accent-[#E63329] cursor-pointer"
+                      title="Sélectionner pour facturation"
+                    />
+                  </td>
                   <td className="px-6 py-4">
                     <span className="font-bold text-lg">{order.order_number}</span>
                     {order.is_offered && <span className="ml-2">🎁</span>}
