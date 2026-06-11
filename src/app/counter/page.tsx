@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import AddressInput from '@/components/AddressInput'
+import InvoiceModal from '@/components/InvoiceModal'
 import Link from 'next/link'
 
 // ==================== TYPES ====================
@@ -136,6 +137,9 @@ export default function CounterPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [orderType, setOrderType] = useState<OrderType>('takeaway')
   const [isBux, setIsBux] = useState(false)
+
+  // Invoice modal
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
   
   // Payment modal state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -932,6 +936,15 @@ export default function CounterPage() {
               )}
             </button>
             
+            {/* Bouton Facture */}
+            <button
+              onClick={() => setInvoiceModalOpen(true)}
+              className="p-2 rounded-lg text-sm transition-all active:scale-95 bg-slate-700 text-gray-300 hover:bg-slate-600"
+              title="Générer une facture"
+            >
+              📄
+            </button>
+
             {/* Bouton Backoffice */}
             <Link
               href="/counter/backoffice"
@@ -941,6 +954,15 @@ export default function CounterPage() {
             </Link>
           </div>
         </header>
+
+        {/* Invoice modal */}
+        {device && (
+          <InvoiceModal
+            establishmentId={device.establishmentId}
+            isOpen={invoiceModalOpen}
+            onClose={() => setInvoiceModalOpen(false)}
+          />
+        )}
 
         {/* Categories */}
         <div className="bg-white border-b px-3 py-2 flex-shrink-0">
