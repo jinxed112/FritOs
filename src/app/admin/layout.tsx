@@ -11,6 +11,7 @@ import { useEstablishmentContext } from '@/lib/establishment/client'
 const navigation = [
   { name: 'Dashboard', href: '/admin', icon: '📊' },
   { name: 'Commandes', href: '/admin/orders', icon: '🧾' },
+  { name: 'Factures', href: '/admin/invoices', icon: '📄' },
   { name: 'Catégories', href: '/admin/categories', icon: '📁' },
   { name: 'Produits', href: '/admin/products', icon: '🍔' },
   { name: 'Propositions', href: '/admin/propositions', icon: '📋' },

@@ -1,10 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { z } from 'zod'
 
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// ─── PATCH /api/invoices/[id] ───────────────────────────────────────────────
+//
+// Met à jour le statut de paiement d'une facture.
+// Body : { paymentMethod, paidAt?, notes? }
+
+const PatchSchema = z.object({
+  paymentMethod: z.enum(['cash', 'card', 'transfer', 'pending']),
+  paidAt: z.string().datetime().optional().nullable(),
+  notes: z.string().max(1000).optional().nullable(),
+})
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const body = await req.json()
+    const parsed = PatchSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+    }
+    const { paymentMethod, paidAt, notes } = parsed.data
+
+    const update: any = { payment_method: paymentMethod }
+    if (paymentMethod === 'pending') {
+      update.paid_at = null
+    } else {
+      update.paid_at = paidAt || new Date().toISOString()
+    }
+    if (notes !== undefined) update.notes = notes
+
+    const { data, error } = await admin
+      .from('invoices')
+      .update(update)
+      .eq('id', params.id)
+      .select('id, invoice_number, payment_method, paid_at')
+      .single()
+
+    if (error || !data) {
+      console.error('[invoices PATCH] err:', error)
+      return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+    }
+    return NextResponse.json(data)
+  } catch (err: any) {
+    console.error('[invoices PATCH] unexpected:', err)
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
+  }
+}
 
 // ─── GET /api/invoices/[id] ─────────────────────────────────────────────────
 //
