@@ -22,6 +22,10 @@ const CreateInvoiceBodySchema = z.object({
   orderIds: z.array(z.string().uuid()).min(1).max(50),
   customer: CustomerSchema,
   paymentMethod: z.enum(['cash', 'card', 'transfer', 'pending']).default('pending'),
+  // serviceType : si fourni, force le taux TVA sur toute la facture
+  // ('eat_in' = 12 %, 'takeaway' = 6 %). Si null/omis, le taux par commande
+  // est dérivé du `order_type` stocké en DB.
+  serviceType: z.enum(['eat_in', 'takeaway']).optional().nullable(),
   paidAt: z.string().datetime().optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
 })
@@ -51,7 +55,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { establishmentId, orderIds, customer, paymentMethod, paidAt, notes } = parsed.data
+    const { establishmentId, orderIds, customer, paymentMethod, serviceType, paidAt, notes } = parsed.data
 
     // 1. Fetch orders + verify they all belong to the declared establishment
     const { data: orders, error: ordersErr } = await admin
@@ -77,8 +81,8 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 2. Compute totals
-    const totals = calculateInvoiceTotals(orders)
+    // 2. Compute totals (with optional service type override for VAT rate)
+    const totals = calculateInvoiceTotals(orders, serviceType ?? null)
 
     // 3. Get next invoice number via DB sequence function
     const { data: numData, error: numErr } = await admin.rpc('next_invoice_number', {

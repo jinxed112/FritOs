@@ -162,6 +162,19 @@ export default function InvoicePage() {
       doc.text('Total TTC', W - margin - 2, y, { align: 'right' })
       y += 6
 
+      // Détermine le label de type de service à afficher.
+      // Si la facture a été requalifiée (toute la TVA dans vat_12 = sur place,
+      // ou toute dans vat_6 sans aucune ligne eat_in d'origine = emporter),
+      // on force le label pour toutes les commandes — sinon on respecte le
+      // type d'origine par commande.
+      const allEatIn = Number(invoice.vat_12) > 0 && Number(invoice.vat_6) === 0
+      const allTakeaway = Number(invoice.vat_6) > 0 && Number(invoice.vat_12) === 0
+      const orderTypeLabelFor = (order: Order): string => {
+        if (allEatIn) return 'Sur place'
+        if (allTakeaway && order.order_type === 'eat_in') return 'À emporter'
+        return ORDER_TYPE_LABEL[order.order_type] || order.order_type
+      }
+
       doc.setFont('helvetica', 'normal')
       for (const order of invoice.orders) {
         // Ligne commande
@@ -169,7 +182,7 @@ export default function InvoicePage() {
         doc.setFont('helvetica', 'bold')
         doc.text(`#${order.order_number}`, margin + 2, y)
         doc.text(orderDate, margin + 35, y)
-        doc.text(ORDER_TYPE_LABEL[order.order_type] || order.order_type, W - margin - 50, y)
+        doc.text(orderTypeLabelFor(order), W - margin - 50, y)
         doc.text(`${Number(order.total).toFixed(2)} €`, W - margin - 2, y, { align: 'right' })
         y += 4
 
@@ -206,7 +219,9 @@ export default function InvoicePage() {
 
       doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      const labelX = W - margin - 50
+      // Élargi à 80mm (au lieu de 50mm) pour éviter que le libellé TVA
+      // déborde sur le montant à droite.
+      const labelX = W - margin - 80
       const valueX = W - margin - 2
 
       doc.text('Total HTVA', labelX, y)
@@ -214,7 +229,7 @@ export default function InvoicePage() {
       y += 5
 
       if (Number(invoice.vat_6) > 0) {
-        doc.text('TVA 6 % (à emporter / livraison)', labelX, y)
+        doc.text('TVA 6 % (emporter / livraison)', labelX, y)
         doc.text(`${Number(invoice.vat_6).toFixed(2)} €`, valueX, y, { align: 'right' })
         y += 5
       }

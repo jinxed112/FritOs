@@ -37,10 +37,27 @@ function round2(n: number): number {
 }
 
 /**
+ * Service type override : permet de forcer TVA 12 % (sur place) ou 6 %
+ * (emporter / livraison) sur toute la facture, indépendamment du
+ * `order_type` stocké en DB.
+ *
+ * Cas d'usage : Boussu (mode BUX, eat_in_enabled=false) → toutes les
+ * commandes sont créées en takeaway, mais une facture B2B (commune,
+ * collège, etc.) peut concerner un service consommé sur place.
+ */
+export type ServiceTypeOverride = 'eat_in' | 'takeaway' | null
+
+/**
  * Calcule le breakdown HT / TVA d'un ensemble de commandes.
  * On part du `total` TTC stocké en DB et on reverse-calcule.
+ *
+ * Si serviceTypeOverride est fourni, le taux est uniformément appliqué
+ * à toutes les commandes (utile pour requalifier une facture entière).
  */
-export function calculateInvoiceTotals(orders: InvoiceOrderInput[]): InvoiceTotals {
+export function calculateInvoiceTotals(
+  orders: InvoiceOrderInput[],
+  serviceTypeOverride: ServiceTypeOverride = null
+): InvoiceTotals {
   let total_ht = 0
   let vat_6 = 0
   let vat_12 = 0
@@ -50,7 +67,8 @@ export function calculateInvoiceTotals(orders: InvoiceOrderInput[]): InvoiceTota
     const ttc = Number(order.total) || 0
     total_ttc += ttc
 
-    const rate = order.order_type === 'eat_in' ? VAT_RATE_EAT_IN : VAT_RATE_TAKEAWAY
+    const effectiveType = serviceTypeOverride ?? order.order_type
+    const rate = effectiveType === 'eat_in' ? VAT_RATE_EAT_IN : VAT_RATE_TAKEAWAY
 
     // TTC = HT × (1 + rate), donc HT = TTC / (1 + rate), TVA = TTC − HT
     const ht = ttc / (1 + rate)

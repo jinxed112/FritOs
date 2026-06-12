@@ -47,6 +47,7 @@ export default function InvoicesPage() {
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
   const [actionFor, setActionFor] = useState<Invoice | null>(null)
+  const [serviceTypeFor, setServiceTypeFor] = useState<Invoice | null>(null)
 
   const load = useCallback(async () => {
     if (!establishment) return
@@ -91,6 +92,20 @@ export default function InvoicesPage() {
       load()
     } else {
       alert('Erreur lors de la mise à jour')
+    }
+  }
+
+  async function setServiceType(inv: Invoice, serviceType: 'eat_in' | 'takeaway') {
+    const res = await fetch(`/api/invoices/${inv.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceType }),
+    })
+    if (res.ok) {
+      setServiceTypeFor(null)
+      load()
+    } else {
+      alert('Erreur lors du recalcul TVA')
     }
   }
 
@@ -212,6 +227,13 @@ export default function InvoicesPage() {
                       >
                         📄
                       </a>
+                      <button
+                        onClick={() => setServiceTypeFor(inv)}
+                        className="px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
+                        title="Requalifier sur place / emporter (recalcule la TVA)"
+                      >
+                        ⇄
+                      </button>
                       {inv.payment_method === 'pending' ? (
                         <button
                           onClick={() => setActionFor(inv)}
@@ -259,6 +281,13 @@ export default function InvoicesPage() {
                      className="flex-1 px-3 py-2 bg-gray-100 rounded-lg text-center text-sm">
                     📄 PDF
                   </a>
+                  <button
+                    onClick={() => setServiceTypeFor(inv)}
+                    className="px-3 py-2 bg-gray-100 rounded-lg text-sm"
+                    title="Requalifier sur place / emporter"
+                  >
+                    ⇄
+                  </button>
                   {inv.payment_method === 'pending' && (
                     <button
                       onClick={() => setActionFor(inv)}
@@ -301,6 +330,42 @@ export default function InvoicesPage() {
               </button>
             </div>
             <button onClick={() => setActionFor(null)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-xl hover:bg-gray-50">
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal "Type de service" — requalification fiscale */}
+      {serviceTypeFor && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6">
+            <h2 className="text-xl font-bold mb-2">Type de service</h2>
+            <p className="text-sm text-gray-600 mb-2">
+              Facture <span className="font-bold">{serviceTypeFor.invoice_number}</span> ·{' '}
+              {Number(serviceTypeFor.total_ttc).toFixed(2)} €
+              <br />
+              <span className="text-gray-500">{serviceTypeFor.customer_name}</span>
+            </p>
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+              ⚠️ Recalcul la TVA sur l&apos;ensemble de la facture. Le total TTC reste inchangé.
+            </p>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <button onClick={() => setServiceType(serviceTypeFor, 'eat_in')}
+                      className="px-4 py-4 bg-orange-100 text-orange-800 rounded-xl hover:bg-orange-200 font-semibold flex flex-col items-center gap-1">
+                <span className="text-2xl">🍽️</span>
+                <span>Sur place</span>
+                <span className="text-xs font-normal">TVA 12 %</span>
+              </button>
+              <button onClick={() => setServiceType(serviceTypeFor, 'takeaway')}
+                      className="px-4 py-4 bg-blue-100 text-blue-800 rounded-xl hover:bg-blue-200 font-semibold flex flex-col items-center gap-1">
+                <span className="text-2xl">🥡</span>
+                <span>À emporter</span>
+                <span className="text-xs font-normal">TVA 6 %</span>
+              </button>
+            </div>
+            <button onClick={() => setServiceTypeFor(null)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-xl hover:bg-gray-50">
               Annuler
             </button>

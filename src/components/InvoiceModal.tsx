@@ -37,6 +37,7 @@ export default function InvoiceModal({ establishmentId, isOpen, onClose }: Props
   const [address, setAddress] = useState('')
   const [email, setEmail] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer' | 'pending'>('pending')
+  const [serviceType, setServiceType] = useState<'auto' | 'eat_in' | 'takeaway'>('auto')
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
@@ -96,6 +97,7 @@ export default function InvoiceModal({ establishmentId, isOpen, onClose }: Props
             email: email.trim() || null,
           },
           paymentMethod,
+          serviceType: serviceType === 'auto' ? null : serviceType,
           notes: notes.trim() || null,
         }),
       })
@@ -112,6 +114,7 @@ export default function InvoiceModal({ establishmentId, isOpen, onClose }: Props
       setSelected(new Set())
       setName(''); setVat(''); setAddress(''); setEmail(''); setNotes('')
       setPaymentMethod('pending')
+      setServiceType('auto')
     } catch (e: any) {
       setError(e.message || 'Erreur réseau')
     } finally {
@@ -239,6 +242,25 @@ export default function InvoiceModal({ establishmentId, isOpen, onClose }: Props
                   <option value="card">Carte (acquittée)</option>
                   <option value="transfer">Virement</option>
                 </select>
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-600">
+                  Type de service <span className="text-gray-400">(détermine la TVA)</span>
+                </label>
+                <select
+                  value={serviceType}
+                  onChange={e => setServiceType(e.target.value as any)}
+                  className="w-full border rounded-lg px-3 py-2"
+                >
+                  <option value="auto">Auto (d&apos;après les commandes sélectionnées)</option>
+                  <option value="eat_in">Sur place — TVA 12 %</option>
+                  <option value="takeaway">À emporter / livraison — TVA 6 %</option>
+                </select>
+                {serviceType !== 'auto' && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    ⚠️ La TVA sera recalculée à {serviceType === 'eat_in' ? '12 %' : '6 %'} sur l&apos;ensemble de la facture.
+                  </p>
+                )}
               </div>
               <div className="col-span-2">
                 <label className="text-xs text-gray-600">Notes internes / mention spéciale</label>
