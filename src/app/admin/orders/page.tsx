@@ -516,6 +516,18 @@ export default function OrdersPage() {
                         🏁
                       </button>
                     )}
+                    {['pending', 'preparing'].includes(order.status) && (
+                      <button
+                        onClick={() => {
+                          if (confirm('Annuler cette commande ?')) {
+                            updateStatus(order.id, 'cancelled')
+                          }
+                        }}
+                        className="px-2 py-1 bg-red-100 text-red-700 rounded text-sm"
+                      >
+                        ❌
+                      </button>
+                    )}
                   </div>
                 </div>
                 {(order.customer_name || order.customer_phone) && (
@@ -744,17 +756,21 @@ export default function OrdersPage() {
                   🏁 Terminer
                 </button>
               )}
-              {['pending', 'preparing'].includes(selectedOrder.status) && (
+              {selectedOrder.status !== 'cancelled' && (
                 <button
                   onClick={() => {
-                    if (confirm('Annuler cette commande ?')) {
+                    const isLate = ['ready', 'completed'].includes(selectedOrder.status)
+                    const msg = isLate
+                      ? `Annuler la commande ${selectedOrder.order_number} ?\n\nCette commande est déjà ${selectedOrder.status === 'ready' ? 'prête' : 'terminée'} — elle sera retirée du CA. À utiliser pour un doublon ou un client no-show. Confirmer ?`
+                      : 'Annuler cette commande ?'
+                    if (confirm(msg)) {
                       updateStatus(selectedOrder.id, 'cancelled')
                       setSelectedOrder(null)
                     }
                   }}
                   className="px-4 py-3 rounded-xl bg-red-100 text-red-700 font-semibold hover:bg-red-200 text-sm"
                 >
-                  ❌
+                  ❌ Annuler
                 </button>
               )}
             </div>
