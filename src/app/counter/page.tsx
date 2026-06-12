@@ -140,6 +140,7 @@ export default function CounterPage() {
 
   // Invoice modal
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
+  const [cartOpen, setCartOpen] = useState(false)
   
   // Payment modal state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -1049,12 +1050,46 @@ export default function CounterPage() {
         </div>
       </div>
 
-      {/* Cart sidebar */}
-      <div className="w-72 md:w-80 lg:w-96 bg-white shadow-xl flex flex-col flex-shrink-0 border-l">
-        <div className="p-3 bg-slate-800 text-white flex-shrink-0">
+      {/* Mobile cart FAB (sticky bottom) */}
+      {!cartOpen && (
+        <button
+          onClick={() => setCartOpen(true)}
+          className="lg:hidden fixed bottom-3 left-3 right-3 z-30 bg-slate-800 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center justify-between font-bold active:scale-[0.98]"
+        >
+          <span className="flex items-center gap-2 text-base">
+            🛒 {cart.length > 0
+              ? `${cart.reduce((s, i) => s + i.quantity, 0)} article${cart.reduce((s, i) => s + i.quantity, 0) > 1 ? 's' : ''}`
+              : 'Panier vide'}
+          </span>
+          <span className="text-orange-400 text-lg">{getCartTotal().toFixed(2)} €</span>
+        </button>
+      )}
+
+      {/* Mobile drawer backdrop */}
+      {cartOpen && (
+        <div
+          onClick={() => setCartOpen(false)}
+          className="lg:hidden fixed inset-0 bg-black/40 z-40"
+        />
+      )}
+
+      {/* Cart sidebar (desktop) / drawer (mobile) */}
+      <div
+        className={`${
+          cartOpen ? 'fixed inset-x-0 bottom-0 top-14 z-50 flex' : 'hidden'
+        } lg:relative lg:inset-auto lg:flex lg:z-auto lg:w-96 bg-white shadow-xl flex-col flex-shrink-0 border-l lg:rounded-none rounded-t-3xl overflow-hidden`}
+      >
+        <div className="p-3 bg-slate-800 text-white flex-shrink-0 flex items-center justify-between gap-2">
           <h2 className="text-base font-bold">
             {orderType === 'delivery' ? '📞 Livraison' : isBux ? '🪵 BUX' : '🛒 Commande'}
           </h2>
+          <button
+            onClick={() => setCartOpen(false)}
+            className="lg:hidden text-white text-2xl px-2 -mr-1 active:opacity-60"
+            aria-label="Fermer le panier"
+          >
+            ✕
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4">
