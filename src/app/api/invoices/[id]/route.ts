@@ -86,6 +86,26 @@ export async function PATCH(
       console.error('[invoices PATCH] err:', error)
       return NextResponse.json({ error: 'Update failed' }, { status: 500 })
     }
+
+    // Propagation du statut de paiement sur les commandes liées.
+    // Quand une facture B2B passe de pending → payée (virement reçu), les
+    // commandes doivent réintégrer le CA encaissé (Z-report). Inversement,
+    // si on requalifie une facture payée en pending, on les sort du Z.
+    if (paymentMethod !== undefined) {
+      const { data: links } = await admin
+        .from('invoice_orders')
+        .select('order_id')
+        .eq('invoice_id', params.id)
+      const orderIds = (links || []).map(l => l.order_id)
+      if (orderIds.length > 0) {
+        const newOrderPaymentStatus = paymentMethod === 'pending' ? 'pending' : 'paid'
+        await admin
+          .from('orders')
+          .update({ payment_status: newOrderPaymentStatus })
+          .in('id', orderIds)
+      }
+    }
+
     return NextResponse.json(data)
   } catch (err: any) {
     console.error('[invoices PATCH] unexpected:', err)

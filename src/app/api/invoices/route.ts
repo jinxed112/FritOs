@@ -131,6 +131,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to link orders' }, { status: 500 })
     }
 
+    // 6. Propagation du statut de paiement sur les commandes liées.
+    // Le counter crée toute commande non-delivery avec payment_status='paid'
+    // (Michele tape Cash/Card à l'encaissement). Si la facture est émise en
+    // 'pending' (paiement différé B2B), ces commandes doivent quitter le Z
+    // jusqu'à ce que la facture soit acquittée. Sinon le CA encaissé est
+    // surévalué (la commune n'a pas encore viré l'argent).
+    if (paymentMethod === 'pending') {
+      const { error: payErr } = await admin
+        .from('orders')
+        .update({ payment_status: 'pending' })
+        .in('id', orderIds)
+      if (payErr) {
+        console.error('[invoices] order payment_status update error:', payErr)
+        // Pas de rollback : la facture existe et est cohérente, juste l'écho
+        // sur les orders a foiré. À investiguer si ça arrive.
+      }
+    }
+
     return NextResponse.json({
       id: invoice.id,
       invoiceNumber: invoice.invoice_number,
