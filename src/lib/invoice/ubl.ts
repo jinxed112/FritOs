@@ -193,27 +193,45 @@ export function generateUBLInvoice(data: UBLData): string {
     }
   }
 
-  // ─── Regroupement TaxSubtotal par taux ──────────────────────────────────
-  const taxByRate = new Map<number, { taxable: number; tax: number }>()
-  for (const line of flatLines) {
-    const cur = taxByRate.get(line.vatRate) ?? { taxable: 0, tax: 0 }
-    cur.taxable += line.lineExtAmount
-    cur.tax += line.lineExtAmount * line.vatRate / 100
-    taxByRate.set(line.vatRate, cur)
+  // ─── Compensation d'arrondi ─────────────────────────────────────────────
+  // La somme des HT arrondis ligne par ligne peut dériver de quelques centimes
+  // vs invoice.total_ht (la valeur officielle DB / facture papier). On compense
+  // l'écart sur la dernière ligne pour que Σ LineExtensionAmount = total_ht DB
+  // (règle PEPPOL BR-CO-10) et que le total TTC du UBL matche exactement le
+  // total facturé au client (rapprochement comptable / bancaire).
+  const targetTotalHT = round2(Number(invoice.total_ht))
+  const sumLineHT_initial = round2(flatLines.reduce((s, l) => s + l.lineExtAmount, 0))
+  const drift = round2(targetTotalHT - sumLineHT_initial)
+  if (Math.abs(drift) >= 0.005 && flatLines.length > 0) {
+    const last = flatLines[flatLines.length - 1]
+    last.lineExtAmount = round2(last.lineExtAmount + drift)
+    last.unitPriceHT = round2(last.lineExtAmount / last.quantity)
   }
-  const taxSubtotals = Array.from(taxByRate.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([rate, v]) => ({
-      rate,
-      taxable: round2(v.taxable),
-      tax: round2(v.tax),
-    }))
 
-  // ─── Totaux ─────────────────────────────────────────────────────────────
+  // ─── TaxSubtotal : utilise les valeurs DB pour précision parfaite ───────
+  const taxSubtotals: { rate: number; taxable: number; tax: number }[] = []
+  const v6 = round2(Number(invoice.vat_6))
+  const v12 = round2(Number(invoice.vat_12))
+  if (v6 > 0 && v12 === 0) {
+    taxSubtotals.push({ rate: 6, taxable: targetTotalHT, tax: v6 })
+  } else if (v12 > 0 && v6 === 0) {
+    taxSubtotals.push({ rate: 12, taxable: targetTotalHT, tax: v12 })
+  } else if (v6 > 0 && v12 > 0) {
+    // Mixte : base reverse depuis chaque taux, ajustée pour matcher total_ht
+    const base6 = round2(v6 / 0.06)
+    const base12 = round2(targetTotalHT - base6)
+    taxSubtotals.push({ rate: 6, taxable: base6, tax: v6 })
+    taxSubtotals.push({ rate: 12, taxable: base12, tax: v12 })
+  } else {
+    // Cas dégénéré (pas de TVA) — fallback minimal
+    taxSubtotals.push({ rate: 6, taxable: targetTotalHT, tax: 0 })
+  }
+
+  // ─── Totaux : tous depuis DB (source de vérité) ─────────────────────────
   const totalLineExt = round2(flatLines.reduce((s, l) => s + l.lineExtAmount, 0))
-  const totalTaxAmount = round2(taxSubtotals.reduce((s, t) => s + t.tax, 0))
-  const totalTaxExclusive = totalLineExt
-  const totalTaxInclusive = round2(totalLineExt + totalTaxAmount)
+  const totalTaxAmount = round2(v6 + v12)
+  const totalTaxExclusive = targetTotalHT
+  const totalTaxInclusive = round2(Number(invoice.total_ttc))
   const payableAmount = totalTaxInclusive
 
   // PaymentMeansCode : 30 = virement (cas pending), 10 = cash, 48 = card
