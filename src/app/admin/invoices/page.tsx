@@ -119,7 +119,10 @@ export default function InvoicesPage() {
       alert(`✅ Envoyé à ${data.sentTo}`)
       load()
     } else {
-      alert(`Erreur envoi : ${data.error || 'inconnue'}`)
+      const detailMsg = data.details
+        ? `\n\nDétail :\n${typeof data.details === 'string' ? data.details : JSON.stringify(data.details, null, 2)}`
+        : ''
+      alert(`Erreur envoi : ${data.error || 'inconnue'}${detailMsg}`)
     }
   }
 
