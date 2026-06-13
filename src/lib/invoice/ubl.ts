@@ -91,7 +91,7 @@ function extractKBO(vat: string | null | undefined): string {
   return n.replace(/^BE/, '')
 }
 
-/** Parse une adresse multi-lignes "Rue X 1\n7300 Boussu" → composants. */
+/** Parse une adresse "Rue X 1\n7300 Boussu" OU "Rue X 1 7300 Boussu" → composants. */
 function parseAddress(addr: string | null | undefined): {
   street: string
   postalCode: string
@@ -100,12 +100,24 @@ function parseAddress(addr: string | null | undefined): {
   if (!addr) return { street: '', postalCode: '', city: '' }
   const lines = addr.split(/[\n,]/).map(l => l.trim()).filter(Boolean)
   if (lines.length === 0) return { street: '', postalCode: '', city: '' }
-  const street = lines[0]
-  // Dernière ligne contient typiquement "CP Ville" ou juste "Ville"
-  const last = lines[lines.length - 1]
-  const m = last.match(/^(\d{4})\s+(.+)$/)
-  if (m) return { street, postalCode: m[1], city: m[2] }
-  return { street, postalCode: '', city: last }
+
+  if (lines.length > 1) {
+    // Forme multi-lignes : last = "CP Ville" ou juste "Ville"
+    const street = lines[0]
+    const last = lines[lines.length - 1]
+    const m = last.match(/^(\d{4})\s+(.+)$/)
+    if (m) return { street, postalCode: m[1], city: m[2] }
+    return { street, postalCode: '', city: last }
+  }
+
+  // Forme single-line : "Rue X 1 7300 Boussu" → on cherche un code postal BE
+  // (4 chiffres) précédé d'un espace, on coupe à cet endroit.
+  const single = lines[0]
+  const cp = single.match(/^(.+?)\s+(\d{4})\s+(.+)$/)
+  if (cp) return { street: cp[1].trim(), postalCode: cp[2], city: cp[3].trim() }
+
+  // Pas de CP détecté → on stocke tout en street (mieux que de doubler)
+  return { street: single, postalCode: '', city: '' }
 }
 
 function ymd(date: string | Date): string {
