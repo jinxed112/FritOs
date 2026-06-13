@@ -1,0 +1,17 @@
+[Unit]
+Description=Appetito Box → FritOS bridge (ESC/POS capture + relay)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/pi/fritos/tools/appetito-bridge
+ExecStart=/usr/bin/python3 /home/pi/fritos/tools/appetito-bridge/capture.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
