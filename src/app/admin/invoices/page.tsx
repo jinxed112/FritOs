@@ -109,6 +109,20 @@ export default function InvoicesPage() {
     }
   }
 
+  async function sendToAccountant(inv: Invoice) {
+    if (!confirm(`Envoyer la facture ${inv.invoice_number} au comptable (UBL via WinAuditor) ?`)) return
+    const res = await fetch(`/api/invoices/${inv.id}/send-to-accountant`, {
+      method: 'POST',
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      alert(`✅ Envoyé à ${data.sentTo}`)
+      load()
+    } else {
+      alert(`Erreur envoi : ${data.error || 'inconnue'}`)
+    }
+  }
+
   return (
     <div className="p-4 lg:p-8">
       <div className="flex items-center justify-between mb-6">
@@ -234,6 +248,13 @@ export default function InvoicesPage() {
                       >
                         ⇄
                       </button>
+                      <button
+                        onClick={() => sendToAccountant(inv)}
+                        className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 text-sm"
+                        title="Envoyer au comptable (UBL PEPPOL → WinAuditor)"
+                      >
+                        📤
+                      </button>
                       {inv.payment_method === 'pending' ? (
                         <button
                           onClick={() => setActionFor(inv)}
@@ -287,6 +308,13 @@ export default function InvoicesPage() {
                     title="Requalifier sur place / emporter"
                   >
                     ⇄
+                  </button>
+                  <button
+                    onClick={() => sendToAccountant(inv)}
+                    className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm"
+                    title="Envoyer au comptable (UBL)"
+                  >
+                    📤
                   </button>
                   {inv.payment_method === 'pending' && (
                     <button
