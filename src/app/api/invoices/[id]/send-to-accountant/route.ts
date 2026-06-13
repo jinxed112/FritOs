@@ -20,19 +20,13 @@ const admin = createClient(
 // Auth : session admin Supabase requise côté UI.
 //
 // Config (env Vercel) :
-//   - BREVO_API_KEY                  (existant pour OTP)
-//   - BREVO_SENDER_EMAIL             (existant)
-//   - BREVO_SENDER_NAME              (existant)
-//   - ACCOUNTANT_EMAIL_BOUSSU        adresse WinAuditor pour SBURGS Boussu
-//   - ACCOUNTANT_EMAIL_JURBISE       adresse WinAuditor pour SBURGS Jurbise
-//   - ACCOUNTANT_EMAIL_EVENEMENTS    adresse WinAuditor pour SBURGS Événements
-//   - ACCOUNTANT_EMAIL_FALLBACK      adresse de repli si pas de mapping
-
-const ACCOUNTANT_EMAIL_BY_SLUG: Record<string, string | undefined> = {
-  boussu: process.env.ACCOUNTANT_EMAIL_BOUSSU,
-  'mdjambo-jurbise': process.env.ACCOUNTANT_EMAIL_JURBISE,
-  evenements: process.env.ACCOUNTANT_EMAIL_EVENEMENTS,
-}
+//   - BREVO_API_KEY        (existant pour OTP)
+//   - BREVO_SENDER_EMAIL   (existant)
+//   - BREVO_SENDER_NAME    (existant)
+//   - ACCOUNTANT_EMAIL     adresse WinAuditor unique du dossier SBURGS SRL
+//                          (les 3 sites — Boussu, Jurbise, Événements — sont
+//                          tous rattachés à la même SRL, donc même dossier
+//                          comptable et même boîte UBL).
 
 export async function POST(
   _req: NextRequest,
@@ -60,13 +54,12 @@ export async function POST(
       return NextResponse.json({ error: 'Établissement introuvable' }, { status: 500 })
     }
 
-    // 2. Résoudre l'adresse email du comptable WinAuditor
-    const accountantEmail =
-      ACCOUNTANT_EMAIL_BY_SLUG[est.slug] || process.env.ACCOUNTANT_EMAIL_FALLBACK
+    // 2. Adresse comptable WinAuditor unique pour SBURGS SRL
+    const accountantEmail = process.env.ACCOUNTANT_EMAIL
     if (!accountantEmail) {
       return NextResponse.json(
         {
-          error: `Pas d'adresse email comptable configurée pour ${est.slug}. Ajoute ACCOUNTANT_EMAIL_${est.slug.toUpperCase().replace(/-/g, '_')} dans les env vars Vercel.`,
+          error: `Pas d'adresse email comptable configurée. Ajoute ACCOUNTANT_EMAIL dans les env vars Vercel (boîte UBL WinAuditor du dossier SBURGS).`,
         },
         { status: 503 }
       )
