@@ -1,0 +1,17 @@
+[Unit]
+Description=Bluetooth SPP printer bridge → TCP 9100 (Appetito Box)
+After=bluetooth.service network.target appetito-bridge.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/pi/fritos-bridge
+ExecStart=/usr/bin/python3 /home/pi/fritos-bridge/bt_printer_bridge.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
