@@ -120,9 +120,11 @@ exit 0
 FIRSTRUN_EOF
 chmod +x "$BOOT_MNT/firstrun.sh"
 
-# Activer firstrun via cmdline.txt
+# Activer firstrun via cmdline.txt — ajout en fin de ligne (le cmdline Pi
+# OS Lite Bookworm récent ne contient pas init= donc on append).
 if ! grep -q "firstrun.sh" "$BOOT_MNT/cmdline.txt"; then
-  sed -i 's| init=| systemd.run=/boot/firmware/firstrun.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target init=|' "$BOOT_MNT/cmdline.txt"
+  CURRENT=$(tr -d '\n' < "$BOOT_MNT/cmdline.txt")
+  echo "${CURRENT} systemd.run=/boot/firmware/firstrun.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target" > "$BOOT_MNT/cmdline.txt"
 fi
 
 # ─── 5. Éjection ────────────────────────────────────────────────────────────
