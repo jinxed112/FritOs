@@ -64,6 +64,13 @@ def fix_zeros(s: str) -> str:
     On ne touche PAS aux '6' qui sont rarement confondus."""
     return s.replace("8", "0")
 
+
+def round_price(p: float) -> float:
+    """Arrondit au multiple de 10 cts le plus proche.
+    Convention MDjambo : tous les prix se terminent par 0 (X,X0).
+    OCR Appetito confond souvent les 0 en 8/9 → on corrige globalement."""
+    return round(p * 10) / 10
+
 ORDER_TYPES = {
     "EMPORTER": "takeaway",
     "EMPORT": "takeaway",
@@ -203,7 +210,7 @@ def parse_ticket(text: str) -> dict:
         m_tot = TOTAL_RE.match(s)
         if m_tot:
             label = m_tot.group(1).lower()
-            val = float(m_tot.group(2).replace(",", "."))
+            val = round_price(float(m_tot.group(2).replace(",", ".")))
             if "sous" in label:
                 out["subtotal"] = val
             else:
@@ -224,7 +231,7 @@ def parse_ticket(text: str) -> dict:
             qty = int(m_item.group(1))
             name = m_item.group(2).strip()
             try:
-                price = float(m_item.group(3).replace(",", "."))
+                price = round_price(float(m_item.group(3).replace(",", ".")))
             except ValueError:
                 price = 0.0
             current_item = {
