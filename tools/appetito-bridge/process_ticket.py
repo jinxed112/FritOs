@@ -60,8 +60,9 @@ def run_ocr(img) -> str:
 # Heuristique : remplace les 8/6 par 0 dans les patterns numériques où c'est
 # très probable. Tesseract confond systématiquement la police Appetito sur 0.
 def fix_zeros(s: str) -> str:
-    """Corrige les chiffres OCR ambigus dans un fragment numérique."""
-    return s.replace("8", "0").replace("6", "0")
+    """Corrige les '8' OCR (confusion fréquente avec 0 sur la police Appetito).
+    On ne touche PAS aux '6' qui sont rarement confondus."""
+    return s.replace("8", "0")
 
 ORDER_TYPES = {
     "EMPORTER": "takeaway",
@@ -130,16 +131,16 @@ def parse_ticket(text: str) -> dict:
     #   - on skip celle précédée par "Tél." ou contenue dans la blacklist
     #     (= téléphone du resto)
     #   - on prend la première autre : ligne d'avant = nom client
-    RESTAURANT_PHONE_BLACKLIST = {"+32497753554"}  # Boussu — à compléter
+    # Pas de blacklist hardcodée : ça shoote le client si son tel = celui du
+    # resto. On se base juste sur le marqueur textuel "Tél." pour skipper la
+    # ligne signature du restaurant.
     phone_re = re.compile(r"(\+32\s*[\d\s]{8,}|0\d{2}[\s\d]{7,}|\+\d{2,3}\s*\d[\d\s]+)")
     for i, l in enumerate(lines):
         m_phone = phone_re.search(l)
         if not m_phone:
             continue
         phone_raw = re.sub(r"[^\d+]", "", m_phone.group(1))
-        # Skip si téléphone du restaurant ou ligne avec "Tél."
-        if phone_raw in RESTAURANT_PHONE_BLACKLIST:
-            continue
+        # Skip uniquement les lignes "Tél. : ..." (= signature resto)
         if "Tél" in l or "Tel " in l or "Téléphone" in l:
             continue
         # OK c'est le téléphone client. Cherche le nom dans les 3 lignes au-dessus.
