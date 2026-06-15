@@ -100,8 +100,13 @@ def parse_ticket(text: str) -> dict:
             out["orderType"] = val
             break
 
-    # ─── Heure prévue : "JJ/MM/AA HH:MM" après le type "À EMPORTER AUJOURD'HUI"
+    # ─── Heure prévue : "JJ/MM/AA HH:MM" — PREMIÈRE occurrence dans le ticket
+    # (le ticket a aussi "Date : JJ/MM/AA HH:MM" en bas = heure d'impression,
+    # à ne pas prendre).
     for i, l in enumerate(lines):
+        # Skip la ligne "Date : ..." qui est l'heure d'impression
+        if l.strip().lower().startswith("date "):
+            continue
         m = re.search(r"(\d{2})/(\d{2})/(\d{2})\s+(\d{1,2}):(\d{2})", l)
         if m:
             day, mon, yr, hh, mm = m.groups()
@@ -119,22 +124,45 @@ def parse_ticket(text: str) -> dict:
             except ValueError:
                 continue
 
-    # ─── Client : 2 lignes après le restaurant (nom + tél) ──────────────────
-    # Heuristique : tel commence par "+32" ou "04" ou "0" ; nom = ligne juste
-    # avant qui ne contient pas que des chiffres.
+    # ─── Client : nom + tél, en SKIPPANT le téléphone du restaurant ─────────
+    # Heuristique :
+    #   - on cherche TOUTES les lignes "+32..." ou "04..." dans le ticket
+    #   - on skip celle précédée par "Tél." ou contenue dans la blacklist
+    #     (= téléphone du resto)
+    #   - on prend la première autre : ligne d'avant = nom client
+    RESTAURANT_PHONE_BLACKLIST = {"+32497753554"}  # Boussu — à compléter
+    phone_re = re.compile(r"(\+32\s*[\d\s]{8,}|0\d{2}[\s\d]{7,}|\+\d{2,3}\s*\d[\d\s]+)")
     for i, l in enumerate(lines):
-        m_phone = re.search(r"(\+32\s*[\d\s]{8,}|0\d{2}[\s\d]{7,}|\+\d{2,3}\s*\d[\d\s]+)", l)
-        if m_phone:
-            # Nom = ligne précédente non vide, non capitales (≠ titres)
-            phone_raw = re.sub(r"[^\d+]", "", m_phone.group(1))
-            out["customer"]["phone"] = phone_raw
-            for j in range(i - 1, max(i - 4, -1), -1):
-                cand = lines[j].strip()
-                if cand and not re.match(r"^[\d\s\+\-./]+$", cand) and "Mdjambo" not in cand and "appetito" not in cand.lower():
-                    if not any(k in cand.upper() for k in ["RUE", "AVENUE", "BOULEVARD", "TÉL"]):
-                        out["customer"]["name"] = cand
-                        break
-            break
+        m_phone = phone_re.search(l)
+        if not m_phone:
+            continue
+        phone_raw = re.sub(r"[^\d+]", "", m_phone.group(1))
+        # Skip si téléphone du restaurant ou ligne avec "Tél."
+        if phone_raw in RESTAURANT_PHONE_BLACKLIST:
+            continue
+        if "Tél" in l or "Tel " in l or "Téléphone" in l:
+            continue
+        # OK c'est le téléphone client. Cherche le nom dans les 3 lignes au-dessus.
+        out["customer"]["phone"] = phone_raw
+        for j in range(i - 1, max(i - 4, -1), -1):
+            cand = lines[j].strip()
+            if not cand:
+                continue
+            # Skip séparateurs purs ("---", "—", "===")
+            if re.match(r"^[\s\-—_=\*\.]+$", cand):
+                continue
+            # Skip lignes purement chiffres/symboles
+            if re.match(r"^[\d\s\+\-./]+$", cand):
+                continue
+            if "Mdjambo" in cand or "appetito" in cand.lower():
+                continue
+            if any(k in cand.upper() for k in ["RUE", "AVENUE", "BOULEVARD", "TÉL", "L'APPLICATION"]):
+                continue
+            # On exige au moins 2 lettres alphabétiques
+            if len(re.sub(r"[^A-Za-zÀ-ÿ]", "", cand)) >= 2:
+                out["customer"]["name"] = cand
+                break
+        break
 
     # ─── Items : parser ligne par ligne ─────────────────────────────────────
     # Format observé :
