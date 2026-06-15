@@ -99,6 +99,24 @@ class ESCPOSHandler(socketserver.BaseRequestHandler):
         print(f"[{ts}] {len(data):>5} bytes from {ip} → {bin_path.name}")
         sys.stdout.flush()
 
+        # Auto-trigger process_ticket.py en background pour les tickets > 50KB
+        # (les petits ne sont pas des tickets Appetito complets). Daemon process,
+        # ne bloque pas la capture suivante.
+        if len(data) > 50_000:
+            try:
+                import subprocess
+                subprocess.Popen(
+                    ["python3", "/home/pi/fritos-bridge/process_ticket.py", str(bin_path)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                print(f"[{ts}] → process_ticket spawned for {bin_path.name}")
+                sys.stdout.flush()
+            except Exception as e:
+                print(f"[{ts}] ✕ failed to spawn process_ticket: {e}")
+                sys.stdout.flush()
+
 
 def main():
     print(f"Capture dir : {CAPTURE_DIR}")
