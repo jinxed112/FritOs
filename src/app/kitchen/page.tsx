@@ -118,7 +118,7 @@ const OPTION_ICONS: { keywords: string[]; icon: string; color: string }[] = [
   { keywords: ['tomate', 'tomates'], icon: '🍅', color: 'text-red-400' },
   { keywords: ['cornichon', 'pickles'], icon: '🥒', color: 'text-green-500' },
   { keywords: ['oeuf', 'œuf', 'egg'], icon: '🍳', color: 'text-yellow-300' },
-  { keywords: ['frite supp', 'frites supp'], icon: '🍟', color: 'text-yellow-400' },
+  { keywords: ['frite supp', 'frites supp', 'frites en supp', 'frite en supp'], icon: '🍟', color: 'text-yellow-400' },
   { keywords: ['piquant', 'épicé', 'hot'], icon: '🌶️', color: 'text-orange-400' },
   { keywords: ['végé', 'vegan', 'végétarien'], icon: '🌱', color: 'text-green-400' },
   { keywords: ['pain', 'bun', 'wrap', 'pita'], icon: '🍞', color: 'text-amber-400' },
