@@ -105,6 +105,17 @@ export async function POST(req: NextRequest) {
       productByName.set(normalize(p.name), p)
     }
 
+    // Fallback : product_id en DB est NOT NULL, donc si aucun match,
+    // on prend un produit "ghost" arbitraire (le premier dispo). Le KDS
+    // affichera quand même le bon product_name d'Appetito.
+    const fallbackProduct = (products && products.length > 0) ? products[0] : null
+    if (!fallbackProduct) {
+      return NextResponse.json(
+        { error: 'Aucun produit configuré pour cet établissement — impossible de créer la commande Appetito' },
+        { status: 503 }
+      )
+    }
+
     // ─── Build order_items ──────────────────────────────────────────────────
     let computedSubtotal = 0
     const orderItems: any[] = []
@@ -117,8 +128,8 @@ export async function POST(req: NextRequest) {
       const optionsData = item.options.map(o => ({ item_name: o, price: 0 }))
 
       orderItems.push({
-        product_id: matched?.id || null,
-        product_name: item.productName,
+        product_id: matched?.id || fallbackProduct.id,  // FK NOT NULL → fallback
+        product_name: item.productName,  // affiché au KDS, source de vérité
         quantity: item.quantity,
         unit_price: unitPrice,
         options_selected: optionsData.length > 0 ? JSON.stringify(optionsData) : null,
