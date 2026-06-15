@@ -72,7 +72,7 @@ class ESCPOSHandler(socketserver.BaseRequestHandler):
     def handle(self):
         # On lit jusqu'à fermeture de la connexion (Appetito enverra le ticket
         # complet puis fermera) ou jusqu'à un délai d'inactivité de 2 sec.
-        self.request.settimeout(2.0)
+        self.request.settimeout(30.0)  # large : Appetito print peut prendre 20+s à transmettre via BT
         data = b""
         while True:
             try:
