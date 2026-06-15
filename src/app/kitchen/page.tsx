@@ -364,7 +364,12 @@ export default function KitchenPage() {
         ...order,
         order_type: order.order_type || 'takeaway',
         metadata: typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata,
-        order_items: Array.isArray(order.order_items) ? order.order_items.map((item: any) => ({ ...item, category_name: item.product?.category?.name || 'Autres' })) : []
+        order_items: Array.isArray(order.order_items) ? order.order_items.map((item: any) => ({
+          ...item,
+          // Pour les commandes Appetito, on n'a pas de vrai product_id (fallback dummy),
+          // donc on utilise la catégorie envoyée par Appetito (stockée dans item.notes).
+          category_name: (order.source === 'appetito' ? item.notes : item.product?.category?.name) || 'Autres',
+        })) : []
       })))
     }
     setLoading(false)
