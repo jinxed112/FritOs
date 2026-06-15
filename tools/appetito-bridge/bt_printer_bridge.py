@@ -67,7 +67,7 @@ def relay(bt_sock: socket.socket, bt_addr: tuple) -> None:
 def main() -> None:
     bt = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
     bt.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    bt.bind(("", BT_CHANNEL))
+    bt.bind(("00:00:00:00:00:00", BT_CHANNEL))
     bt.listen(5)
     print(f"Bluetooth RFCOMM bridge listening on channel {BT_CHANNEL} → TCP {TCP_TARGET[0]}:{TCP_TARGET[1]}")
     sys.stdout.flush()
