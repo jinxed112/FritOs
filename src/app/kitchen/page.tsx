@@ -222,7 +222,7 @@ function getOrderTypeEmoji(orderType: string | undefined | null): string {
 }
 
 function isClickAndCollect(order: Order): boolean {
-  return order.source === 'online' || order.order_type === 'pickup' || order.order_type === 'delivery'
+  return order.source === 'online' || order.source === 'appetito' || order.order_type === 'pickup' || order.order_type === 'delivery'
 }
 
 function formatTime(isoString: string | null | undefined): string {
