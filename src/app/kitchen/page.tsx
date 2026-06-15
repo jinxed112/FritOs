@@ -663,6 +663,9 @@ export default function KitchenPage() {
             {order.notes === 'BUX' && (
               <span className="text-xs px-2 py-1 rounded font-bold bg-amber-500/30 text-amber-300">☕ BUX</span>
             )}
+            {order.source === 'appetito' && (
+              <span title="Commande Appetito" className="text-xs px-2 py-1 rounded font-bold bg-pink-500/30 text-pink-300">📱 Appetito</span>
+            )}
             {order.is_offered && <span title="Offert" className="text-base">🎁</span>}
             {column.key !== 'completed' && (
               <>
