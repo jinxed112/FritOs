@@ -111,14 +111,19 @@ def parse_ticket(text: str) -> dict:
         m = re.search(r"(\d{2})/(\d{2})/(\d{2})\s+(\d{1,2}):(\d{2})", l)
         if m:
             day, mon, yr, hh, mm = m.groups()
-            # Corrections OCR fréquentes
+            # Corrections OCR fréquentes : 8→0 si valeur hors plage
             day_f = fix_zeros(day) if int(day) > 31 else day
             mon_f = fix_zeros(mon) if int(mon) > 12 else mon
             hh_f  = fix_zeros(hh)  if int(hh) > 23  else hh
+            # Minutes : Appetito utilise des slots multiples de 5 (00,15,30,45)
+            # Si OCR donne "08" / "38" / "58" → corriger 8→0 (probable bug OCR)
+            mm_f = mm
+            if int(mm) % 5 != 0 and "8" in mm:
+                mm_f = mm.replace("8", "0")
             try:
                 # Année à 2 chiffres → +2000
                 dt = datetime(2000 + int(yr), int(mon_f), int(day_f),
-                              int(hh_f), int(mm),
+                              int(hh_f), int(mm_f),
                               tzinfo=timezone(timedelta(hours=2)))  # Brussels CEST
                 out["scheduledTime"] = dt.isoformat()
                 break
