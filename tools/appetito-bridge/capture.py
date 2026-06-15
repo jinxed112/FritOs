@@ -100,18 +100,21 @@ class ESCPOSHandler(socketserver.BaseRequestHandler):
         sys.stdout.flush()
 
         # Auto-trigger process_ticket.py en background pour les tickets > 50KB
-        # (les petits ne sont pas des tickets Appetito complets). Daemon process,
-        # ne bloque pas la capture suivante.
+        # (les petits ne sont pas des tickets Appetito complets). Logs envoyés
+        # dans /tmp/process_ticket.log pour debug post-mortem.
         if len(data) > 50_000:
             try:
                 import subprocess
-                subprocess.Popen(
-                    ["python3", "/home/pi/fritos-bridge/process_ticket.py", str(bin_path)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                print(f"[{ts}] → process_ticket spawned for {bin_path.name}")
+                log_path = "/tmp/process_ticket.log"
+                with open(log_path, "ab") as logf:
+                    logf.write(f"\n===== {ts} {bin_path.name} =====\n".encode())
+                    subprocess.Popen(
+                        ["python3", "/home/pi/fritos-bridge/process_ticket.py", str(bin_path)],
+                        stdout=logf,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                    )
+                print(f"[{ts}] → process_ticket spawned for {bin_path.name} (logs: {log_path})")
                 sys.stdout.flush()
             except Exception as e:
                 print(f"[{ts}] ✕ failed to spawn process_ticket: {e}")
