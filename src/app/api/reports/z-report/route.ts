@@ -159,6 +159,7 @@ export async function POST(request: NextRequest) {
       .lte('created_at', periodEnd)
       .eq('payment_status', 'paid')
       .neq('status', 'cancelled')
+      .neq('source', 'appetito')  // exclu : Appetito envoie son propre récap fiscal mensuel
     
     if (ordersError) {
       return NextResponse.json({ error: ordersError.message }, { status: 500 })
