@@ -30,7 +30,7 @@ const BodySchema = z.object({
   establishmentId: z.string().uuid(),
   appetitoOrderId: z.string().min(1).max(60),
   orderType: z.enum(['takeaway', 'delivery']),
-  scheduledTime: z.string().datetime().optional().nullable(),
+  scheduledTime: z.string().datetime({ offset: true }).optional().nullable(),
   customer: z.object({
     name: z.string().max(200).optional().nullable(),
     phone: z.string().max(40).optional().nullable(),
