@@ -44,6 +44,12 @@ type Order = {
   offered_reason: string | null
   created_at: string
   order_items: OrderItem[]
+  establishment: {
+    name: string | null
+    address: string | null
+    phone: string | null
+    vat_number: string | null
+  } | null
 }
 
 type FilterStatus = 'all' | 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled'
@@ -101,7 +107,8 @@ export default function OrdersPage() {
       .from('orders')
       .select(`
         *,
-        order_items (*)
+        order_items (*),
+        establishment:establishments (name, address, phone, vat_number)
       `)
       .eq('establishment_id', establishment.id)
       .order('created_at', { ascending: false })
@@ -147,6 +154,40 @@ export default function OrdersPage() {
     }
     
     setLoading(false)
+  }
+
+  async function fetchLogoDataUrl(): Promise<string | null> {
+    try {
+      const res = await fetch('/logo-mdjambo-256.png')
+      if (!res.ok) return null
+      const blob = await res.blob()
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    } catch {
+      return null
+    }
+  }
+
+  async function downloadPDF(order: Order) {
+    try {
+      const [{ generateOrderTicketPDF }, logoDataUrl] = await Promise.all([
+        import('@/lib/pdf/orderTicket'),
+        fetchLogoDataUrl(),
+      ])
+      const doc = await generateOrderTicketPDF(order, {
+        format: 'a5',
+        logoDataUrl,
+      })
+      const dateStr = new Date(order.created_at).toISOString().slice(0, 10)
+      doc.save(`ticket-${order.order_number}-${dateStr}.pdf`)
+    } catch (err) {
+      console.error('PDF generation error:', err)
+      alert('Erreur lors de la génération du PDF')
+    }
   }
 
   async function updateStatus(orderId: string, newStatus: string) {
@@ -722,6 +763,13 @@ export default function OrdersPage() {
                 className="flex-1 px-4 py-3 rounded-xl border border-gray-200 font-semibold text-sm"
               >
                 Fermer
+              </button>
+              <button
+                onClick={() => downloadPDF(selectedOrder)}
+                className="px-4 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200 text-sm"
+                title="Télécharger le ticket en PDF"
+              >
+                📄 PDF
               </button>
               {selectedOrder.status === 'pending' && (
                 <button
