@@ -54,10 +54,12 @@ DROP TABLE IF EXISTS public.payments;
 DROP TABLE IF EXISTS public.daily_reports;
 
 -- Fonctions orphelines du workflow fournisseur jamais activé
--- (les triggers portés par les tables sont tombés avec elles)
+-- (les triggers portés par supplier_orders sont tombés avec la table).
+-- record_supplier_price_history GARDÉE : son trigger est sur supplier_products,
+-- table VIVANTE (82 rows + UI /admin/suppliers/products) — elle historise les
+-- prix dans price_history, rien à voir avec le workflow supplier_orders.
 DROP FUNCTION IF EXISTS public.calculate_supplier_order_totals(uuid);
 DROP FUNCTION IF EXISTS public.generate_supplier_order_number();
-DROP FUNCTION IF EXISTS public.record_supplier_price_history();
 DROP FUNCTION IF EXISTS public.update_stock_on_supplier_delivery();
 
 COMMIT;
