@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -255,11 +255,22 @@ export default function KitchenPage() {
 
   const supabase = createClient()
 
+  // Cleanup realtime + polling : un écran KDS tourne toute la journée, sans ça
+  // chaque re-montage empile un channel et un interval de plus
+  const realtimeCleanupRef = useRef<(() => void) | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
   // ==================== EFFECTS ====================
   useEffect(() => {
     checkAuth()
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
-    return () => clearInterval(timer)
+    return () => {
+      clearInterval(timer)
+      realtimeCleanupRef.current?.()
+      realtimeCleanupRef.current = null
+      if (pollRef.current) clearInterval(pollRef.current)
+      pollRef.current = null
+    }
   }, [])
 
   // ==================== AUTH ====================
@@ -289,7 +300,16 @@ export default function KitchenPage() {
     loadOrders(estId)
     loadTempOrders(estId)
     loadAvgPrepTime(estId)
-    setupRealtime(estId)
+    realtimeCleanupRef.current?.()
+    realtimeCleanupRef.current = setupRealtime(estId)
+    // Polling de secours : le realtime seul perd les commandes arrivées pendant
+    // une coupure wifi (les événements manqués ne sont jamais rejoués). 30 s de
+    // latence max sur un raté réseau, invisible en fonctionnement normal.
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(() => {
+      loadOrders(estId)
+      loadTempOrders(estId)
+    }, 30000)
   }
 
   async function loadAvgPrepTime(estId: string) {
@@ -342,8 +362,23 @@ export default function KitchenPage() {
     const channel = supabase.channel('kds-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `establishment_id=eq.${estId}` }, () => loadOrders(estId))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'temp_orders', filter: `establishment_id=eq.${estId}` }, () => loadTempOrders(estId))
-      .subscribe()
-    return () => supabase.removeChannel(channel)
+      .subscribe((status) => {
+        // À chaque (re)SUBSCRIBED — y compris après une reconnexion wifi — on
+        // recharge tout : ce qui s'est passé pendant la coupure n'est pas rejoué
+        if (status === 'SUBSCRIBED') {
+          loadOrders(estId)
+          loadTempOrders(estId)
+        }
+      })
+    return () => { supabase.removeChannel(channel) }
+  }
+
+  function safeParseMetadata(raw: string): any {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
   }
 
   async function loadOrders(estId: string) {
@@ -363,7 +398,9 @@ export default function KitchenPage() {
       setOrders(data.map(order => ({
         ...order,
         order_type: order.order_type || 'takeaway',
-        metadata: typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata,
+        // JSON.parse gardé : un seul metadata corrompu ne doit pas faire échouer
+        // tout le rechargement (et donc figer le KDS sur des données périmées)
+        metadata: typeof order.metadata === 'string' ? safeParseMetadata(order.metadata) : order.metadata,
         order_items: Array.isArray(order.order_items) ? order.order_items.map((item: any) => ({
           ...item,
           // Pour les commandes Appetito, on n'a pas de vrai product_id (fallback dummy),
