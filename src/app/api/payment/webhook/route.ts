@@ -1,39 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifiedTransaction } from '@/lib/viva/verify'
 
 function getServiceClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
-}
-
-// SÉCURITÉ : Vérifier la transaction auprès de Viva avant de valider la commande
-// Sans ça, n'importe qui peut envoyer un faux webhook et marquer une commande comme payée
-async function verifyVivaTransaction(transactionId: string): Promise<boolean> {
-  try {
-    const merchantId = process.env.VIVA_MERCHANT_ID
-    const apiKey = process.env.VIVA_API_KEY
-    if (!merchantId || !apiKey) {
-      console.error('Missing VIVA_MERCHANT_ID or VIVA_API_KEY')
-      return false
-    }
-    const credentials = Buffer.from(`${merchantId}:${apiKey}`).toString('base64')
-    const response = await fetch(
-      `https://www.vivapayments.com/api/transactions/${transactionId}`,
-      { headers: { Authorization: `Basic ${credentials}` } }
-    )
-    if (!response.ok) {
-      console.error(`Viva verification failed: ${response.status}`)
-      return false
-    }
-    const data = await response.json()
-    console.log(`Viva verification: statusId=${data.StatusId}`)
-    return true
-  } catch (error) {
-    console.error('Viva verification error:', error)
-    return false
-  }
 }
 
 // POST: Webhook Viva Wallet
@@ -55,9 +28,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true })
       }
 
-      // SÉCURITÉ : Vérifier la transaction auprès de Viva
-      const isVerified = await verifyVivaTransaction(transactionId)
-      if (!isVerified) {
+      // SÉCURITÉ : refetch la transaction chez Viva et vérifie que son MerchantTrns
+      // correspond à la commande visée — un TransactionId réel mais étranger est rejeté
+      const viva = await verifiedTransaction(transactionId, merchantTrns)
+      if (!viva) {
         console.error(`Transaction ${transactionId} NOT verified - ignoring`)
         return NextResponse.json({ success: true })
       }
@@ -79,14 +53,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true })
       }
 
+      // 'pending' (pas 'confirmed' : statut inconnu du KDS, la commande serait invisible)
+      // + garde atomique sur le statut pour l'idempotence si deux webhooks arrivent ensemble
       const { error } = await supabase
         .from('orders')
         .update({
           payment_status: 'paid',
           viva_transaction_id: transactionId,
-          status: 'confirmed',
+          status: 'pending',
         })
         .eq('id', merchantTrns)
+        .eq('status', 'awaiting_payment')
 
       if (error) {
         console.error('Erreur mise à jour commande:', error)
@@ -97,15 +74,27 @@ export async function POST(request: NextRequest) {
 
     } else if (eventType === 1797) {
       const merchantTrns = body.EventData?.MerchantTrns
-      if (merchantTrns) {
-        await supabase
+      const transactionId = body.EventData?.TransactionId
+      // Vérifié aussi, et sans écraser un état terminal (paid/refunded)
+      const viva = await verifiedTransaction(transactionId, merchantTrns)
+      if (viva && merchantTrns) {
+        const { data: order } = await supabase
           .from('orders')
-          .update({ payment_status: 'failed' })
+          .select('payment_status')
           .eq('id', merchantTrns)
+          .single()
+        if (order && order.payment_status !== 'paid' && order.payment_status !== 'refunded') {
+          await supabase
+            .from('orders')
+            .update({ payment_status: 'failed' })
+            .eq('id', merchantTrns)
+        }
       }
     } else if (eventType === 1798) {
       const merchantTrns = body.EventData?.MerchantTrns
-      if (merchantTrns) {
+      const transactionId = body.EventData?.TransactionId
+      const viva = await verifiedTransaction(transactionId, merchantTrns)
+      if (viva && merchantTrns) {
         await supabase
           .from('orders')
           .update({ payment_status: 'refunded', status: 'cancelled' })
