@@ -263,7 +263,12 @@ export async function POST(request: NextRequest) {
         scheduled_time: scheduledTime,
         subtotal,
         vat_amount: taxAmount,
+        // total ET total_amount : le rapport Z et le ticket ESC/POS lisent
+        // total_amount, les factures B2B lisent total — les deux doivent être remplis
+        // (même dualité que tax_amount/vat_amount, cf. review 2026-07-02)
+        tax_amount: taxAmount,
         total,
+        total_amount: total,
         payment_method: 'online',
         payment_status: 'pending',
         loyalty_points_used: loyaltyPointsUsed,
