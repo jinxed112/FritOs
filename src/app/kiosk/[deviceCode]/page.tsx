@@ -601,6 +601,7 @@ export default function KioskDevicePage() {
           status: 'awaiting_payment',
           subtotal: subtotalHT,
           tax_amount: taxAmount,
+          total: totalTTC,
           total_amount: totalTTC,
           source: 'kiosk',
           payment_method: 'card',
