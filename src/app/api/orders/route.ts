@@ -69,9 +69,9 @@ const OrderBodySchema = z.object({
   deliveryAddress: z.string().max(500).nullable().optional(),
   deliveryLat: z.number().nullable().optional(),
   deliveryLng: z.number().nullable().optional(),
-  // deliveryFee is still accepted from the client for now but capped to a
-  // sane upper bound. Full server-side recompute via /api/delivery/check is
-  // tracked as a follow-up (TODO doc in PR body).
+  // deliveryFee n'est plus cru par le serveur (frais dérivés des zones via
+  // travelMinutes) — gardé uniquement comme fallback borné quand aucune zone
+  // n'est configurée pour l'établissement.
   deliveryFee: z.number().nonnegative().max(50).optional().default(0),
   travelMinutes: z.number().nullable().optional(),
   notes: z.string().max(500).nullable().optional(),
@@ -231,7 +231,45 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Totals + VAT ───────────────────────────────────────────────────────
-    const totalDeliveryFee = body.orderType === 'delivery' ? body.deliveryFee : 0
+    // Frais de livraison dérivés du SERVEUR (zone ↔ travelMinutes), même
+    // sémantique que /api/delivery/check (mins <= max_minutes, zones triées) —
+    // on ne croit plus body.deliveryFee (cf. gate SaaS f649279).
+    let totalDeliveryFee = 0
+    if (body.orderType === 'delivery') {
+      const { data: estDel } = await supabase
+        .from('establishments')
+        .select('delivery_enabled')
+        .eq('id', establishmentId)
+        .single()
+      if (!estDel?.delivery_enabled) {
+        return NextResponse.json(
+          { success: false, error: 'La livraison n’est pas disponible pour cet établissement.' },
+          { status: 403 }
+        )
+      }
+      const { data: zones } = await supabase
+        .from('delivery_zones')
+        .select('max_minutes, delivery_fee')
+        .eq('establishment_id', establishmentId)
+        .eq('is_active', true)
+        .order('max_minutes', { ascending: true })
+      if (zones && zones.length > 0) {
+        const mins = Number(body.travelMinutes)
+        const zone = Number.isFinite(mins)
+          ? zones.find(z => mins <= Number(z.max_minutes))
+          : null
+        if (!zone) {
+          return NextResponse.json(
+            { success: false, error: 'Adresse hors de la zone de livraison.' },
+            { status: 403 }
+          )
+        }
+        totalDeliveryFee = Math.round((parseFloat(String(zone.delivery_fee)) || 0) * 100) / 100
+      } else {
+        // Pas de zones configurées → frais client borné (fallback).
+        totalDeliveryFee = Math.min(Math.max(0, Number(body.deliveryFee) || 0), 50)
+      }
+    }
     const total = subtotal + totalDeliveryFee
     let taxAmount = 0
     for (const item of orderItems) {
