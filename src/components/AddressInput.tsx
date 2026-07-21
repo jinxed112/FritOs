@@ -131,7 +131,8 @@ export default function AddressInput({
         isDeliverable: data.isDeliverable,
         distance: data.distance,
         duration: data.duration,
-        fee: data.deliveryFee,
+        // /api/delivery/check renvoie `fee` (pas `deliveryFee` comme /calculate)
+        fee: data.fee ?? 0,
         zoneName: data.zoneName,
       }
       
