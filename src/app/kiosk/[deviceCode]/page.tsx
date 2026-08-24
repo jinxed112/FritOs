@@ -889,8 +889,25 @@ export default function KioskDevicePage() {
   }
 
   // Main interface
+  // Une categorie dont tous les produits sont hors plage ne doit pas rester
+  // affichee : sans ca, « Menu » apparaitrait vide tous les soirs et le
+  // week-end. On garde les categories qui n'ont aucun produit du tout, elles
+  // relevent d'un probleme de catalogue et pas d'un horaire.
+  const categoriesVisibles = categories.filter(cat => {
+    const duGroupe = products.filter(p => p.category_id === cat.id)
+    if (duGroupe.length === 0) return true
+    return duGroupe.some(p => estDansSaPlage(p.availability_schedule, minuteCourante))
+  })
+
+  // Si la categorie ouverte disparait en cours de service (14h00 pile, l'ecran
+  // est reste allume), on retombe sur la premiere visible au lieu d'afficher
+  // une liste vide sous un onglet qui n'existe plus.
+  const categorieActive = categoriesVisibles.some(c => c.id === selectedCategory)
+    ? selectedCategory
+    : categoriesVisibles[0]?.id ?? null
+
   const filteredProducts = products.filter(
-    p => p.category_id === selectedCategory && estDansSaPlage(p.availability_schedule, minuteCourante)
+    p => p.category_id === categorieActive && estDansSaPlage(p.availability_schedule, minuteCourante)
   )
   const currentGroup = currentPropositions[currentPropositionIndex]
 
@@ -943,12 +960,12 @@ export default function KioskDevicePage() {
       {/* Categories */}
       <nav className="bg-white border-b-2 border-[#F7B52C]/30">
         <div className="flex gap-2 overflow-x-auto py-3 px-6">
-          {categories.map(cat => (
+          {categoriesVisibles.map(cat => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
               className={`flex items-center gap-2 px-5 py-3 rounded-full font-bold whitespace-nowrap transition-all ${
-                selectedCategory === cat.id
+                categorieActive === cat.id
                   ? 'bg-[#E63329] text-white shadow-lg scale-105'
                   : 'bg-[#FFF9E6] text-[#3D2314] hover:bg-[#F7B52C]/20'
               }`}
