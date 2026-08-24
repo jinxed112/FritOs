@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { estDansSaPlage } from '@/lib/product-availability'
 import AddressInput from '@/components/AddressInput'
 import InvoiceModal from '@/components/InvoiceModal'
 import Link from 'next/link'
@@ -52,6 +53,7 @@ type Product = {
   image_url: string | null
   category_id: string
   is_available: boolean
+  availability_schedule?: unknown
   vat_eat_in: number
   vat_takeaway: number
   product_option_groups: ProductOptionGroup[]
@@ -123,6 +125,9 @@ export default function CounterPage() {
   // Data state
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  // Cet ecran reste allume tout le service : sans ce tick, un produit
+  // a horaires resterait affiche jusqu'au prochain rechargement de page.
+  const [minuteCourante, setMinuteCourante] = useState(() => new Date())
   const [allOptionGroups, setAllOptionGroups] = useState<OptionGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
@@ -180,6 +185,13 @@ export default function CounterPage() {
 
   useEffect(() => {
     checkAuth()
+  }, [])
+
+  // Rafraichit la minute pour que les produits a horaires apparaissent et
+  // disparaissent tout seuls, sans intervention au comptoir.
+  useEffect(() => {
+    const t = setInterval(() => setMinuteCourante(new Date()), 30_000)
+    return () => clearInterval(t)
   }, [])
 
   // ==================== AUTH ====================
@@ -254,7 +266,7 @@ export default function CounterPage() {
     const { data: productsData, error: prodError } = await supabase
       .from('products')
       .select(`
-        id, name, description, price, image_url, category_id, is_available, vat_eat_in, vat_takeaway,
+        id, name, description, price, image_url, category_id, is_available, availability_schedule, vat_eat_in, vat_takeaway,
         product_option_groups (
           option_group_id,
           display_order,
@@ -751,7 +763,9 @@ export default function CounterPage() {
 
   // ==================== HELPERS ====================
 
-  const filteredProducts = products.filter(p => p.category_id === selectedCategory)
+  const filteredProducts = products.filter(
+    p => p.category_id === selectedCategory && estDansSaPlage(p.availability_schedule, minuteCourante)
+  )
 
   // Helper pour extraire les allergènes d'un produit
   function getProductAllergens(product: Product) {

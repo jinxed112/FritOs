@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { getCurrentEstablishment } from '@/lib/establishment/server'
+import { decrireSchedule, estDansSaPlage } from '@/lib/product-availability'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -147,7 +148,7 @@ export async function POST(request: NextRequest) {
     const productIds = body.items.map(i => i.productId)
     const { data: products, error: productsError } = await supabase
       .from('products')
-      .select('id, name, price, vat_eat_in, vat_takeaway')
+      .select('id, name, price, vat_eat_in, vat_takeaway, is_available, availability_schedule')
       .in('id', productIds)
       .eq('establishment_id', establishmentId)
       .eq('is_active', true)
@@ -165,6 +166,36 @@ export async function POST(request: NextRequest) {
       if (!productMap.has(item.productId)) {
         return NextResponse.json(
           { success: false, error: 'Produit non disponible pour cet établissement' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Rupture de stock et plage horaire. Le filtrage des interfaces ne suffit
+    // pas : un panier rejoué avec le bon productId achèterait le menu de midi
+    // un samedi soir. C'est ici, au même endroit que le recalcul des prix, que
+    // la règle doit tenir.
+    //
+    // On juge au moment du RETRAIT, pas au moment du clic : commander à 10h30
+    // un menu qu'on vient chercher à 12h30 est légitime, et l'inverse (payer à
+    // 13h50 pour un retrait à 19h) ne l'est pas.
+    const momentRetrait = new Date(
+      `${body.slotDate}T${body.slotTime}:00${getBrusselsOffset(body.slotDate)}`
+    )
+    for (const item of body.items) {
+      const produit = productMap.get(item.productId)!
+      if (produit.is_available === false) {
+        return NextResponse.json(
+          { success: false, error: `${produit.name} n'est plus disponible` },
+          { status: 400 }
+        )
+      }
+      if (!estDansSaPlage(produit.availability_schedule, momentRetrait)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `${produit.name} n'est pas disponible à cette heure (${decrireSchedule(produit.availability_schedule)})`,
+          },
           { status: 400 }
         )
       }

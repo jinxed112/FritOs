@@ -121,6 +121,7 @@ export interface Database {
           cost_price: number | null
           display_order: number
           is_available: boolean
+          availability_schedule: Json | null
           is_active: boolean
           is_menu: boolean
           menu_config: Json
@@ -144,6 +145,7 @@ export interface Database {
           cost_price?: number | null
           display_order?: number
           is_available?: boolean
+          availability_schedule?: Json | null
           is_active?: boolean
           is_menu?: boolean
           menu_config?: Json
@@ -167,6 +169,7 @@ export interface Database {
           cost_price?: number | null
           display_order?: number
           is_available?: boolean
+          availability_schedule?: Json | null
           is_active?: boolean
           is_menu?: boolean
           menu_config?: Json

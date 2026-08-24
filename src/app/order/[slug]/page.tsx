@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { estDansSaPlage } from '@/lib/product-availability'
 import AddressInput from '@/components/AddressInput'
 
 // Types
@@ -43,6 +44,7 @@ type Product = {
   image_url: string | null
   category_id: string
   is_available: boolean
+  availability_schedule?: unknown
   available_online: boolean
   product_option_groups?: { option_group_id: string; display_order: number }[]
   product_ingredients?: any[]
@@ -108,10 +110,21 @@ export default function OrderPage() {
   const [establishment, setEstablishment] = useState<Establishment | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  // Le portail reste ouvert dans l'onglet du client : sans ce tick il
+  // pourrait mettre au panier a 14h05 un menu affiche a 13h50.
+  const [minuteCourante, setMinuteCourante] = useState(() => new Date())
+
   const [allOptionGroups, setAllOptionGroups] = useState<OptionGroup[]>([])
   const [categoryOptionGroups, setCategoryOptionGroups] = useState<Record<string, string[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Rafraichit la minute : un produit a horaires doit apparaitre et
+  // disparaitre tout seul, sans rechargement de page.
+  useEffect(() => {
+    const t = setInterval(() => setMinuteCourante(new Date()), 30_000)
+    return () => clearInterval(t)
+  }, [])
 
   // Navigation
   const [step, setStep] = useState<Step>('menu')
@@ -225,7 +238,7 @@ export default function OrderPage() {
     const { data: prods } = await supabase
       .from('products')
       .select(`
-        id, name, description, price, image_url, category_id, is_available, available_online,
+        id, name, description, price, image_url, category_id, is_available, availability_schedule, available_online,
         product_ingredients (
           ingredient:ingredients (
             ingredient_allergens (
@@ -240,7 +253,10 @@ export default function OrderPage() {
       .eq('is_available', true)
       .order('display_order')
 
-    // Filtrer les produits disponibles en ligne
+    // Filtrer les produits disponibles en ligne et dans leur plage horaire.
+    // Le portail est charge une fois puis reste ouvert : on refiltre au rendu
+    // via `minuteCourante`, ce filtre-ci ne fait qu'eviter d'afficher un
+    // produit hors plage pendant la premiere seconde.
     const onlineProducts = (prods || []).filter(p => p.available_online !== false)
     setProducts(onlineProducts)
 
@@ -751,7 +767,9 @@ export default function OrderPage() {
     )
   }
 
-  const filteredProducts = products.filter(p => p.category_id === selectedCategory)
+  const filteredProducts = products.filter(
+    p => p.category_id === selectedCategory && estDansSaPlage(p.availability_schedule, minuteCourante)
+  )
 
   // Helper pour extraire les allergènes d'un produit
   function getProductAllergens(product: Product) {

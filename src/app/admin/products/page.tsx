@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import AvailabilityScheduleEditor from '@/components/AvailabilityScheduleEditor'
+import { decrireSchedule, normaliserSchedule, type AvailabilitySchedule } from '@/lib/product-availability'
 import { useCurrentEstablishment } from '@/lib/establishment/client'
 import { Search } from 'lucide-react'
 
@@ -63,6 +65,7 @@ type Product = {
   vat_eat_in: number
   vat_takeaway: number
   is_available: boolean
+  availability_schedule?: unknown
   is_active: boolean
   image_url: string | null
   video_url: string | null
@@ -92,6 +95,7 @@ export default function ProductsPage() {
     vat_eat_in: 12,
     vat_takeaway: 6,
     is_available: true,
+    availability_schedule: null as AvailabilitySchedule | null,
     is_active: true,
     image_url: '' as string | null,
     video_url: '' as string | null,
@@ -224,6 +228,7 @@ export default function ProductsPage() {
         vat_eat_in: product.vat_eat_in || 12,
         vat_takeaway: product.vat_takeaway || 6,
         is_available: product.is_available,
+        availability_schedule: normaliserSchedule(product.availability_schedule),
         is_active: product.is_active,
         image_url: product.image_url,
         video_url: product.video_url || null,
@@ -259,6 +264,7 @@ export default function ProductsPage() {
         vat_eat_in: 12,
         vat_takeaway: 6,
         is_available: true,
+        availability_schedule: null,
         is_active: true,
         image_url: null,
         video_url: null,
@@ -353,6 +359,7 @@ export default function ProductsPage() {
             vat_eat_in: form.vat_eat_in,
             vat_takeaway: form.vat_takeaway,
             is_available: form.is_available,
+            availability_schedule: form.availability_schedule,
             is_active: form.is_active,
             image_url: imageUrl,
             video_url: form.video_url || null,
@@ -381,6 +388,7 @@ export default function ProductsPage() {
             vat_eat_in: form.vat_eat_in,
             vat_takeaway: form.vat_takeaway,
             is_available: form.is_available,
+            availability_schedule: form.availability_schedule,
             is_active: form.is_active,
             video_url: form.video_url || null,
           })
@@ -760,6 +768,14 @@ export default function ProductsPage() {
                       }`}>
                         {product.is_available ? 'Dispo' : 'Indispo'}
                       </span>
+                      {normaliserSchedule(product.availability_schedule) && (
+                        <div
+                          className="mt-1 text-xs text-gray-500"
+                          title={decrireSchedule(product.availability_schedule)}
+                        >
+                          🕐 horaires
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button
@@ -1032,6 +1048,11 @@ export default function ProductsPage() {
                       />
                     </div>
                   </div>
+
+                  <AvailabilityScheduleEditor
+                    value={form.availability_schedule}
+                    onChange={v => setForm({ ...form, availability_schedule: v })}
+                  />
 
                   <div className="flex gap-6">
                     <label className="flex items-center gap-2 cursor-pointer">

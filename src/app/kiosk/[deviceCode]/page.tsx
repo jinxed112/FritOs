@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { estDansSaPlage } from '@/lib/product-availability'
 
 // Types
 type OptionGroupItem = {
@@ -48,6 +49,7 @@ type Product = {
   image_url: string | null
   category_id: string
   is_available: boolean
+  availability_schedule?: unknown
   vat_eat_in: number
   vat_takeaway: number
   product_option_groups: ProductOptionGroup[]
@@ -121,9 +123,19 @@ export default function KioskDevicePage() {
   // Data state
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  // Cet ecran reste allume tout le service : sans ce tick, un produit
+  // a horaires resterait affiche jusqu'au prochain rechargement de page.
+  const [minuteCourante, setMinuteCourante] = useState(() => new Date())
   const [allOptionGroups, setAllOptionGroups] = useState<OptionGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+
+  // Rafraichit la minute pour que les produits a horaires apparaissent et
+  // disparaissent tout seuls, sans intervention au comptoir.
+  useEffect(() => {
+    const t = setInterval(() => setMinuteCourante(new Date()), 30_000)
+    return () => clearInterval(t)
+  }, [])
   
   // Modal produit avec propositions
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -240,7 +252,7 @@ export default function KioskDevicePage() {
     const { data: productsData } = await supabase
       .from('products')
       .select(`
-        id, name, description, price, image_url, category_id, is_available, vat_eat_in, vat_takeaway,
+        id, name, description, price, image_url, category_id, is_available, availability_schedule, vat_eat_in, vat_takeaway,
         product_option_groups (
           option_group_id, display_order,
           option_group:option_groups (
@@ -877,7 +889,9 @@ export default function KioskDevicePage() {
   }
 
   // Main interface
-  const filteredProducts = products.filter(p => p.category_id === selectedCategory)
+  const filteredProducts = products.filter(
+    p => p.category_id === selectedCategory && estDansSaPlage(p.availability_schedule, minuteCourante)
+  )
   const currentGroup = currentPropositions[currentPropositionIndex]
 
   return (
