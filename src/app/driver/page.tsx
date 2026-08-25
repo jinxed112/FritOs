@@ -20,6 +20,9 @@ type DeliveryOrder = {
   payment_method: string | null
   payment_status: string | null
   delivery_fee: number | null
+  // Course que le livreur encaisse lui-même, en espèces. Elle ne passe pas par la
+  // caisse : le livreur est indépendant, c'est son revenu, pas celui de la friterie.
+  driver_fee: number
   order_items: {
     id: string
     product_name: string
@@ -119,6 +122,19 @@ function parseOptions(raw: string | null): string[] {
     if (Array.isArray(parsed)) return parsed.map((o: any) => o.item_name || o.name || String(o)).filter(Boolean)
   } catch { }
   return []
+}
+
+// Course due au livreur, en espèces, à la remise de la commande. Depuis le
+// 26/08/2026 la friterie ne facture plus la livraison : le livreur est à son compte
+// et encaisse sa course lui-même. metadata.driver_fee fait foi ; delivery_fee sert
+// de repli pour les commandes antérieures.
+function driverFeeOf(order: any): number {
+  if (!order) return 0
+  let meta: any = order.metadata
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta) } catch { meta = null }
+  }
+  return Number(meta?.driver_fee ?? order.delivery_fee ?? 0) || 0
 }
 
 // ==================== COMPONENT ====================
@@ -332,8 +348,8 @@ export default function DriverPage() {
           latitude, longitude, customer_slot_start, delivered_lat, delivered_lng,
           order:orders (
             id, order_number, status, total, total_amount,
-            customer_name, customer_phone, scheduled_time, 
-            delivery_notes, payment_status, metadata,
+            customer_name, customer_phone, scheduled_time,
+            delivery_notes, delivery_fee, payment_status, metadata,
             order_items (id, product_name, quantity, options_selected)
           )
         )
@@ -402,6 +418,7 @@ export default function DriverPage() {
         delivery_address: meta.delivery_address || o.delivery_notes || 'Adresse non spécifiée',
         delivery_lat: meta.delivery_lat || null,
         delivery_lng: meta.delivery_lng || null,
+        driver_fee: driverFeeOf(o),
       }
     })
 
@@ -789,6 +806,11 @@ export default function DriverPage() {
                       ) : (
                         <p className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium mt-1">Payé en ligne</p>
                       )}
+                      {order.driver_fee > 0 && (
+                        <p className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold mt-1">
+                          🛵 Course {order.driver_fee.toFixed(2)}€
+                        </p>
+                      )}
                       <p className={`text-xs mt-0.5 ${isLate ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
                         {timeLeft}
                       </p>
@@ -1027,6 +1049,11 @@ export default function DriverPage() {
                         <p className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold mt-0.5">À encaisser</p>
                       ) : (
                         <p className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium mt-0.5">Payé en ligne</p>
+                      )}
+                      {driverFeeOf(order) > 0 && (
+                        <p className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold mt-0.5">
+                          🛵 Course {driverFeeOf(order).toFixed(2)}€
+                        </p>
                       )}
                       {distToStop !== null && isCurrent && (
                         <p className="text-xs text-gray-500 mt-0.5">

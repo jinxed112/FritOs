@@ -79,6 +79,17 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Course due au livreur, en espèces. Depuis le 26/08/2026 la friterie ne facture
+// plus la livraison : metadata.driver_fee fait foi, delivery_fee sert de repli pour
+// les commandes antérieures.
+function readDriverFee(order: any): number {
+  let meta: any = order?.metadata
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta) } catch { meta = null }
+  }
+  return Number(meta?.driver_fee ?? order?.delivery_fee ?? 0) || 0
+}
+
 function generateEscPos(order: any, establishment: any, type: string): Uint8Array {
   const encoder = new TextEncoder()
   const commands: number[] = []
@@ -248,7 +259,20 @@ function generateEscPos(order: any, establishment: any, type: string): Uint8Arra
     commands.push(LF)
     commands.push(GS, 0x21, 0x00)
     commands.push(ESC, 0x45, 0x00)
-    
+
+    // Course du livreur : hors total, réglée en espèces en main propre. Imprimée
+    // pour que le livreur et le client aient le même montant sous les yeux.
+    const driverFee = readDriverFee(order)
+    if (order.order_type === 'delivery' && driverFee > 0) {
+      commands.push(LF)
+      addText(commands, `Course livreur: ${driverFee.toFixed(2)}E`)
+      commands.push(LF)
+      addText(commands, 'A regler en especes au livreur')
+      commands.push(LF)
+      addText(commands, '(service independant)')
+      commands.push(LF)
+    }
+
     // Center
     commands.push(ESC, 0x61, 0x01)
     
