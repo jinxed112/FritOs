@@ -561,7 +561,11 @@ export default function CounterPage() {
   function getCartTotal(): number {
     // Prix TTC identique pour le client (sur place ou emporter)
     // La différence de TVA (12% vs 6%) est absorbée par le commerçant
-    return getCartSubtotal() + (orderType === 'delivery' ? deliveryFee : 0)
+    //
+    // Depuis le 26/08/2026 la course de livraison n'est plus dans le total : le
+    // livreur est indépendant et se fait payer sa course en espèces, en main propre.
+    // Elle ne doit donc entrer ni dans l'encaissement, ni dans le Z, ni dans la TVA.
+    return getCartSubtotal()
   }
 
   function getTotalWithVat(): number {
@@ -643,6 +647,8 @@ export default function CounterPage() {
               delivery_lng: deliveryLng,
               travel_minutes: deliveryInfo?.duration || null,
               phone_order: true,
+              // Course réglée en espèces au livreur, hors caisse. Ce n'est pas du CA.
+              driver_fee: deliveryFee || null,
             })
           : (isOffered && offeredReason ? JSON.stringify({ offered_reason: offeredReason }) : null),
       }
@@ -652,7 +658,8 @@ export default function CounterPage() {
         orderData.customer_name = deliveryCustomerName
         orderData.customer_phone = deliveryCustomerPhone
         orderData.delivery_notes = deliveryAddress
-        orderData.delivery_fee = deliveryFee
+        // 0 volontairement : la friterie ne facture plus la course (metadata.driver_fee)
+        orderData.delivery_fee = 0
         orderData.scheduled_slot_start = scheduledSlotUTC
         orderData.eat_in = false
       }
@@ -1217,16 +1224,25 @@ export default function CounterPage() {
             <span className="text-gray-600">Sous-total</span>
             <span className="font-semibold">{getCartSubtotal().toFixed(2)} €</span>
           </div>
-          {orderType === 'delivery' && deliveryFee > 0 && (
-            <div className="flex justify-between mb-2 text-base">
-              <span className="text-gray-600">Livraison</span>
-              <span className="font-semibold">{deliveryFee.toFixed(2)} €</span>
-            </div>
-          )}
           <div className="flex justify-between mb-5 text-xl">
             <span className="font-bold">Total</span>
             <span className="font-bold text-orange-500 text-2xl">{getCartTotal().toFixed(2)} €</span>
           </div>
+
+          {/* La course ne fait pas partie de l'encaissement : le client la règle en
+              espèces au livreur. Affichée pour qu'on puisse l'annoncer au téléphone. */}
+          {orderType === 'delivery' && deliveryFee > 0 && (
+            <div className="mb-5 p-3 rounded-xl bg-amber-50 border border-amber-200">
+              <div className="flex justify-between text-base text-amber-900">
+                <span className="font-semibold">🛵 Course livreur</span>
+                <span className="font-bold">{deliveryFee.toFixed(2)} €</span>
+              </div>
+              <p className="text-xs text-amber-800 mt-1">
+                Service du livreur indépendant : réglé en espèces entre ses mains,
+                hors caisse, à annoncer au client.
+              </p>
+            </div>
+          )}
           
           {orderType === 'delivery' ? (
             <button
