@@ -150,10 +150,31 @@ export default function OrdersPage() {
   }
 
   async function updateStatus(orderId: string, newStatus: string) {
+    const order = orders.find(o => o.id === orderId)
+
+    // Avancer une commande depuis le back-office la fait sortir de l'écran
+    // cuisine sur le champ. Mesuré : 54 commandes escamotées en 30 jours,
+    // en plein service, sans que la cuisine comprenne.
+    if (['preparing', 'ready', 'completed'].includes(newStatus) && order &&
+        ['pending', 'preparing', 'ready'].includes(order.status)) {
+      const ok = confirm(
+        `Commande ${order.order_number} : elle est en cours côté cuisine.\n\n` +
+        `La passer en « ${newStatus} » ici va la déplacer sur l'écran cuisine` +
+        (newStatus === 'completed' ? ' et l\'en faire disparaître' : '') +
+        `.\n\nContinuer ?`
+      )
+      if (!ok) return
+    }
+
     const updates: any = { status: newStatus }
-    
-    if (newStatus === 'ready') {
-      updates.prepared_at = new Date().toISOString()
+
+    // Mêmes colonnes que /api/kitchen/update-status. Avant, cette page écrivait
+    // prepared_at, que le KDS ne lit pas : ses chronos et son temps de prépa
+    // moyen ignoraient toute commande passée par ici.
+    if (newStatus === 'preparing') {
+      updates.preparation_started_at = new Date().toISOString()
+    } else if (newStatus === 'ready') {
+      updates.ready_at = new Date().toISOString()
     } else if (newStatus === 'completed') {
       updates.completed_at = new Date().toISOString()
     }

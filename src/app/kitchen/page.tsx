@@ -35,6 +35,7 @@ type Order = {
   total?: number | null
   preparation_started_at?: string | null
   ready_at?: string | null
+  completed_at?: string | null
 }
 
 type ParsedOption = { item_name: string; price: number }
@@ -252,6 +253,10 @@ export default function KitchenPage() {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, Set<string>>>({})
   const [checkedItems, setCheckedItems] = useState<Record<string, Set<string>>>({})
   const [avgPrepTime, setAvgPrepTime] = useState<number>(DEFAULT_PREP_TIME)
+  // Session Supabase perdue en cours de service : on ne vide JAMAIS l'écran,
+  // on le dit. Sans ça la policy anon ne laisse passer que les livraisons et
+  // le poll de 30 s remplace silencieusement le tableau par presque rien.
+  const [sessionLost, setSessionLost] = useState(false)
 
   const supabase = createClient()
 
@@ -288,6 +293,20 @@ export default function KitchenPage() {
         return
       }
       setDevice(data.device)
+      // La config du device était sauvée dans devices.config mais jamais relue :
+      // les cases cochées dans ⚙️ ne survivaient pas à un rechargement.
+      const saved = data.device.config
+      if (Array.isArray(saved?.columns) && saved.columns.length > 0) {
+        setColumnConfig({
+          pending: saved.columns.includes('pending'),
+          preparing: saved.columns.includes('preparing'),
+          ready: saved.columns.includes('ready'),
+          completed: saved.columns.includes('completed'),
+        })
+      }
+      if (saved?.displayMode === 'compact' || saved?.displayMode === 'detailed') {
+        setDisplayMode(saved.displayMode)
+      }
       setAuthStatus('authenticated')
       loadAllData(data.device.establishmentId)
     } catch (error) {
@@ -369,6 +388,14 @@ export default function KitchenPage() {
           loadOrders(estId)
           loadTempOrders(estId)
         }
+        // CHANNEL_ERROR / TIMED_OUT / CLOSED n'étaient pas traités : quand le
+        // JWT expire, le socket est rejeté et le KDS ne se réabonnait jamais.
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setTimeout(() => {
+            realtimeCleanupRef.current?.()
+            realtimeCleanupRef.current = setupRealtime(estId)
+          }, 5000)
+        }
       })
     return () => { supabase.removeChannel(channel) }
   }
@@ -382,13 +409,25 @@ export default function KitchenPage() {
   }
 
   async function loadOrders(estId: string) {
+    // Garde-fou : si la session a expiré (refresh token rejeté), le client
+    // repasse en anon. La table orders a une policy anon qui laisse passer les
+    // seules livraisons du jour → la requête REUSSIT et renvoie un tableau
+    // presque vide, qui écrasait tout l'écran sans le moindre message.
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      setSessionLost(true)
+      setLoading(false)
+      return
+    }
+    if (sessionLost) setSessionLost(false)
+
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     
     // Charger : toutes les commandes non-terminées + commandes du jour
     const { data } = await supabase
       .from('orders')
-      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, notes, payment_status, metadata, total_amount, total, preparation_started_at, ready_at, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
+      .select(`id, order_number, order_type, status, created_at, customer_name, customer_phone, scheduled_time, scheduled_slot_start, source, delivery_notes, notes, payment_status, metadata, total_amount, total, preparation_started_at, ready_at, completed_at, order_items ( id, product_name, quantity, options_selected, notes, product:products ( category:categories ( name ) ) )`)
       .eq('establishment_id', estId)
       .neq('status', 'cancelled')
       .neq('status', 'awaiting_payment')
@@ -854,6 +893,17 @@ export default function KitchenPage() {
         <div className="text-2xl font-mono font-bold">{currentTime.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
 
+      {/* Session expirée : l'écran est figé sur les dernières données connues,
+          il ne se vide pas et il le dit. */}
+      {sessionLost && (
+        <div className="flex-shrink-0 bg-red-600 text-white px-3 py-2 flex items-center justify-between animate-pulse">
+          <span className="font-bold text-sm">⚠️ Session expirée — l'écran ne se met plus à jour</span>
+          <button onClick={() => router.push('/device')} className="bg-white text-red-700 font-bold px-3 py-1 rounded text-sm">
+            Reconnecter
+          </button>
+        </div>
+      )}
+
       {/* Columns */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-gray-400">Chargement...</p></div>
@@ -901,6 +951,33 @@ export default function KitchenPage() {
                   {order.order_number} {getOrderTypeEmoji(order.order_type)} ⏰ {formatTime(order.scheduled_slot_start || order.scheduled_time)}
                   {order.order_type === 'delivery' && order.customer_name ? ` • ${order.customer_name}` : ''}
                 </span>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Dernières clôturées : une commande clôturée par erreur (mauvais appui,
+          ou clôture depuis le back-office) sortait de l'écran sans retour possible. */}
+      {(() => {
+        const justClosed = allOrders
+          .filter(o => o.status === 'completed' && !o.is_offered)
+          .sort((a, b) => new Date(b.completed_at || b.created_at).getTime() - new Date(a.completed_at || a.created_at).getTime())
+          .slice(0, 6)
+        if (justClosed.length === 0 || columnConfig.completed) return null
+        return (
+          <div className="flex-shrink-0 bg-slate-800/80 border-t border-slate-600 px-3 py-1.5">
+            <div className="flex items-center gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+              <span className="text-xs font-bold text-gray-500 uppercase flex-shrink-0">✅ clôturées</span>
+              {justClosed.map(order => (
+                <button
+                  key={order.id}
+                  onClick={() => updateStatus(order.id, 'ready')}
+                  title="Remettre en Prêt"
+                  className="flex-shrink-0 text-xs text-gray-300 bg-slate-700 hover:bg-slate-600 active:scale-95 px-2 py-1 rounded transition-all"
+                >
+                  ↩︎ {order.order_number} {getOrderTypeEmoji(order.order_type)}
+                </button>
               ))}
             </div>
           </div>
