@@ -388,14 +388,12 @@ export default function KitchenPage() {
           loadOrders(estId)
           loadTempOrders(estId)
         }
-        // CHANNEL_ERROR / TIMED_OUT / CLOSED n'étaient pas traités : quand le
-        // JWT expire, le socket est rejeté et le KDS ne se réabonnait jamais.
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          setTimeout(() => {
-            realtimeCleanupRef.current?.()
-            realtimeCleanupRef.current = setupRealtime(estId)
-          }, 5000)
-        }
+        // Surtout pas de réabonnement maison sur CHANNEL_ERROR / TIMED_OUT /
+        // CLOSED : realtime-js rejoint déjà le canal tout seul (backoff intégré)
+        // et supabase-js lui repousse le JWT rafraîchi. Le réabonnement ajouté
+        // le 28/08 se relançait sur le CLOSED émis par son propre removeChannel :
+        // boucle sans fin (12 M d'abonnements en une nuit), base prod à genoux
+        // les 09, 20 et 21/09. Le poll de 30 s couvre les ratés.
       })
     return () => { supabase.removeChannel(channel) }
   }
