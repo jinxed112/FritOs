@@ -156,6 +156,8 @@ export default function CounterPage() {
   // Confirmation
   const [orderNumber, setOrderNumber] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Paiement carte envoyé au terminal Viva (uniquement si la caisse a un terminal attribué)
+  const [terminalWaiting, setTerminalWaiting] = useState<number | null>(null)
   
   // Late orders state
   const [lateOrders, setLateOrders] = useState<LateOrder[]>([])
@@ -613,6 +615,9 @@ export default function CounterPage() {
       const subtotalHT = totalTTC - taxAmount
       
       const isOffered = paymentMethod === 'offered'
+      // Carte + caisse reliée à un terminal : le montant part au terminal, la commande
+      // n'arrive en cuisine qu'une fois le paiement accepté (même mécanique que la borne).
+      const viaTerminal = paymentMethod === 'card' && orderType !== 'delivery' && !!device?.vivaTerminalId
 
       // Convertir le créneau delivery en UTC si nécessaire
       let scheduledSlotUTC = null
@@ -629,14 +634,14 @@ export default function CounterPage() {
         establishment_id: device!.establishmentId,
         order_type: orderType === 'delivery' ? 'delivery' : 'takeaway',
         eat_in: false,
-        status: 'pending',
+        status: viaTerminal ? 'awaiting_payment' : 'pending',
         subtotal: subtotalHT,
         tax_amount: taxAmount,
         total: totalTTC,
         total_amount: totalTTC,
         source: 'counter',
         payment_method: orderType === 'delivery' ? 'cash' : (paymentMethod === 'offered' ? 'cash' : paymentMethod),
-        payment_status: orderType === 'delivery' ? 'pending' : 'paid',
+        payment_status: orderType === 'delivery' || viaTerminal ? 'pending' : 'paid',
         is_offered: isOffered,
         device_id: device!.id,
         notes: isBux ? 'BUX' : null,
@@ -697,6 +702,21 @@ export default function CounterPage() {
         throw itemsError
       }
       
+      if (viaTerminal) {
+        const paye = await payerAuTerminal(order.id, totalTTC)
+        if (!paye) {
+          await supabase.from('orders')
+            .update({ status: 'cancelled', payment_status: 'failed' })
+            .eq('id', order.id)
+            .eq('status', 'awaiting_payment')
+          alert('Paiement refusé, annulé ou sans réponse du terminal. La commande n\'a pas été envoyée en cuisine.')
+          return
+        }
+        await supabase.from('orders')
+          .update({ status: 'pending', payment_status: 'paid' })
+          .eq('id', order.id)
+      }
+
       // Succès !
       setOrderNumber(order.order_number)
       setCart([])
@@ -723,6 +743,35 @@ export default function CounterPage() {
       alert('Erreur lors de la commande')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  // Envoie le montant au terminal Viva de la caisse puis attend sa réponse (90 s max).
+  async function payerAuTerminal(orderId: string, montant: number): Promise<boolean> {
+    setTerminalWaiting(montant)
+    try {
+      const r = await fetch('/api/viva/payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: montant, orderId, terminalId: device!.vivaTerminalId }),
+      })
+      const d = await r.json()
+      if (!d.success || !d.sessionId) return false
+      for (let i = 0; i < 45; i++) {
+        await new Promise(res => setTimeout(res, 2000))
+        try {
+          const s = await fetch(`/api/viva/payment?sessionId=${d.sessionId}&orderId=${orderId}`)
+          const st = await s.json()
+          if (st.status === 'success') return true
+          if (st.status === 'failed' || st.status === 'cancelled' || st.status === 'aborted') return false
+        } catch { /* on réessaie */ }
+      }
+      return false
+    } catch (e) {
+      console.error('Paiement terminal :', e)
+      return false
+    } finally {
+      setTerminalWaiting(null)
     }
   }
 
@@ -1390,6 +1439,12 @@ export default function CounterPage() {
             </div>
             
             <div className="flex-1 overflow-y-auto p-6">
+              {terminalWaiting !== null && (
+                <div className="mb-6 p-5 rounded-2xl bg-blue-50 border-2 border-blue-300 text-center">
+                  <p className="text-2xl font-bold text-blue-700">💳 {terminalWaiting.toFixed(2)} € envoyés au terminal</p>
+                  <p className="text-blue-600 mt-2">Le client paie sur le terminal… la commande part en cuisine dès que c&apos;est accepté.</p>
+                </div>
+              )}
               {/* Payment method */}
               <p className="font-semibold text-gray-700 mb-4 text-lg">Mode de paiement</p>
               <div className="grid grid-cols-3 gap-4 mb-8">
@@ -1491,8 +1546,9 @@ export default function CounterPage() {
             {/* Buttons */}
             <div className="p-6 border-t flex gap-4 flex-shrink-0 bg-gray-50">
               <button
+                disabled={terminalWaiting !== null}
                 onClick={() => setShowPaymentModal(false)}
-                className="flex-1 px-6 py-5 rounded-xl border border-gray-300 font-semibold text-xl active:bg-gray-100"
+                className="flex-1 px-6 py-5 rounded-xl border border-gray-300 font-semibold text-xl active:bg-gray-100 disabled:opacity-40"
               >
                 Annuler
               </button>
@@ -1501,7 +1557,7 @@ export default function CounterPage() {
                 disabled={isSubmitting || (paymentMethod === 'cash' && cashReceived < getTotalWithVat())}
                 className="flex-1 px-6 py-5 rounded-xl bg-green-500 text-white font-semibold text-xl disabled:opacity-50 active:scale-95 transition-transform"
               >
-                {isSubmitting ? 'Envoi...' : '✓ Valider'}
+                {terminalWaiting !== null ? 'Terminal…' : isSubmitting ? 'Envoi...' : (paymentMethod === 'card' && orderType !== 'delivery' && device?.vivaTerminalId ? '💳 Envoyer au terminal' : '✓ Valider')}
               </button>
             </div>
           </div>
