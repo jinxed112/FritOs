@@ -113,6 +113,8 @@ export default function DeviceLoginPage() {
         'kds': '/kitchen',
         'counter': '/counter',
       }
+      // Sur un téléphone, la caisse s'ouvre dans sa version smartphone
+      if (device.device_type === 'counter' && window.innerWidth < 768) routes.counter = '/caisse-mobile'
       const route = routes[device.device_type] || '/device'
       router.push(route)
     }

@@ -73,7 +73,7 @@ export async function middleware(request: NextRequest) {
   )
 
   // Protected routes - auth required
-  const protectedRoutes = ['/admin', '/counter']
+  const protectedRoutes = ['/admin', '/counter', '/caisse-mobile']
   const isProtectedRoute = protectedRoutes.some(route =>
     pathname.startsWith(route)
   ) && !pathname.startsWith('/admin/login')

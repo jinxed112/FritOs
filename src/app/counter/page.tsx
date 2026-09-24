@@ -505,11 +505,38 @@ export default function CounterPage() {
 
   function nextProposition() {
     if (!canProceed()) return
-    
-    if (currentPropositionIndex < currentPropositions.length - 1) {
+
+    // Options déclenchées (ex. « Frites +1,50 € » → choix de la sauce), comme la borne :
+    // les groupes déclenchés par le choix courant sont insérés juste après, ceux qui ne le
+    // sont plus (changement d'avis) sont retirés avec leurs choix.
+    const g = currentPropositions[currentPropositionIndex]
+    let props = currentPropositions
+    let opts = selectedOptions
+    if (g) {
+      const declenches = g.option_group_items
+        .filter(i => i.triggers_option_group_id && opts.some(o => o.item_id === i.id))
+        .map(i => i.triggers_option_group_id as string)
+      const possibles = g.option_group_items.map(i => i.triggers_option_group_id).filter(Boolean) as string[]
+      const aRetirer = possibles.filter(id => !declenches.includes(id))
+      if (aRetirer.length) {
+        props = props.filter((p, i) => i <= currentPropositionIndex || !aRetirer.includes(p.id))
+        opts = opts.filter(o => !aRetirer.includes(o.option_group_id))
+      }
+      const nouveaux = declenches
+        .filter(id => !props.some(p => p.id === id))
+        .map(id => allOptionGroups.find(x => x.id === id))
+        .filter((x): x is OptionGroup => !!x && x.option_group_items.length > 0)
+      if (nouveaux.length) {
+        props = [...props.slice(0, currentPropositionIndex + 1), ...nouveaux, ...props.slice(currentPropositionIndex + 1)]
+      }
+      setCurrentPropositions(props)
+      setSelectedOptions(opts)
+    }
+
+    if (currentPropositionIndex < props.length - 1) {
       setCurrentPropositionIndex(currentPropositionIndex + 1)
     } else {
-      addToCart()
+      addToCart(opts)
     }
   }
 
@@ -521,10 +548,10 @@ export default function CounterPage() {
 
   // ==================== CART ====================
 
-  function addToCart() {
+  function addToCart(options: SelectedOption[] = selectedOptions) {
     if (!selectedProduct) return
     
-    const optionsTotal = selectedOptions.reduce((sum, o) => sum + o.price, 0)
+    const optionsTotal = options.reduce((sum, o) => sum + o.price, 0)
     
     const newItem: CartItem = {
       id: Date.now().toString(),
@@ -532,7 +559,7 @@ export default function CounterPage() {
       name: selectedProduct.name,
       price: selectedProduct.price,
       quantity: 1,
-      options: selectedOptions,
+      options,
       options_total: optionsTotal,
       vat_eat_in: selectedProduct.vat_eat_in || 12,
       vat_takeaway: selectedProduct.vat_takeaway || 6,
@@ -1355,7 +1382,7 @@ export default function CounterPage() {
               {currentPropositions.length === 0 ? (
                 <div className="text-center py-8">
                   <button
-                    onClick={addToCart}
+                    onClick={() => addToCart()}
                     className="bg-orange-500 text-white font-bold px-10 py-4 rounded-xl text-lg active:scale-95 transition-transform"
                   >
                     Ajouter au panier
