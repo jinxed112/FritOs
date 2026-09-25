@@ -285,3 +285,53 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: 'pending' })
   }
 }
+// Annule au terminal une demande de paiement encore en cours (bouton « Annuler » de la caisse).
+// Viva : DELETE /ecr/v1/sessions/{sessionId}?cashRegisterId=… ; repli sur la forme
+// GET /ecr/v1/sessions:abort/{sessionId} si la première n'est pas reconnue.
+// Ne décide pas du sort de la commande : la caisse relit le statut de la session ensuite,
+// car le client peut avoir payé juste avant l'annulation.
+export async function DELETE(request: NextRequest) {
+  try {
+    const sessionId = new URL(request.url).searchParams.get('sessionId')
+    if (!sessionId) {
+      return NextResponse.json({ error: 'Session ID required' }, { status: 400 })
+    }
+
+    const clientId = process.env.VIVA_CLIENT_ID
+    const clientSecret = process.env.VIVA_CLIENT_SECRET
+    if (!clientId || !clientSecret) {
+      return NextResponse.json({ error: 'Credentials missing' }, { status: 500 })
+    }
+
+    const tokenResponse = await fetch('https://accounts.vivapayments.com/connect/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    })
+    if (!tokenResponse.ok) {
+      return NextResponse.json({ aborted: false, error: 'token' }, { status: 502 })
+    }
+    const { access_token: accessToken } = await tokenResponse.json()
+    const headers = { 'Authorization': `Bearer ${accessToken}` }
+    const qs = `cashRegisterId=FRITOS-01`
+
+    let res = await fetch(`https://api.vivapayments.com/ecr/v1/sessions/${sessionId}?${qs}`, {
+      method: 'DELETE',
+      headers,
+    })
+    if (res.status === 404 || res.status === 405) {
+      res = await fetch(`https://api.vivapayments.com/ecr/v1/sessions:abort/${sessionId}?${qs}`, { headers })
+    }
+    const text = await res.text()
+    console.log('Session abort:', sessionId, res.status, text || '(empty)')
+
+    return NextResponse.json({ aborted: res.ok, status: res.status })
+  } catch (error: any) {
+    console.error('Viva abort error:', error)
+    return NextResponse.json({ aborted: false, error: error.message }, { status: 500 })
+  }
+}

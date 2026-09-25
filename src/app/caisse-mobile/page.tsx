@@ -10,7 +10,7 @@
 //     offert (avec motif).
 // Pas de livraison ni de factures : pour ça, la caisse tablette.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { estDansSaPlage } from '@/lib/product-availability'
@@ -97,6 +97,8 @@ export default function CaisseMobilePage() {
   const [offeredReason, setOfferedReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [terminalWaiting, setTerminalWaiting] = useState<number | null>(null)
+  const [annulationDemandee, setAnnulationDemandee] = useState(false)
+  const annulerRef = useRef(false)
   const [orderNumber, setOrderNumber] = useState<string | null>(null)
 
   useEffect(() => {
@@ -247,28 +249,50 @@ export default function CaisseMobilePage() {
 
   // ==================== ENCAISSEMENT (même écriture que la caisse) ====================
 
-  async function payerAuTerminal(orderId: string, montant: number): Promise<boolean> {
+  // 'paye' | 'refuse' | 'annule' : 'annule' = la caisse a arrêté elle-même l'attente (bouton Annuler).
+  async function payerAuTerminal(orderId: string, montant: number): Promise<'paye' | 'refuse' | 'annule'> {
+    annulerRef.current = false
+    setAnnulationDemandee(false)
     setTerminalWaiting(montant)
+    const statut = async (sessionId: string) => {
+      try {
+        return (await (await fetch(`/api/viva/payment?sessionId=${sessionId}&orderId=${orderId}`)).json()).status as string
+      } catch { return 'pending' }
+    }
     try {
       const d = await (await fetch('/api/viva/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount: montant, orderId, terminalId: device!.vivaTerminalId }),
       })).json()
-      if (!d.success || !d.sessionId) return false
-      for (let i = 0; i < 45; i++) {
-        await new Promise(r => setTimeout(r, 2000))
-        try {
-          const st = await (await fetch(`/api/viva/payment?sessionId=${d.sessionId}&orderId=${orderId}`)).json()
-          if (st.status === 'success') return true
-          if (st.status === 'failed' || st.status === 'cancelled' || st.status === 'aborted') return false
-        } catch { /* on réessaie */ }
+      if (!d.success || !d.sessionId) return 'refuse'
+      // 90 s en tout, statut relu toutes les 2 s, bouton Annuler pris en compte dans les 250 ms
+      for (let tick = 1; tick <= 360; tick++) {
+        await new Promise(r => setTimeout(r, 250))
+        if (annulerRef.current) {
+          await fetch(`/api/viva/payment?sessionId=${d.sessionId}`, { method: 'DELETE' }).catch(() => {})
+          // Le client a pu payer juste avant l'annulation : on relit le statut avant de lâcher la commande
+          for (let i = 0; i < 3; i++) {
+            const st = await statut(d.sessionId)
+            if (st === 'success') return 'paye'
+            if (st === 'failed') break
+            await new Promise(r => setTimeout(r, 1500))
+          }
+          return 'annule'
+        }
+        if (tick % 8 === 0) {
+          const st = await statut(d.sessionId)
+          if (st === 'success') return 'paye'
+          if (st === 'failed' || st === 'cancelled' || st === 'aborted') return 'refuse'
+        }
       }
-      return false
+      await fetch(`/api/viva/payment?sessionId=${d.sessionId}`, { method: 'DELETE' }).catch(() => {})
+      return 'refuse'
     } catch {
-      return false
+      return 'refuse'
     } finally {
       setTerminalWaiting(null)
+      setAnnulationDemandee(false)
     }
   }
 
@@ -313,11 +337,11 @@ export default function CaisseMobilePage() {
       if (itemsError) throw itemsError
 
       if (viaTerminal) {
-        const paye = await payerAuTerminal(order.id, total)
-        if (!paye) {
+        const resultat = await payerAuTerminal(order.id, total)
+        if (resultat !== 'paye') {
           await supabase.from('orders').update({ status: 'cancelled', payment_status: 'failed' })
             .eq('id', order.id).eq('status', 'awaiting_payment')
-          alert('Paiement refusé, annulé ou sans réponse du terminal. Rien n\'est parti en cuisine.')
+          if (resultat === 'refuse') alert('Paiement refusé, annulé ou sans réponse du terminal. Rien n\'est parti en cuisine.')
           return
         }
         await supabase.from('orders').update({ status: 'pending', payment_status: 'paid' }).eq('id', order.id)
@@ -483,6 +507,13 @@ export default function CaisseMobilePage() {
             <div className="rounded-2xl bg-blue-50 border-2 border-blue-300 p-5 text-center">
               <p className="text-2xl font-bold text-blue-700">💳 {eur(terminalWaiting)} envoyés au terminal</p>
               <p className="text-blue-600 mt-2">Le client paie sur le terminal… la commande part en cuisine dès que c&apos;est accepté.</p>
+              <button
+                onClick={() => { annulerRef.current = true; setAnnulationDemandee(true) }}
+                disabled={annulationDemandee}
+                className="mt-5 w-full rounded-2xl bg-red-600 text-white font-bold text-xl py-4 disabled:opacity-60"
+              >
+                {annulationDemandee ? 'Annulation…' : '✕ Annuler le paiement'}
+              </button>
             </div>
           ) : (
             <>
