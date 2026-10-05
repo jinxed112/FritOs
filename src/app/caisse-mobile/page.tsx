@@ -14,6 +14,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { estDansSaPlage } from '@/lib/product-availability'
+import { groupesARetirer, groupesDeclenches } from '@/lib/options-declenchees'
 import { estCategorieProposee } from '@/lib/suggestion-boisson'
 import { contexteDepuisProduits, taxeDesLignes, ventilerLignes } from '@/lib/menu-ventilation'
 
@@ -87,6 +88,8 @@ export default function CaisseMobilePage() {
   // Options
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [propositions, setPropositions] = useState<OptionGroup[]>([])
+  // Étapes normales du produit ouvert : jamais retirées par un déclenchement
+  const [groupesDeBase, setGroupesDeBase] = useState<string[]>([])
   const [propIndex, setPropIndex] = useState(0)
   const [selectedOptions, setSelectedOptions] = useState<SelectedOption[]>([])
 
@@ -163,6 +166,7 @@ export default function CaisseMobilePage() {
     }
     setSelectedProduct(product)
     setPropositions(props)
+    setGroupesDeBase(props.map(og => og.id))
     setPropIndex(0)
     setSelectedOptions(defaults)
   }
@@ -200,11 +204,8 @@ export default function CaisseMobilePage() {
     let props = propositions
     let opts = selectedOptions
     if (g) {
-      const declenches = g.option_group_items
-        .filter(i => i.triggers_option_group_id && opts.some(o => o.item_id === i.id))
-        .map(i => i.triggers_option_group_id as string)
-      const possibles = g.option_group_items.map(i => i.triggers_option_group_id).filter(Boolean) as string[]
-      const aRetirer = possibles.filter(id => !declenches.includes(id))
+      const declenches = groupesDeclenches(g, opts)
+      const aRetirer = groupesARetirer(g, opts, groupesDeBase)
       if (aRetirer.length) {
         props = props.filter((p, i) => i <= propIndex || !aRetirer.includes(p.id))
         opts = opts.filter(o => !aRetirer.includes(o.option_group_id))

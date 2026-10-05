@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { estDansSaPlage } from '@/lib/product-availability'
+import { groupesARetirer, groupesDeclenches } from '@/lib/options-declenchees'
 import { estCategorieProposee } from '@/lib/suggestion-boisson'
 import { contexteDepuisProduits, taxeDesLignes, ventilerLignes } from '@/lib/menu-ventilation'
 import AddressInput from '@/components/AddressInput'
@@ -137,6 +138,8 @@ export default function CounterPage() {
   // Product modal state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [currentPropositions, setCurrentPropositions] = useState<OptionGroup[]>([])
+  // Étapes normales du produit ouvert : jamais retirées par un déclenchement
+  const [groupesDeBase, setGroupesDeBase] = useState<string[]>([])
   const [currentPropositionIndex, setCurrentPropositionIndex] = useState(0)
   const [selectedOptions, setSelectedOptions] = useState<SelectedOption[]>([])
   
@@ -436,6 +439,7 @@ export default function CounterPage() {
     
     setSelectedProduct(product)
     setCurrentPropositions(propositions)
+    setGroupesDeBase(propositions.map(og => og.id))
     setCurrentPropositionIndex(0)
     
     const defaultOptions: SelectedOption[] = []
@@ -515,11 +519,8 @@ export default function CounterPage() {
     let props = currentPropositions
     let opts = selectedOptions
     if (g) {
-      const declenches = g.option_group_items
-        .filter(i => i.triggers_option_group_id && opts.some(o => o.item_id === i.id))
-        .map(i => i.triggers_option_group_id as string)
-      const possibles = g.option_group_items.map(i => i.triggers_option_group_id).filter(Boolean) as string[]
-      const aRetirer = possibles.filter(id => !declenches.includes(id))
+      const declenches = groupesDeclenches(g, opts)
+      const aRetirer = groupesARetirer(g, opts, groupesDeBase)
       if (aRetirer.length) {
         props = props.filter((p, i) => i <= currentPropositionIndex || !aRetirer.includes(p.id))
         opts = opts.filter(o => !aRetirer.includes(o.option_group_id))
