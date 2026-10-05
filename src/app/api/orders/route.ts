@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { getCurrentEstablishment } from '@/lib/establishment/server'
 import { decrireSchedule, estDansSaPlage } from '@/lib/product-availability'
+import { estCategorieProposee, normaliserCategorie } from '@/lib/suggestion-boisson'
+import { contexteDepuisProduits, ventilerLignes } from '@/lib/menu-ventilation'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,6 +40,7 @@ function getBrusselsOffset(dateStr: string): string {
 // cap loyalty points to the customer's actual balance.
 
 const ItemOptionSchema = z.object({
+  option_group_name: z.string().max(120).optional(),
   item_name: z.string().max(120).optional(),
   name: z.string().max(120).optional(),
   option_name: z.string().max(120).optional(),
@@ -205,12 +208,14 @@ export async function POST(request: NextRequest) {
     const orderItems: any[] = []
     for (const item of body.items) {
       const product = productMap.get(item.productId)!
-      const optionsData: { item_name: string; price: number }[] = []
+      const optionsData: { option_group_name?: string; item_name: string; price: number }[] = []
       let optionsTotal = 0
       for (const opt of item.options ?? []) {
         const optPrice = typeof opt.price === 'number' ? opt.price : 0
         optionsTotal += optPrice
         optionsData.push({
+          // le nom du groupe sert à reconnaître un menu (cf. lib/menu-ventilation)
+          ...(typeof opt.option_group_name === 'string' ? { option_group_name: opt.option_group_name } : {}),
           item_name: opt.item_name || opt.name || opt.option_name || 'Option',
           price: optPrice,
         })
@@ -230,6 +235,32 @@ export async function POST(request: NextRequest) {
         vat_rate: product.vat_takeaway ?? 6,
         notes: item.notes || null,
       })
+    }
+
+    // ─── Menu frite + boisson : la boisson sort en ligne à part ──────────────
+    // Click & collect = toujours à emporter, donc 6 % partout : la TVA ne
+    // change pas, mais le KDS et les stats voient la boisson comme partout ailleurs.
+    const nomsBoissonsMenu = orderItems.flatMap(l => {
+      try {
+        return (JSON.parse(l.options_selected ?? '[]') as { option_group_name?: string; item_name?: string }[])
+          .filter(o => normaliserCategorie(o.option_group_name) === 'boisson du menu' && typeof o.item_name === 'string')
+          .map(o => o.item_name as string)
+      } catch {
+        return []
+      }
+    })
+    if (nomsBoissonsMenu.length > 0) {
+      const { data: refs } = await supabase
+        .from('products')
+        .select('id, name, price, vat_eat_in, vat_takeaway, category:categories(name)')
+        .eq('establishment_id', establishmentId)
+        .eq('is_active', true)
+        .in('name', Array.from(new Set(nomsBoissonsMenu)).concat('FRITE supplément'))
+      const ventilees = ventilerLignes(
+        orderItems,
+        contexteDepuisProduits((refs ?? []) as any[], false, (p: any) => estCategorieProposee(p.category?.name)),
+      )
+      orderItems.splice(0, orderItems.length, ...ventilees)
     }
 
     // ─── Loyalty points: cap to actual customer balance ─────────────────────

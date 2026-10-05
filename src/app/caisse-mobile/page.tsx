@@ -14,6 +14,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { estDansSaPlage } from '@/lib/product-availability'
+import { estCategorieProposee } from '@/lib/suggestion-boisson'
+import { contexteDepuisProduits, taxeDesLignes, ventilerLignes } from '@/lib/menu-ventilation'
 
 type OptionGroupItem = {
   id: string
@@ -301,9 +303,21 @@ export default function CaisseMobilePage() {
     if (paymentMethod === 'cash' && cashReceived > 0 && cashReceived < total) return
     setIsSubmitting(true)
     try {
-      let totalTax = 0
-      cart.forEach(it => { totalTax += (it.price + it.options_total) * it.quantity * it.vat_takeaway / (100 + it.vat_takeaway) })
-      const taxAmount = Math.round(totalTax * 100) / 100
+      // Un plat passé en menu sort en deux lignes (plat + boisson) : cf. lib/menu-ventilation
+      const lignes = ventilerLignes(
+        cart.map(it => ({
+          product_id: it.product_id,
+          product_name: it.name,
+          quantity: it.quantity,
+          unit_price: it.price,
+          vat_rate: it.vat_takeaway,
+          options_selected: it.options.length > 0 ? JSON.stringify(it.options) : null,
+          options_total: it.options_total,
+          line_total: (it.price + it.options_total) * it.quantity,
+        })),
+        contexteDepuisProduits(products, false, p => estCategorieProposee(categories.find(c => c.id === p.category_id)?.name)),
+      )
+      const taxAmount = taxeDesLignes(lignes)
       const isOffered = paymentMethod === 'offered'
       const { data: order, error } = await supabase.from('orders').insert({
         establishment_id: device.establishmentId,
@@ -323,17 +337,9 @@ export default function CaisseMobilePage() {
         metadata: isOffered && offeredReason ? JSON.stringify({ offered_reason: offeredReason }) : null,
       }).select().single()
       if (error) throw error
-      const { error: itemsError } = await supabase.from('order_items').insert(cart.map(it => ({
-        order_id: order.id,
-        product_id: it.product_id,
-        product_name: it.name,
-        quantity: it.quantity,
-        unit_price: it.price,
-        vat_rate: it.vat_takeaway,
-        options_selected: it.options.length > 0 ? JSON.stringify(it.options) : null,
-        options_total: it.options_total,
-        line_total: (it.price + it.options_total) * it.quantity,
-      })))
+      const { error: itemsError } = await supabase.from('order_items').insert(
+        lignes.map(ligne => ({ ...ligne, order_id: order.id })),
+      )
       if (itemsError) throw itemsError
 
       if (viaTerminal) {

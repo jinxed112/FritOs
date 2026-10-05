@@ -33,6 +33,8 @@ verifie('menu étudiant (boisson comprise) → ne pas proposer', fautProposerBoi
 verifie('frite + snack sans plat → ne pas proposer', fautProposerBoisson(['Frite', 'Snacks', 'Sauces']), false)
 verifie('panier vide → ne pas proposer', fautProposerBoisson([]), false)
 verifie('catégorie inconnue → ne pas proposer', fautProposerBoisson([null, undefined]), false)
+verifie('burger passé en menu → ne pas proposer', fautProposerBoisson(['Smashburgers'], ['Menu', 'Boisson du menu', 'Sauce gratuites']), false)
+verifie('burger avec frite en supplément seulement → proposer', fautProposerBoisson(['Smashburgers'], ['Accompagnement ', 'Sauce gratuites']), true)
 verifie('Boissons est la catégorie proposée', estCategorieProposee('Boissons'), true)
 verifie('Bières n\'est pas proposée', estCategorieProposee('Bières'), false)
 

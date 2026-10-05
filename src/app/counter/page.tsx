@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { estDansSaPlage } from '@/lib/product-availability'
+import { estCategorieProposee } from '@/lib/suggestion-boisson'
+import { contexteDepuisProduits, taxeDesLignes, ventilerLignes } from '@/lib/menu-ventilation'
 import AddressInput from '@/components/AddressInput'
 import InvoiceModal from '@/components/InvoiceModal'
 import Link from 'next/link'
@@ -630,15 +632,27 @@ export default function CounterPage() {
     
     try {
       const totalTTC = getCartTotal()
-      // Calcul TVA par produit (chaque produit a son propre taux)
-      const vatType = orderType === 'eat_in' ? 'vat_eat_in' : 'vat_takeaway'
-      let totalTax = 0
-      cart.forEach(item => {
-        const rate = orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway
-        const itemTTC = (item.price + item.options_total) * item.quantity
-        totalTax += itemTTC * rate / (100 + rate)
-      })
-      const taxAmount = Math.round(totalTax * 100) / 100
+      // TVA par ligne (chaque produit a son propre taux). Un plat passé en menu
+      // sort en deux lignes pour que la boisson garde son taux sur place :
+      // cf. lib/menu-ventilation
+      const lignes = ventilerLignes(
+        cart.map(item => ({
+          product_id: item.product_id,
+          product_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.price,
+          vat_rate: orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway,
+          options_selected: item.options.length > 0 ? JSON.stringify(item.options) : null,
+          options_total: item.options_total,
+          line_total: (item.price + item.options_total) * item.quantity,
+        })),
+        contexteDepuisProduits(
+          products,
+          orderType === 'eat_in',
+          p => estCategorieProposee(categories.find(c => c.id === p.category_id)?.name),
+        ),
+      )
+      const taxAmount = taxeDesLignes(lignes)
       const subtotalHT = totalTTC - taxAmount
       
       const isOffered = paymentMethod === 'offered'
@@ -708,17 +722,7 @@ export default function CounterPage() {
       }
       
       // Créer les items
-      const orderItems = cart.map(item => ({
-        order_id: order.id,
-        product_id: item.product_id,
-        product_name: item.name,
-        quantity: item.quantity,
-        unit_price: item.price,
-        vat_rate: orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway,
-        options_selected: item.options.length > 0 ? JSON.stringify(item.options) : null,
-        options_total: item.options_total,
-        line_total: (item.price + item.options_total) * item.quantity,
-      }))
+      const orderItems = lignes.map(ligne => ({ ...ligne, order_id: order.id }))
       
       const { error: itemsError } = await supabase
         .from('order_items')

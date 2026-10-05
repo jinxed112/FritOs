@@ -43,12 +43,27 @@ export function estCategorieProposee(nom: string | null | undefined): boolean {
   return normaliserCategorie(nom).startsWith(CATEGORIE_PROPOSEE)
 }
 
+// Groupes d'options qui apportent une boisson : un plat passé en menu
+// (groupes « Menu » et « Boisson du menu ») a déjà la sienne.
+const GROUPES_OPTION_BOISSON = ['menu', 'boisson']
+
+export function estGroupeOptionBoisson(nom: string | null | undefined): boolean {
+  const n = normaliserCategorie(nom)
+  return GROUPES_OPTION_BOISSON.some(g => n.startsWith(g))
+}
+
 /**
  * Faut-il proposer une boisson ?
  * `categoriesDuPanier` = nom de catégorie de chaque ligne du panier.
+ * `groupesOptionsDuPanier` = nom du groupe de chaque option choisie.
  */
-export function fautProposerBoisson(categoriesDuPanier: (string | null | undefined)[]): boolean {
+export function fautProposerBoisson(
+  categoriesDuPanier: (string | null | undefined)[],
+  groupesOptionsDuPanier: (string | null | undefined)[] = [],
+): boolean {
   const avecPlat = categoriesDuPanier.some(estCategoriePlat)
-  const avecBoisson = categoriesDuPanier.some(estCategorieBoisson)
+  const avecBoisson =
+    categoriesDuPanier.some(estCategorieBoisson) ||
+    groupesOptionsDuPanier.some(estGroupeOptionBoisson)
   return avecPlat && !avecBoisson
 }

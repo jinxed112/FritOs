@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { estDansSaPlage } from '@/lib/product-availability'
 import { estCategorieProposee, fautProposerBoisson } from '@/lib/suggestion-boisson'
+import { contexteDepuisProduits, taxeDesLignes, ventilerLignes } from '@/lib/menu-ventilation'
 
 // Types
 type OptionGroupItem = {
@@ -502,7 +503,10 @@ export default function KioskDevicePage() {
   function demanderPaiement() {
     setShowCart(false)
     const aProposer = !suggestionVue &&
-      fautProposerBoisson(cart.map(item => nomCategorie(item.category_id))) &&
+      fautProposerBoisson(
+        cart.map(item => nomCategorie(item.category_id)),
+        cart.flatMap(item => item.options.map(o => o.option_group_name)),
+      ) &&
       boissonsProposees().length > 0
     if (aProposer) {
       setSuggestionVue(true)
@@ -672,13 +676,22 @@ export default function KioskDevicePage() {
     
     try {
       const totalTTC = getCartTotal()
-      let totalTax = 0
-      cart.forEach(item => {
-        const rate = orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway
-        const itemTTC = (item.price + item.options_total) * item.quantity
-        totalTax += itemTTC * rate / (100 + rate)
-      })
-      const taxAmount = Math.round(totalTax * 100) / 100
+      // Un plat passé en menu sort en deux lignes (plat + boisson) pour que la
+      // boisson garde son propre taux sur place : cf. lib/menu-ventilation
+      const lignes = ventilerLignes(
+        cart.map(item => ({
+          product_id: item.product_id,
+          product_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.price,
+          vat_rate: orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway,
+          options_selected: item.options.length > 0 ? JSON.stringify(item.options) : null,
+          options_total: item.options_total,
+          line_total: (item.price + item.options_total) * item.quantity,
+        })),
+        contexteDepuisProduits(products, orderType === 'eat_in', p => estCategorieProposee(nomCategorie(p.category_id))),
+      )
+      const taxAmount = taxeDesLignes(lignes)
       const subtotalHT = totalTTC - taxAmount
       
       const { data: order, error: orderError } = await supabase
@@ -706,17 +719,7 @@ export default function KioskDevicePage() {
       if (orderError) throw orderError
       setPendingOrderId(order.id)
       
-      const orderItems = cart.map(item => ({
-        order_id: order.id,
-        product_id: item.product_id,
-        product_name: item.name,
-        quantity: item.quantity,
-        unit_price: item.price,
-        vat_rate: orderType === 'eat_in' ? item.vat_eat_in : item.vat_takeaway,
-        options_selected: item.options.length > 0 ? JSON.stringify(item.options) : null,
-        options_total: item.options_total,
-        line_total: (item.price + item.options_total) * item.quantity,
-      }))
+      const orderItems = lignes.map(ligne => ({ ...ligne, order_id: order.id }))
       
       const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
       if (itemsError) throw itemsError
