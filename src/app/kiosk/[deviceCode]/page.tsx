@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { estDansSaPlage } from '@/lib/product-availability'
+import { estCategorieProposee, fautProposerBoisson } from '@/lib/suggestion-boisson'
 
 // Types
 type OptionGroupItem = {
@@ -74,6 +75,7 @@ type SelectedOption = {
 type CartItem = {
   id: string
   product_id: string
+  category_id: string
   name: string
   price: number
   quantity: number
@@ -148,6 +150,11 @@ export default function KioskDevicePage() {
   const [orderType, setOrderType] = useState<OrderType | null>(null)
   const [showCart, setShowCart] = useState(false)
 
+  // Suggestion « Une boisson avec ça ? », proposée une seule fois par commande
+  const [showSuggestion, setShowSuggestion] = useState(false)
+  const [suggestionVue, setSuggestionVue] = useState(false)
+  const [boissonsSuggerees, setBoissonsSuggerees] = useState(0)
+
   // --- NOUVEAU : plafonnement eat_in + mode Bux ---
   const [eatInEnabled, setEatInEnabled] = useState(true)
   const [isBuxMode, setIsBuxMode] = useState(false)
@@ -167,6 +174,15 @@ export default function KioskDevicePage() {
   const [allergenModalProduct, setAllergenModalProduct] = useState<Product | null>(null)
 
   const supabase = createClient()
+
+  // Panier vidé (commande payée, annulée ou retour accueil) : la prochaine
+  // commande aura de nouveau droit à la suggestion.
+  useEffect(() => {
+    if (cart.length === 0) {
+      setSuggestionVue(false)
+      setBoissonsSuggerees(0)
+    }
+  }, [cart.length])
 
   // Vérifier l'authentification au chargement
   useEffect(() => {
@@ -458,6 +474,7 @@ export default function KioskDevicePage() {
     const cartItem: CartItem = {
       id: `${selectedProduct.id}-${Date.now()}`,
       product_id: selectedProduct.id,
+      category_id: selectedProduct.category_id,
       name: selectedProduct.name,
       price: selectedProduct.price,
       quantity: 1,
@@ -468,6 +485,66 @@ export default function KioskDevicePage() {
     }
     setCart([...cart, cartItem])
     closeProductModal()
+  }
+
+  function nomCategorie(categoryId: string): string | undefined {
+    return categories.find(c => c.id === categoryId)?.name
+  }
+
+  function boissonsProposees(): Product[] {
+    return products.filter(p =>
+      estCategorieProposee(nomCategorie(p.category_id)) &&
+      estDansSaPlage(p.availability_schedule, minuteCourante)
+    )
+  }
+
+  // Bouton PAYER : on intercale la suggestion si le panier a un plat sans boisson
+  function demanderPaiement() {
+    setShowCart(false)
+    const aProposer = !suggestionVue &&
+      fautProposerBoisson(cart.map(item => nomCategorie(item.category_id))) &&
+      boissonsProposees().length > 0
+    if (aProposer) {
+      setSuggestionVue(true)
+      setShowSuggestion(true)
+      return
+    }
+    submitOrder()
+  }
+
+  // Une boisson n'a pas d'options : un tap = une unité de plus
+  function ajouterBoissonSuggeree(product: Product) {
+    const existante = cart.find(item => item.product_id === product.id && item.options.length === 0)
+    if (existante) {
+      setCart(cart.map(item => item.id === existante.id ? { ...item, quantity: item.quantity + 1 } : item))
+    } else {
+      setCart([...cart, {
+        id: `${product.id}-${Date.now()}`,
+        product_id: product.id,
+        category_id: product.category_id,
+        name: product.name,
+        price: product.price,
+        quantity: 1,
+        options: [],
+        options_total: 0,
+        vat_eat_in: product.vat_eat_in || 12,
+        vat_takeaway: product.vat_takeaway || 6,
+      }])
+    }
+    setBoissonsSuggerees(n => n + 1)
+  }
+
+  function retirerBoissonSuggeree(product: Product) {
+    const ligne = cart.find(item => item.product_id === product.id && item.options.length === 0)
+    if (!ligne) return
+    setCart(ligne.quantity > 1
+      ? cart.map(item => item.id === ligne.id ? { ...item, quantity: item.quantity - 1 } : item)
+      : cart.filter(item => item.id !== ligne.id))
+    setBoissonsSuggerees(n => Math.max(0, n - 1))
+  }
+
+  function quantiteAuPanier(productId: string): number {
+    return cart.filter(item => item.product_id === productId).reduce((s, item) => s + item.quantity, 0)
   }
 
   function removeFromCart(itemId: string) {
@@ -620,6 +697,8 @@ export default function KioskDevicePage() {
           payment_status: 'pending',
           device_id: device.id,
           notes: isBuxMode ? 'BUX' : null, // --- NOUVEAU ---
+          // Mesure de la suggestion boisson (point du lundi) : absente si non proposée
+          ...(suggestionVue ? { metadata: { suggestion_boisson: boissonsSuggerees > 0 ? 'acceptee' : 'refusee', boissons_suggerees: boissonsSuggerees } } : {}),
         })
         .select()
         .single()
@@ -1077,9 +1156,70 @@ export default function KioskDevicePage() {
                 <span className="text-3xl font-black text-[#E63329]">{getCartTotal().toFixed(2)} €</span>
               </div>
               <button
-                onClick={() => { setShowCart(false); submitOrder() }}
+                onClick={demanderPaiement}
                 disabled={isSubmitting}
                 className="w-full bg-[#E63329] text-white font-bold py-5 rounded-2xl text-xl disabled:opacity-50"
+              >
+                💳 PAYER {getCartTotal().toFixed(2)} €
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Suggestion boisson avant paiement */}
+      {showSuggestion && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-[#FFF9E6] px-6 py-5 border-b-2 border-[#F7B52C]/30 text-center">
+              <span className="text-5xl block mb-2">🥤</span>
+              <h2 className="text-3xl font-black text-[#3D2314]">Une boisson avec ça ?</h2>
+              <p className="text-[#3D2314]/60 mt-1">Touchez une boisson pour l&apos;ajouter</p>
+            </div>
+            <div className="p-6 overflow-y-auto grid grid-cols-3 sm:grid-cols-4 gap-4">
+              {boissonsProposees().map(product => {
+                const qte = quantiteAuPanier(product.id)
+                return (
+                  <button
+                    key={product.id}
+                    onClick={() => ajouterBoissonSuggeree(product)}
+                    className={`relative bg-white rounded-2xl shadow-md overflow-hidden border-4 transition-all ${qte > 0 ? 'border-[#E63329]' : 'border-transparent hover:border-[#F7B52C]'}`}
+                  >
+                    {qte > 0 && (
+                      <>
+                        <span className="absolute top-2 right-2 bg-[#E63329] text-white font-bold rounded-full w-9 h-9 flex items-center justify-center">{qte}</span>
+                        <span
+                          role="button"
+                          aria-label={`Retirer ${product.name}`}
+                          onClick={e => { e.stopPropagation(); retirerBoissonSuggeree(product) }}
+                          className="absolute top-2 left-2 bg-white text-[#E63329] font-bold rounded-full w-9 h-9 flex items-center justify-center shadow text-xl"
+                        >−</span>
+                      </>
+                    )}
+                    <div className="aspect-square bg-[#FFF9E6] flex items-center justify-center">
+                      {product.image_url ? <img src={product.image_url} alt="" className="w-full h-full object-cover" /> : <span className="text-5xl">🥤</span>}
+                    </div>
+                    <div className="p-2">
+                      <h3 className="font-bold text-[#3D2314] text-sm leading-tight line-clamp-2 min-h-[2.5rem]">{product.name}</h3>
+                      <p className="text-lg font-black text-[#E63329]">{product.price.toFixed(2)} €</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="p-6 border-t-2 border-[#F7B52C]/30 bg-[#FFF9E6] flex items-center gap-4">
+              {boissonsSuggerees === 0 && (
+                <button
+                  onClick={() => { setShowSuggestion(false); submitOrder() }}
+                  className="flex-1 py-4 rounded-2xl border-2 border-[#3D2314]/20 font-semibold text-[#3D2314] text-lg"
+                >
+                  Non merci, payer {getCartTotal().toFixed(2)} €
+                </button>
+              )}
+              <button
+                onClick={() => { setShowSuggestion(false); submitOrder() }}
+                disabled={boissonsSuggerees === 0}
+                className="flex-1 bg-[#E63329] text-white font-bold py-4 rounded-2xl text-xl disabled:opacity-40"
               >
                 💳 PAYER {getCartTotal().toFixed(2)} €
               </button>
