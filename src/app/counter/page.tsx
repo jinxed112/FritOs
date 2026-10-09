@@ -107,6 +107,19 @@ type LateOrder = {
   minutes_late: number
 }
 
+// Livraison prise par téléphone : le client paie à la porte, la caisse ne le sait
+// pas. Tant qu'elle reste en payment_status 'pending', le Z ne la compte pas.
+type UnpaidOrder = {
+  id: string
+  order_number: string
+  status: string
+  created_at: string
+  scheduled_slot_start: string | null
+  customer_name: string | null
+  delivery_notes: string | null
+  total: number
+}
+
 type DeviceInfo = {
   id: string
   code: string
@@ -167,6 +180,8 @@ export default function CounterPage() {
   // Late orders state
   const [lateOrders, setLateOrders] = useState<LateOrder[]>([])
   const [showLateOrdersModal, setShowLateOrdersModal] = useState(false)
+  const [unpaidOrders, setUnpaidOrders] = useState<UnpaidOrder[]>([])
+  const [showUnpaidModal, setShowUnpaidModal] = useState(false)
   
   // Allergen modal state
   const [allergenModalProduct, setAllergenModalProduct] = useState<Product | null>(null)
@@ -233,8 +248,12 @@ export default function CounterPage() {
       // Load data with device's establishment
       loadData(data.device.establishmentId)
       loadLateOrders(data.device.establishmentId)
+      loadUnpaidOrders(data.device.establishmentId)
       
-      const interval = setInterval(() => loadLateOrders(data.device.establishmentId), 60000)
+      const interval = setInterval(() => {
+        loadLateOrders(data.device.establishmentId)
+        loadUnpaidOrders(data.device.establishmentId)
+      }, 60000)
       return () => clearInterval(interval)
     } catch (error) {
       console.error('Auth check error:', error)
@@ -350,6 +369,37 @@ export default function CounterPage() {
       })
       setLateOrders(ordersWithLateness as LateOrder[])
     }
+  }
+
+  async function loadUnpaidOrders(establishmentId: string) {
+    const since = new Date(Date.now() - 48 * 60 * 60 * 1000)
+
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id, order_number, status, created_at, scheduled_slot_start, customer_name, delivery_notes, total')
+      .eq('establishment_id', establishmentId)
+      .eq('source', 'counter')
+      .eq('order_type', 'delivery')
+      .eq('payment_status', 'pending')
+      .neq('status', 'cancelled')
+      .gte('created_at', since.toISOString())
+      .order('created_at', { ascending: true })
+
+    if (!error && data) setUnpaidOrders(data as UnpaidOrder[])
+  }
+
+  async function markOrderPaid(orderId: string, method: 'cash' | 'card') {
+    const { error } = await supabase
+      .from('orders')
+      .update({ payment_status: 'paid', payment_method: method })
+      .eq('id', orderId)
+      .eq('payment_status', 'pending')
+
+    if (error) {
+      console.error('Encaissement :', error)
+      alert('Erreur, la commande n\'a pas été passée en payé')
+    }
+    if (device) loadUnpaidOrders(device.establishmentId)
   }
 
   // ==================== DELIVERY PHONE ORDER ====================
@@ -1056,6 +1106,24 @@ export default function CounterPage() {
               )}
             </button>
             
+            {/* Badge livraisons téléphone à encaisser */}
+            <button
+              onClick={() => setShowUnpaidModal(true)}
+              className={`relative p-2 rounded-lg text-sm transition-all active:scale-95 ${
+                unpaidOrders.length > 0 
+                  ? 'bg-amber-500 text-white' 
+                  : 'bg-slate-700 text-gray-400'
+              }`}
+              title="Livraisons à encaisser"
+            >
+              💶
+              {unpaidOrders.length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-yellow-900 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                  {unpaidOrders.length}
+                </span>
+              )}
+            </button>
+
             {/* Bouton Facture */}
             <button
               onClick={() => setInvoiceModalOpen(true)}
@@ -1859,6 +1927,87 @@ export default function CounterPage() {
             <div className="p-4 border-t bg-gray-50 flex-shrink-0">
               <button
                 onClick={() => device && loadLateOrders(device.establishmentId)}
+                className="w-full bg-gray-200 text-gray-700 font-semibold py-4 rounded-xl active:bg-gray-300"
+              >
+                🔄 Rafraîchir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Livraisons à encaisser */}
+      {showUnpaidModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 bg-amber-500 text-white flex items-center justify-between flex-shrink-0">
+              <div>
+                <h2 className="text-2xl font-bold">💶 Livraisons à encaisser</h2>
+                <p className="text-amber-100 text-lg">{unpaidOrders.length} commande(s) téléphone pas encore payée(s)</p>
+              </div>
+              <button
+                onClick={() => setShowUnpaidModal(false)}
+                className="text-white/70 active:text-white text-4xl p-2"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-5">
+              {unpaidOrders.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <span className="text-6xl block mb-4">✅</span>
+                  <p className="text-lg">Tout est encaissé !</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {unpaidOrders.map(order => (
+                    <div key={order.id} className="bg-gray-50 rounded-xl p-4 border-l-4 border-amber-500">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xl font-bold">#{order.order_number}</span>
+                            <span className="text-xl">🛵</span>
+                            <span className="text-xs px-2 py-1 rounded-full font-medium bg-gray-200 text-gray-700">
+                              {getStatusLabel(order.status)}
+                            </span>
+                          </div>
+                          <p className="text-gray-600">{order.customer_name || 'Client'}</p>
+                          {order.delivery_notes && (
+                            <p className="text-gray-500 text-sm truncate max-w-[260px]">{order.delivery_notes}</p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-2xl">{order.total?.toFixed(2)} €</p>
+                          <p className="text-gray-400 text-sm">
+                            Prévu: {formatTime(order.scheduled_slot_start || order.created_at)}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => markOrderPaid(order.id, 'cash')}
+                          className="flex-1 bg-green-500 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform"
+                        >
+                          💶 Payé espèces
+                        </button>
+                        <button
+                          onClick={() => markOrderPaid(order.id, 'card')}
+                          className="flex-1 bg-blue-500 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform"
+                        >
+                          💳 Payé carte
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t bg-gray-50 flex-shrink-0">
+              <button
+                onClick={() => device && loadUnpaidOrders(device.establishmentId)}
                 className="w-full bg-gray-200 text-gray-700 font-semibold py-4 rounded-xl active:bg-gray-300"
               >
                 🔄 Rafraîchir
