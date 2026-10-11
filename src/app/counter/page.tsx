@@ -17,6 +17,12 @@ import {
 
 // ==================== TYPES ====================
 
+
+// Onglet des produits les plus vendus, ouvert par défaut (demande de Michele, 11/10/2026)
+const FAVORIS = 'favoris'
+const NB_FAVORIS = 16
+const estSupplement = (nom: string) => nom.trim().toLowerCase().startsWith('suppl')
+
 type OptionGroupItem = {
   id: string
   product_id: string
@@ -137,7 +143,9 @@ export default function CounterPage() {
   const [minuteCourante, setMinuteCourante] = useState(() => new Date())
   const [allOptionGroups, setAllOptionGroups] = useState<OptionGroup[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(FAVORIS)
+  // Produits les plus vendus du site, du plus vendu au moins vendu (onglet Favoris)
+  const [favorisIds, setFavorisIds] = useState<string[]>([])
   
   // Product modal state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -328,11 +336,31 @@ export default function CounterPage() {
     setProducts((productsData || []) as any)
     setAllOptionGroups((allOptionGroupsData || []) as any)
     
-    if (categoriesData && categoriesData.length > 0) {
-      setSelectedCategory(categoriesData[0].id)
-    }
-    
     setLoading(false)
+    chargerFavoris(establishmentId)
+  }
+
+  // Les plus vendus des 30 derniers jours, tous canaux, commandes annulées
+  // exclues. Lu par pages : l'API ne rend pas plus de 1000 lignes à la fois.
+  async function chargerFavoris(establishmentId: string) {
+    const depuis = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const ventes = new Map<string, number>()
+    for (let debut = 0; debut < 20000; debut += 1000) {
+      const { data, error } = await supabase
+        .from('order_items')
+        .select('product_id, quantity, orders!inner(establishment_id, created_at, status)')
+        .eq('orders.establishment_id', establishmentId)
+        .gte('orders.created_at', depuis)
+        .neq('orders.status', 'cancelled')
+        .range(debut, debut + 999)
+      if (error || !data) break
+      for (const ligne of data as any[]) {
+        if (!ligne.product_id) continue
+        ventes.set(ligne.product_id, (ventes.get(ligne.product_id) || 0) + (ligne.quantity || 1))
+      }
+      if (data.length < 1000) break
+    }
+    setFavorisIds(Array.from(ventes.entries()).sort((a, b) => b[1] - a[1]).map(([id]) => id))
   }
 
   async function loadLateOrders(establishmentId: string) {
@@ -867,6 +895,7 @@ export default function CounterPage() {
   // week-end. On garde les categories qui n'ont aucun produit du tout, elles
   // relevent d'un probleme de catalogue et pas d'un horaire.
   const categoriesVisibles = categories.filter(cat => {
+    if (estSupplement(cat.name)) return false
     const duGroupe = products.filter(p => p.category_id === cat.id)
     if (duGroupe.length === 0) return true
     return duGroupe.some(p => estDansSaPlage(p.availability_schedule, minuteCourante))
@@ -875,13 +904,28 @@ export default function CounterPage() {
   // Si la categorie ouverte disparait en cours de service (14h00 pile, l'ecran
   // est reste allume), on retombe sur la premiere visible au lieu d'afficher
   // une liste vide sous un onglet qui n'existe plus.
-  const categorieActive = categoriesVisibles.some(c => c.id === selectedCategory)
-    ? selectedCategory
-    : categoriesVisibles[0]?.id ?? null
+  // Les suppléments ne se vendent pas seuls : ils restent proposés en option
+  // des produits, mais on ne les montre ni en onglet ni en recherche.
+  const categoriesSupplement = new Set(categories.filter(c => estSupplement(c.name)).map(c => c.id))
+  const vendable = (p: Product) =>
+    !categoriesSupplement.has(p.category_id) && estDansSaPlage(p.availability_schedule, minuteCourante)
 
-  const filteredProducts = products.filter(
-    p => p.category_id === categorieActive && estDansSaPlage(p.availability_schedule, minuteCourante)
-  )
+  const favoris = favorisIds
+    .map(id => products.find(p => p.id === id))
+    .filter((p): p is Product => !!p && vendable(p))
+    .slice(0, NB_FAVORIS)
+
+  const onglets = favoris.length > 0
+    ? [{ id: FAVORIS, name: 'Favoris' }, ...categoriesVisibles]
+    : categoriesVisibles
+
+  const categorieActive = onglets.some(c => c.id === selectedCategory)
+    ? selectedCategory
+    : onglets[0]?.id ?? null
+
+  const filteredProducts = categorieActive === FAVORIS
+    ? favoris
+    : products.filter(p => p.category_id === categorieActive && vendable(p))
 
   // Helper pour extraire les allergènes d'un produit
   function getProductAllergens(product: Product) {
@@ -908,11 +952,12 @@ export default function CounterPage() {
   const rechercheNormalisee = recherche.trim().toLowerCase()
   const produitsAffiches = rechercheNormalisee
     ? products.filter(p =>
-        estDansSaPlage(p.availability_schedule, minuteCourante) &&
+        vendable(p) &&
         p.name.toLowerCase().includes(rechercheNormalisee))
     : filteredProducts
 
   function nombreDansCategorie(categoryId: string): number {
+    if (categoryId === FAVORIS) return favoris.length
     return products.filter(p => p.category_id === categoryId && estDansSaPlage(p.availability_schedule, minuteCourante)).length
   }
 
@@ -1149,7 +1194,7 @@ export default function CounterPage() {
       <div className="flex-1 flex min-h-0">
         {/* Catégories : colonne sur la caisse, bandeau sur petit écran */}
         <nav aria-label="Catégories" className="hidden lg:flex w-[184px] flex-shrink-0 bg-white border-r border-[#e3e6ee] p-2 flex-col gap-1 overflow-y-auto scrollbar-hide">
-          {categoriesVisibles.map(cat => {
+          {onglets.map(cat => {
             const actif = !rechercheNormalisee && categorieActive === cat.id
             return (
               <button
@@ -1168,7 +1213,7 @@ export default function CounterPage() {
 
         <main className="flex-1 min-w-0 flex flex-col">
           <div className="lg:hidden bg-white border-b border-[#e3e6ee] px-3 py-2 flex gap-2 overflow-x-auto scrollbar-hide flex-shrink-0">
-            {categoriesVisibles.map(cat => (
+            {onglets.map(cat => (
               <button
                 key={cat.id}
                 onClick={() => { setSelectedCategory(cat.id); setRecherche('') }}
@@ -1183,7 +1228,7 @@ export default function CounterPage() {
 
           <div className="flex items-center gap-3 px-4 lg:px-[18px] pt-4 pb-3 flex-shrink-0">
             <h1 className="text-2xl font-extrabold tracking-tight truncate">
-              {rechercheNormalisee ? 'Recherche' : categoriesVisibles.find(c => c.id === categorieActive)?.name.trim()}
+              {rechercheNormalisee ? 'Recherche' : onglets.find(c => c.id === categorieActive)?.name.trim()}
             </h1>
             <span className="text-sm text-slate-600 whitespace-nowrap">
               {produitsAffiches.length} produit{produitsAffiches.length > 1 ? 's' : ''}
