@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { estDansSaPlage } from '@/lib/product-availability'
@@ -170,6 +170,8 @@ export default function KioskDevicePage() {
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'pending' | 'success' | 'failed'>('idle')
   const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null)
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
+  const [annulationEnCours, setAnnulationEnCours] = useState(false)
+  const annulationRef = useRef(false)
   
   // Allergen modal
   const [allergenModalProduct, setAllergenModalProduct] = useState<Product | null>(null)
@@ -601,6 +603,7 @@ export default function KioskDevicePage() {
       
       const data = await response.json()
       if (data.success) {
+        annulationRef.current = false
         setPaymentSessionId(data.sessionId)
         setPaymentStatus('pending')
         pollPaymentStatus(data.sessionId, orderId)
@@ -616,25 +619,33 @@ export default function KioskDevicePage() {
   async function pollPaymentStatus(sessionId: string, orderId: string) {
     const maxAttempts = 60
     let attempts = 0
-    
+
     const poll = async () => {
+      // Le client a appuyé sur Annuler : c'est annulerPaiementEnCours qui reprend la main
+      if (annulationRef.current) return
       try {
         const response = await fetch(`/api/viva/payment?sessionId=${sessionId}`)
         const data = await response.json()
-        
+        if (annulationRef.current) return
+
         if (data.status === 'success') {
           setPaymentStatus('success')
           await finalizeOrder(orderId)
           return
         } else if (data.status === 'failed' || data.status === 'cancelled' || data.status === 'aborted') {
-          await supabase.from('orders').update({ 
-            status: 'cancelled', 
-            payment_status: 'failed' 
-          }).eq('id', orderId)
+          // Le webhook a pu marquer la commande payée entre-temps : on ne l'écrase jamais
+          const { data: annulee } = await supabase.from('orders').update({
+            status: 'cancelled',
+            payment_status: 'failed'
+          }).eq('id', orderId).neq('payment_status', 'paid').select('id')
+          if (!annulee?.length && await commandeDejaPayee(orderId)) {
+            await finalizeOrder(orderId)
+            return
+          }
           setPaymentStatus('failed')
           return
         }
-        
+
         attempts++
         if (attempts < maxAttempts) {
           setTimeout(poll, 2000)
@@ -647,6 +658,65 @@ export default function KioskDevicePage() {
       }
     }
     poll()
+  }
+
+  // Une commande payée ne s'annule jamais depuis la borne : le 18/10 (A20), le client a été
+  // débité de 47,10 € et la commande annulée 2 s plus tard, sans jamais partir en cuisine.
+  async function commandeDejaPayee(orderId: string): Promise<boolean> {
+    const { data } = await supabase.from('orders').select('payment_status').eq('id', orderId).single()
+    return data?.payment_status === 'paid'
+  }
+
+  // 'payee' = trop tard pour annuler, la commande part en cuisine
+  async function annulerCommande(orderId: string): Promise<'payee' | 'annulee'> {
+    if (await commandeDejaPayee(orderId)) return 'payee'
+    const { data } = await supabase
+      .from('orders')
+      .update({ status: 'cancelled' })
+      .eq('id', orderId)
+      .neq('payment_status', 'paid')
+      .select('id')
+    if (data?.length) return 'annulee'
+    return (await commandeDejaPayee(orderId)) ? 'payee' : 'annulee'
+  }
+
+  async function statutSession(sessionId: string): Promise<string> {
+    try {
+      return (await (await fetch(`/api/viva/payment?sessionId=${sessionId}`)).json()).status as string
+    } catch { return 'pending' }
+  }
+
+  // Bouton Annuler pendant l'attente du terminal : on arrête d'abord le terminal, puis on relit
+  // le statut, car le client a pu valider sa carte juste avant (même logique que la caisse mobile)
+  async function annulerPaiementEnCours() {
+    if (annulationRef.current) return
+    annulationRef.current = true
+    setAnnulationEnCours(true)
+    const orderId = pendingOrderId
+    const sessionId = paymentSessionId
+    try {
+      if (sessionId) {
+        await fetch(`/api/viva/payment?sessionId=${sessionId}`, { method: 'DELETE' }).catch(() => {})
+        for (let i = 0; i < 3; i++) {
+          const st = await statutSession(sessionId)
+          if (st === 'success' && orderId) {
+            await finalizeOrder(orderId)
+            return
+          }
+          if (st === 'failed') break
+          await new Promise(r => setTimeout(r, 1500))
+        }
+      }
+      if (orderId && (await annulerCommande(orderId)) === 'payee') {
+        await finalizeOrder(orderId)
+        return
+      }
+      setPendingOrderId(null)
+      setPaymentStatus('idle')
+      setIsSubmitting(false)
+    } finally {
+      setAnnulationEnCours(false)
+    }
   }
 
   async function finalizeOrder(orderId: string) {
@@ -801,17 +871,11 @@ export default function KioskDevicePage() {
             <p className="text-6xl font-bold">{getCartTotal().toFixed(2)} €</p>
           </div>
           <button
-            onClick={async () => {
-              if (pendingOrderId) {
-                await supabase.from('orders').update({ status: 'cancelled' }).eq('id', pendingOrderId)
-                setPendingOrderId(null)
-              }
-              setPaymentStatus('idle')
-              setIsSubmitting(false)
-            }}
-            className="mt-8 bg-white/20 text-white font-bold px-8 py-3 rounded-xl hover:bg-white/30"
+            onClick={annulerPaiementEnCours}
+            disabled={annulationEnCours}
+            className="mt-8 bg-white/20 text-white font-bold px-8 py-3 rounded-xl hover:bg-white/30 disabled:opacity-60"
           >
-            Annuler
+            {annulationEnCours ? 'Annulation…' : 'Annuler'}
           </button>
         </div>
       </div>
@@ -841,6 +905,17 @@ export default function KioskDevicePage() {
             <button
               onClick={async () => {
                 if (pendingOrderId) {
+                  // Déjà payée (paiement passé malgré l'écran rouge) : surtout ne pas débiter une 2e fois
+                  if (await commandeDejaPayee(pendingOrderId)) {
+                    await finalizeOrder(pendingOrderId)
+                    return
+                  }
+                  // La commande redevient « en attente de paiement » pour que le webhook Viva la reconnaisse
+                  await supabase
+                    .from('orders')
+                    .update({ status: 'awaiting_payment', payment_status: 'pending' })
+                    .eq('id', pendingOrderId)
+                    .neq('payment_status', 'paid')
                   setPaymentStatus('idle')
                   setIsSubmitting(true)
                   await initiateVivaPayment(pendingOrderId, getCartTotal())
@@ -853,7 +928,10 @@ export default function KioskDevicePage() {
             <button
               onClick={async () => {
                 if (pendingOrderId) {
-                  await supabase.from('orders').update({ status: 'cancelled' }).eq('id', pendingOrderId)
+                  if ((await annulerCommande(pendingOrderId)) === 'payee') {
+                    await finalizeOrder(pendingOrderId)
+                    return
+                  }
                   setPendingOrderId(null)
                 }
                 setPaymentStatus('idle')
