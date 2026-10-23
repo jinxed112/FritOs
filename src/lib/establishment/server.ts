@@ -19,7 +19,7 @@ export class EstablishmentRequiredError extends Error {
 }
 
 export async function getCurrentEstablishment(): Promise<CurrentEstablishment | null> {
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
   const raw = cookieStore.get(ESTABLISHMENT_COOKIE_NAME)?.value
   if (!raw) return null
 
@@ -28,7 +28,7 @@ export async function getCurrentEstablishment(): Promise<CurrentEstablishment | 
 
   // Bind to the current Supabase user — if the cookie was issued for a different
   // user (or there is no session at all), refuse it.
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.id !== payload.user_id) return null
 

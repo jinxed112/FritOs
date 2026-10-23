@@ -52,7 +52,7 @@ export default function AddressInput({
   
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLDivElement>(null)
-  const debounceRef = useRef<NodeJS.Timeout>()
+  const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
   // Fermer les suggestions quand on clique ailleurs
   useEffect(() => {

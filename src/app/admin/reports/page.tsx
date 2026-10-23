@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import type React from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentEstablishment } from '@/lib/establishment/client'
 import * as XLSX from 'xlsx'
@@ -214,7 +215,7 @@ export default function ReportsPage() {
 
   function getStatusBadge(status: string, paymentStatus: string) {
     if (paymentStatus === 'refunded') return <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">Remboursé</span>
-    const badges: Record<string, JSX.Element> = {
+    const badges: Record<string, React.JSX.Element> = {
       pending: <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs">En attente</span>,
       preparing: <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">En prépa</span>,
       ready: <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">Prêt</span>,

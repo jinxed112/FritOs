@@ -28,10 +28,8 @@ const admin = createClient(
 //                          tous rattachés à la même SRL, donc même dossier
 //                          comptable et même boîte UBL).
 
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     // 1. Charger la facture + l'établissement
     const { data: invoice, error: invErr } = await admin
@@ -193,10 +191,8 @@ export async function POST(
 }
 
 // GET — récupère l'UBL généré sans l'envoyer (debug / téléchargement manuel)
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const { data: invoice, error: invErr } = await admin
       .from('invoices')
@@ -264,7 +260,7 @@ export async function GET(
         'Content-Type': 'application/xml; charset=utf-8',
         'Content-Disposition': `attachment; filename="facture-${invoice.invoice_number.replace(/\//g, '-')}.xml"`,
       },
-    })
+    });
   } catch (err: any) {
     return NextResponse.json({ error: 'Erreur serveur', details: err?.message }, { status: 500 })
   }
