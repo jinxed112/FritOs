@@ -9,7 +9,7 @@ const ALLOWED_ROLES = ['super_admin', 'admin', 'manager', 'employee']
 
 export async function GET() {
   try {
-    const supabase = createServerSupabaseClient()
+    const supabase = await createServerSupabaseClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })

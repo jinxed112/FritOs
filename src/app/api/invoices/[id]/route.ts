@@ -23,10 +23,8 @@ const PatchSchema = z.object({
   serviceType: z.enum(['eat_in', 'takeaway']).optional().nullable(),
 })
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const body = await req.json()
     const parsed = PatchSchema.safeParse(body)
@@ -118,10 +116,8 @@ export async function PATCH(
 // Returns a full invoice with its linked orders and order items.
 // Used by the invoice display page (/invoice/[id]).
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const invoiceId = params.id
 
   // Invoice + establishment

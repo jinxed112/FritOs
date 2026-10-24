@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = createServerSupabaseClient()
+    const supabase = await createServerSupabaseClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
@@ -72,7 +72,8 @@ export async function POST(request: NextRequest) {
       exp: now + ESTABLISHMENT_COOKIE_MAX_AGE_SECONDS,
     })
 
-    cookies().set(ESTABLISHMENT_COOKIE_NAME, cookieValue, {
+    const cookieStore = await cookies()
+    cookieStore.set(ESTABLISHMENT_COOKIE_NAME, cookieValue, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -95,7 +96,8 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE() {
   try {
-    cookies().delete(ESTABLISHMENT_COOKIE_NAME)
+    const cookieStore = await cookies()
+    cookieStore.delete(ESTABLISHMENT_COOKIE_NAME)
     return NextResponse.json({ success: true })
   } catch (e: any) {
     return NextResponse.json(

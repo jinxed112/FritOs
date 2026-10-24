@@ -49,7 +49,7 @@ const ImportPayloadSchema = z.object({
 export type ImportPayload = z.infer<typeof ImportPayloadSchema>
 
 async function assertSuperAdmin(): Promise<{ userId: string }> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()

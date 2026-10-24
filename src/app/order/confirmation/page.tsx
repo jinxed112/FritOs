@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
-export default function ConfirmationPage() {
+function ConfirmationContent() {
   const searchParams = useSearchParams()
   const orderId = searchParams.get('orderId')
   const orderCode = searchParams.get('s') // Viva renvoie le orderCode dans 's'
@@ -182,4 +182,8 @@ export default function ConfirmationPage() {
       </div>
     </div>
   )
+}
+
+export default function ConfirmationPage() {
+  return (<Suspense fallback={null}><ConfirmationContent /></Suspense>)
 }
