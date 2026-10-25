@@ -290,6 +290,30 @@ export default function ReportsPage() {
       if (order.payment_method === 'cash') existing.cash += orderTotal
       else existing.card += orderTotal
 
+      // ── Appetito : ventilation depuis le montant payé, pas depuis les lignes ──
+      // Les lignes lues sur le ticket Appetito sont fausses (quantité comptée deux fois,
+      // lignes manquantes) et les frais de livraison Appetito sont dans le total mais pas
+      // dans delivery_fee. Produits = subtotal (plafonné au total si Appetito a remisé),
+      // livraison = total - produits, à 21 % comme nos propres frais de livraison.
+      if (order.source === 'appetito') {
+        const vatRate = (order.order_type === 'eat_in' || order.order_type === 'dine_in') ? 12 : 6
+        const subtotal = Number(order.subtotal) || orderTotal
+        const productsTTC = Math.min(subtotal, orderTotal)
+        const productsHT = productsTTC / (1 + vatRate / 100)
+        if (vatRate === 12) {
+          existing.ttc12 += productsTTC; existing.htva12 += productsHT; existing.tva12 += productsTTC - productsHT
+        } else {
+          existing.ttc6 += productsTTC; existing.htva6 += productsHT; existing.tva6 += productsTTC - productsHT
+        }
+        const appetitoFee = orderTotal - productsTTC
+        if (appetitoFee > 0) {
+          const feeHT = appetitoFee / 1.21
+          existing.ttc21 += appetitoFee; existing.htva21 += feeHT; existing.tva21 += appetitoFee - feeHT
+        }
+        dailyData.set(dateKey, existing)
+        return
+      }
+
       // ── Ventilation TVA depuis les order_items ──
       ;(order.order_items || []).forEach((item: OrderItem) => {
         const vatRate = item.vat_rate || (
