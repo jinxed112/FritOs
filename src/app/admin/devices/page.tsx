@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCurrentEstablishment } from '@/lib/establishment/client'
 
 type Device = {
   id: string
@@ -28,7 +29,8 @@ export default function DevicesPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingDevice, setEditingDevice] = useState<Device | null>(null)
-  const [selectedEstablishment, setSelectedEstablishment] = useState<string>(ALL_ESTABLISHMENTS)
+  const [selectedEstablishment, setSelectedEstablishment] = useState<string>('')
+  const { establishment: currentEstablishment, loading: currentLoading } = useCurrentEstablishment()
   
   const [form, setForm] = useState({
     device_code: '',
@@ -47,6 +49,12 @@ export default function DevicesPage() {
   useEffect(() => {
     loadEstablishments()
   }, [])
+
+  // Suit le site choisi dans le sélecteur général ; à défaut, tous les sites
+  useEffect(() => {
+    if (currentLoading) return
+    setSelectedEstablishment(currentEstablishment?.id || ALL_ESTABLISHMENTS)
+  }, [currentEstablishment?.id, currentLoading])
 
   useEffect(() => {
     if (selectedEstablishment) {
