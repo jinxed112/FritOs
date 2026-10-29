@@ -20,13 +20,15 @@ type Establishment = {
   name: string
 }
 
+const ALL_ESTABLISHMENTS = 'all'
+
 export default function DevicesPage() {
   const [devices, setDevices] = useState<Device[]>([])
   const [establishments, setEstablishments] = useState<Establishment[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingDevice, setEditingDevice] = useState<Device | null>(null)
-  const [selectedEstablishment, setSelectedEstablishment] = useState<string>('')
+  const [selectedEstablishment, setSelectedEstablishment] = useState<string>(ALL_ESTABLISHMENTS)
   
   const [form, setForm] = useState({
     device_code: '',
@@ -60,9 +62,6 @@ export default function DevicesPage() {
     
     if (!error && data) {
       setEstablishments(data)
-      if (data.length > 0) {
-        setSelectedEstablishment(data[0].id)
-      }
     }
     setLoading(false)
   }
@@ -72,11 +71,16 @@ export default function DevicesPage() {
     
     setLoading(true)
     
-    const { data, error } = await supabase
+    let query = supabase
       .from('devices')
       .select('*')
-      .eq('establishment_id', selectedEstablishment)
       .order('device_code')
+
+    if (selectedEstablishment !== ALL_ESTABLISHMENTS) {
+      query = query.eq('establishment_id', selectedEstablishment)
+    }
+
+    const { data, error } = await query
     
     if (error) {
       console.error('Erreur:', error)
@@ -104,7 +108,9 @@ export default function DevicesPage() {
         device_code: '',
         name: '',
         device_type: 'kiosk',
-        establishment_id: selectedEstablishment,
+        establishment_id: selectedEstablishment === ALL_ESTABLISHMENTS
+          ? (establishments[0]?.id || '')
+          : selectedEstablishment,
         is_active: true,
         viva_terminal_id: '',
       })
@@ -261,6 +267,7 @@ export default function DevicesPage() {
             onChange={(e) => setSelectedEstablishment(e.target.value)}
             className="w-full md:w-auto px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
           >
+            <option value={ALL_ESTABLISHMENTS}>Tous les sites</option>
             {establishments.map(est => (
               <option key={est.id} value={est.id}>{est.name}</option>
             ))}
@@ -319,6 +326,14 @@ export default function DevicesPage() {
                 </div>
 
                 <div className="space-y-2 mb-4 text-sm">
+                  {selectedEstablishment === ALL_ESTABLISHMENTS && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-500">Site</span>
+                      <span className="font-medium">
+                        {establishments.find(est => est.id === device.establishment_id)?.name || '—'}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <span className="text-gray-500">Type</span>
                     <span className="font-medium">{getDeviceTypeLabel(device.device_type)}</span>
