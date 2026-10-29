@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
       const supabase = createAdminClient()
       const { data, error } = await supabase
         .from('devices')
-        .select('id, is_active')
+        .select('id, is_active, config')
         .eq('id', device.id)
         .single()
       
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
         .update({ last_seen: new Date().toISOString() })
         .eq('id', device.id)
       
-      return NextResponse.json({ device })
+      return NextResponse.json({ device: { ...device, theme: data.config?.theme ?? null } })
     } catch {
       return NextResponse.json({ device: null })
     }
