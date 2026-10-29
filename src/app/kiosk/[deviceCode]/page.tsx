@@ -1366,9 +1366,13 @@ export default function KioskDevicePage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeProductModal}>
           <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="relative">
-              <div className="aspect-video bg-[#FFF9E6] flex items-center justify-center">
+              <div className={`aspect-video flex items-center justify-center ${halloween ? 'bg-black' : 'bg-[#FFF9E6]'}`}>
                 {selectedProduct.image_url ? (
-                  <img src={selectedProduct.image_url} alt="" className="w-full h-full object-cover" />
+                  <img
+                    src={(halloween ? photoHalloween(selectedProduct) : null) ?? selectedProduct.image_url}
+                    alt=""
+                    className={`w-full h-full ${halloween ? 'object-contain' : 'object-cover'}`}
+                  />
                 ) : (
                   <span className="text-8xl">🍔</span>
                 )}

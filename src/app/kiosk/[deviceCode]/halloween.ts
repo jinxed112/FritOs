@@ -16,7 +16,11 @@ export const LOGO_BORIBAR = `${DOSSIER}/logo-boribar.png`
 export const LOGO_MDJAMBO = `${DOSSIER}/logo-mdjambo.svg`
 
 // Photos Halloween par nom de produit (en minuscules) ; à défaut, la photo du catalogue
-const PHOTOS: Record<string, string> = {}
+const PHOTOS: Record<string, string> = {
+  'géant style': `${DOSSIER}/geant.webp`,
+  'smoky style': `${DOSSIER}/smoky.webp`,
+  'paquet de frites': `${DOSSIER}/frites.webp`,
+}
 
 export function photoHalloween(product: { name: string; image_url: string | null }): string | null {
   return PHOTOS[product.name.trim().toLowerCase()] ?? product.image_url
