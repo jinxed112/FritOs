@@ -878,45 +878,45 @@ export default function KioskDevicePage() {
   const halloween = device?.theme === HALLOWEEN_THEME
 
   if (!orderType && !orderNumber && halloween) {
-    const boutonHalloween = `${gras.className} rounded-3xl p-8 border-2 bg-white/5 hover:bg-white/10 transition-all text-white`
+    const boutonHalloween = `${gras.className} rounded-3xl p-[3vmin] border-2 bg-white/5 hover:bg-white/10 transition-all text-white`
     return (
-      <div className="min-h-screen bg-black p-4 flex">
-        <div className="flex-1 rounded-3xl border-2 overflow-hidden flex flex-col landscape:flex-row" style={{ borderColor: CORAIL }}>
-          <div className="landscape:w-5/12 portrait:h-[42vh] flex items-end justify-center overflow-hidden">
-            <img src={GHOSTFACE} alt="" className="h-full w-full object-contain object-bottom" />
+      <div className="h-screen bg-black p-4 flex overflow-hidden">
+        <div className="flex-1 min-h-0 rounded-3xl border-2 overflow-hidden flex flex-col landscape:flex-row" style={{ borderColor: CORAIL }}>
+          <div className="relative shrink-0 portrait:h-[36%] landscape:w-5/12">
+            <img src={GHOSTFACE} alt="" className="absolute inset-0 w-full h-full object-contain object-bottom" />
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <span className={`${gras.className} inline-block -rotate-2 px-6 py-2 rounded-md text-white text-2xl mb-6`} style={{ background: CORAIL }}>
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-[2.5vmin] p-[3vmin] text-center">
+            <span className={`${gras.className} inline-block -rotate-2 px-[2.5vmin] py-[1vmin] rounded-md text-white text-[3.2vmin] whitespace-nowrap`} style={{ background: CORAIL }}>
               VENDREDI 30.10 AU BORIBAR
             </span>
-            <h1 className={`${titre.className} text-white text-8xl leading-none`}>BLIND TEST</h1>
-            <p className={`${gras.className} text-5xl leading-tight mt-4`} style={{ color: CORAIL }}>
+            <h1 className={`${titre.className} text-white text-[12vmin] leading-[0.95] whitespace-nowrap`}>BLIND TEST</h1>
+            <p className={`${gras.className} text-[5.5vmin] leading-tight`} style={{ color: CORAIL }}>
               LES GROS MORTS<br />ONT FAIM.
             </p>
-            <p className={`${gras.className} text-white/80 text-xl mt-6 mb-10`}>Touchez pour commander</p>
+            <p className={`${gras.className} text-white/80 text-[3vmin]`}>Touchez pour commander</p>
 
-            <div className="grid grid-cols-2 gap-6 w-full max-w-2xl">
+            <div className="grid grid-cols-2 gap-[3vmin] w-full max-w-[80vmin]">
               {eatInEnabled ? (
                 <button onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }} className={boutonHalloween} style={{ borderColor: CORAIL }}>
-                  <span className="text-6xl block mb-3">🍽️</span>
-                  <span className="text-3xl block">SUR PLACE</span>
+                  <span className="text-[7vmin] block mb-[1vmin]">🍽️</span>
+                  <span className="text-[3.4vmin] block whitespace-nowrap">SUR PLACE</span>
                 </button>
               ) : (
                 <button onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }} className={boutonHalloween} style={{ borderColor: CORAIL }}>
-                  <span className="text-6xl block mb-3">☕</span>
-                  <span className="text-3xl block">MANGER AU BUX</span>
+                  <span className="text-[7vmin] block mb-[1vmin]">☕</span>
+                  <span className="text-[3.4vmin] block whitespace-nowrap">MANGER AU BUX</span>
                 </button>
               )}
               <button onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }} className={boutonHalloween} style={{ borderColor: CORAIL }}>
-                <span className="text-6xl block mb-3">🥡</span>
-                <span className="text-3xl block">À EMPORTER</span>
+                <span className="text-[7vmin] block mb-[1vmin]">🥡</span>
+                <span className="text-[3.4vmin] block whitespace-nowrap">À EMPORTER</span>
               </button>
             </div>
 
-            <div className="flex items-center gap-5 mt-12">
-              <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="h-16 w-16" />
-              <span className={`${gras.className} text-2xl`} style={{ color: CORAIL }}>×</span>
-              <img src={LOGO_BORIBAR} alt="Boribar" className="h-12" />
+            <div className="flex items-center gap-[2.5vmin] mt-[1vmin]">
+              <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="h-[8vmin] w-[8vmin]" />
+              <span className={`${gras.className} text-[3.5vmin]`} style={{ color: CORAIL }}>×</span>
+              <img src={LOGO_BORIBAR} alt="Boribar" className="h-[6vmin]" />
             </div>
           </div>
         </div>
@@ -1050,21 +1050,21 @@ export default function KioskDevicePage() {
   const currentGroup = currentPropositions[currentPropositionIndex]
 
   return (
-    <div className={`min-h-screen flex flex-col ${halloween ? 'bg-black' : 'bg-[#FFF9E6]'}`}>
+    <div className={`flex flex-col ${halloween ? 'h-screen bg-black' : 'min-h-screen bg-[#FFF9E6]'}`}>
       {halloween ? (
         <>
-          <header className="bg-black px-6 py-4 flex items-center justify-between border-b-2" style={{ borderColor: CORAIL }}>
+          <header className="bg-black px-4 py-3 flex items-center justify-between gap-3 border-b-2 whitespace-nowrap" style={{ borderColor: CORAIL }}>
             <button onClick={() => { setOrderType(null); setCart([]); setIsBuxMode(false) }} className="text-white/60 hover:text-white text-lg">
               ← Retour
             </button>
-            <span className={`${gras.className} text-white text-2xl`}>
+            <span className={`${gras.className} text-white text-xl portrait:hidden`}>
               MDJAMBO <span style={{ color: CORAIL }}>×</span> BORIBAR
             </span>
             <div className="flex items-center gap-2 bg-white/10 rounded-full p-1">
               {eatInEnabled ? (
                 <button
                   onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }}
-                  className={`px-5 py-2 rounded-full font-semibold transition-all ${orderType === 'eat_in' ? 'text-white' : 'text-white/60'}`}
+                  className={`px-4 py-2 rounded-full font-semibold transition-all ${orderType === 'eat_in' ? 'text-white' : 'text-white/60'}`}
                   style={orderType === 'eat_in' ? { background: CORAIL } : undefined}
                 >
                   🍽️ Sur place
@@ -1072,7 +1072,7 @@ export default function KioskDevicePage() {
               ) : (
                 <button
                   onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }}
-                  className={`px-5 py-2 rounded-full font-semibold transition-all ${isBuxMode ? 'text-white' : 'text-white/60'}`}
+                  className={`px-4 py-2 rounded-full font-semibold transition-all ${isBuxMode ? 'text-white' : 'text-white/60'}`}
                   style={isBuxMode ? { background: CORAIL } : undefined}
                 >
                   ☕ Bux
@@ -1080,7 +1080,7 @@ export default function KioskDevicePage() {
               )}
               <button
                 onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }}
-                className={`px-5 py-2 rounded-full font-semibold transition-all ${orderType === 'takeaway' && !isBuxMode ? 'text-white' : 'text-white/60'}`}
+                className={`px-4 py-2 rounded-full font-semibold transition-all ${orderType === 'takeaway' && !isBuxMode ? 'text-white' : 'text-white/60'}`}
                 style={orderType === 'takeaway' && !isBuxMode ? { background: CORAIL } : undefined}
               >
                 🥡 À emporter
@@ -1088,10 +1088,10 @@ export default function KioskDevicePage() {
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto p-6 md:p-10">
-            <div className="text-center mb-8">
-              <span className={`${gras.className} inline-block -rotate-2 px-5 py-2 rounded-md text-white text-xl`} style={{ background: CORAIL }}>
-                BLIND TEST · LES GROS MORTS ONT FAIM
+          <main className="flex-1 min-h-0 overflow-y-auto p-[3vmin]">
+            <div className="text-center mb-[4vmin]">
+              <span className={`${gras.className} inline-block -rotate-2 px-[2.5vmin] py-[1vmin] rounded-md text-white text-[3.4vmin] whitespace-nowrap`} style={{ background: CORAIL }}>
+                LES GROS MORTS ONT FAIM
               </span>
             </div>
             {loading ? (
@@ -1099,7 +1099,7 @@ export default function KioskDevicePage() {
                 <p className="text-white/50">Chargement...</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 landscape:grid-cols-3 gap-6 max-w-6xl mx-auto">
+              <div className="grid grid-cols-1 landscape:grid-cols-3 gap-[3vmin] max-w-6xl mx-auto">
                 {produitsHalloween.map(product => {
                   const photo = photoHalloween(product)
                   return (
@@ -1109,17 +1109,17 @@ export default function KioskDevicePage() {
                       className="bg-black rounded-3xl overflow-hidden border-2 hover:scale-[1.02] transition-all text-left flex portrait:flex-row landscape:flex-col"
                       style={{ borderColor: CORAIL }}
                     >
-                      <div className="portrait:w-2/5 landscape:w-full aspect-square bg-black flex items-center justify-center shrink-0">
+                      <div className="relative portrait:w-2/5 portrait:aspect-square landscape:w-full landscape:aspect-[16/10] bg-black flex items-center justify-center shrink-0">
                         {photo ? (
-                          <img src={photo} alt="" className="w-full h-full object-cover" />
+                          <img src={photo} alt="" className="absolute inset-0 w-full h-full object-cover" />
                         ) : (
                           <span className="text-7xl">🍔</span>
                         )}
                       </div>
-                      <div className="p-6 flex-1 flex flex-col justify-center">
-                        <h3 className={`${gras.className} text-white text-3xl leading-tight uppercase`}>{product.name}</h3>
-                        {product.description && <p className="text-white/60 text-lg mt-2">{product.description}</p>}
-                        <p className={`${gras.className} text-4xl mt-4`} style={{ color: CORAIL }}>{product.price.toFixed(2)} €</p>
+                      <div className="p-[3vmin] flex-1 flex flex-col justify-center">
+                        <h3 className={`${gras.className} text-white text-[4.2vmin] leading-tight uppercase`}>{product.name}</h3>
+                        {product.description && <p className="text-white/60 text-[2.6vmin] mt-[1vmin]">{product.description}</p>}
+                        <p className={`${gras.className} text-[5vmin] mt-[2vmin]`} style={{ color: CORAIL }}>{product.price.toFixed(2)} €</p>
                       </div>
                     </button>
                   )
