@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { HALLOWEEN_THEME, CORAIL, titre, gras, GHOSTFACE, LOGO_BORIBAR, photoHalloween } from './halloween'
+import { HALLOWEEN_THEME, CORAIL, titre, gras, GHOSTFACE, LOGO_BORIBAR, LOGO_MDJAMBO, photoHalloween } from './halloween'
 import { estDansSaPlage } from '@/lib/product-availability'
 import { estCategorieProposee, fautProposerBoisson } from '@/lib/suggestion-boisson'
 import { contexteDepuisProduits, taxeDesLignes, ventilerLignes } from '@/lib/menu-ventilation'
@@ -881,18 +881,19 @@ export default function KioskDevicePage() {
     const boutonHalloween = `${gras.className} rounded-3xl p-[3vmin] border-2 bg-white/5 hover:bg-white/10 transition-all text-white`
     return (
       <div className="h-screen bg-black p-4 flex overflow-hidden">
-        <div className="flex-1 min-h-0 rounded-3xl border-2 overflow-hidden flex flex-col landscape:flex-row" style={{ borderColor: CORAIL }}>
-          <div className="relative shrink-0 portrait:h-[36%] landscape:w-5/12">
-            <img src={GHOSTFACE} alt="" className="absolute inset-0 w-full h-full object-contain object-bottom" />
-          </div>
-          <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-[2.5vmin] p-[3vmin] text-center">
+        <div className="relative flex-1 min-h-0 rounded-3xl border-2 overflow-hidden flex" style={{ borderColor: CORAIL }}>
+          {/* Ghostface en bas à gauche, grand ; le texte peut passer dessus */}
+          <img src={GHOSTFACE} alt="" className="absolute left-0 bottom-0 landscape:h-[120%] portrait:h-[70%] w-auto max-w-none" />
+          <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center gap-[2.5vmin] p-[3vmin] text-center landscape:ml-[35%] portrait:justify-start [text-shadow:0_2px_12px_rgba(0,0,0,0.9)]">
             <span className={`${gras.className} inline-block -rotate-2 px-[2.5vmin] py-[1vmin] rounded-md text-white text-[3.2vmin] whitespace-nowrap`} style={{ background: CORAIL }}>
               VENDREDI 30.10 AU BORIBAR
             </span>
             <h1 className={`${titre.className} text-white text-[12vmin] leading-[0.95] whitespace-nowrap`}>BLIND TEST</h1>
-            <p className={`${gras.className} text-[5.5vmin] leading-tight`} style={{ color: CORAIL }}>
-              LES GROS MORTS<br />ONT FAIM.
-            </p>
+            <div className="flex items-center gap-[3vmin]">
+              <img src={LOGO_MDJAMBO} alt="MDjambo" className="h-[13vmin] w-[13vmin]" />
+              <span className={`${gras.className} text-[5vmin]`} style={{ color: CORAIL }}>×</span>
+              <img src={LOGO_BORIBAR} alt="Boribar" className="h-[9vmin]" />
+            </div>
             <p className={`${gras.className} text-white/80 text-[3vmin]`}>Touchez pour commander</p>
 
             <div className="grid grid-cols-2 gap-[3vmin] w-full max-w-[80vmin]">
@@ -911,12 +912,6 @@ export default function KioskDevicePage() {
                 <span className="text-[7vmin] block mb-[1vmin]">🥡</span>
                 <span className="text-[3.4vmin] block whitespace-nowrap">À EMPORTER</span>
               </button>
-            </div>
-
-            <div className="flex items-center gap-[2.5vmin] mt-[1vmin]">
-              <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="h-[8vmin] w-[8vmin]" />
-              <span className={`${gras.className} text-[3.5vmin]`} style={{ color: CORAIL }}>×</span>
-              <img src={LOGO_BORIBAR} alt="Boribar" className="h-[6vmin]" />
             </div>
           </div>
         </div>
@@ -1057,9 +1052,11 @@ export default function KioskDevicePage() {
             <button onClick={() => { setOrderType(null); setCart([]); setIsBuxMode(false) }} className="text-white/60 hover:text-white text-lg">
               ← Retour
             </button>
-            <span className={`${gras.className} text-white text-xl portrait:hidden`}>
-              MDJAMBO <span style={{ color: CORAIL }}>×</span> BORIBAR
-            </span>
+            <div className="flex items-center gap-4">
+              <img src={LOGO_MDJAMBO} alt="MDjambo" className="h-12 w-12" />
+              <span className={`${gras.className} text-2xl`} style={{ color: CORAIL }}>×</span>
+              <img src={LOGO_BORIBAR} alt="Boribar" className="h-9" />
+            </div>
             <div className="flex items-center gap-2 bg-white/10 rounded-full p-1">
               {eatInEnabled ? (
                 <button
@@ -1089,11 +1086,6 @@ export default function KioskDevicePage() {
           </header>
 
           <main className="flex-1 min-h-0 overflow-y-auto p-[3vmin]">
-            <div className="text-center mb-[4vmin]">
-              <span className={`${gras.className} inline-block -rotate-2 px-[2.5vmin] py-[1vmin] rounded-md text-white text-[3.4vmin] whitespace-nowrap`} style={{ background: CORAIL }}>
-                LES GROS MORTS ONT FAIM
-              </span>
-            </div>
             {loading ? (
               <div className="flex items-center justify-center h-64">
                 <p className="text-white/50">Chargement...</p>

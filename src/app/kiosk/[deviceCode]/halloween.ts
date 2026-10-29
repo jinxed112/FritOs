@@ -12,6 +12,8 @@ export const gras = Archivo_Black({ subsets: ['latin'], weight: '400' })
 const DOSSIER = '/themes/halloween-borinage'
 export const GHOSTFACE = `${DOSSIER}/ghostface.webp`
 export const LOGO_BORIBAR = `${DOSSIER}/logo-boribar.png`
+// Logo MDjambo sans son fond blanc, pour le fond noir
+export const LOGO_MDJAMBO = `${DOSSIER}/logo-mdjambo.svg`
 
 // Photos Halloween par nom de produit (en minuscules) ; à défaut, la photo du catalogue
 const PHOTOS: Record<string, string> = {}
