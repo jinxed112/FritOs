@@ -39,6 +39,7 @@ export default function DevicesPage() {
     establishment_id: '',
     is_active: true,
     viva_terminal_id: '',
+    theme: '',
   })
   
   const [saving, setSaving] = useState(false)
@@ -109,6 +110,7 @@ export default function DevicesPage() {
         establishment_id: device.establishment_id,
         is_active: device.is_active,
         viva_terminal_id: device.viva_terminal_id || '',
+        theme: device.config?.theme || '',
       })
     } else {
       setEditingDevice(null)
@@ -121,6 +123,7 @@ export default function DevicesPage() {
           : selectedEstablishment,
         is_active: true,
         viva_terminal_id: '',
+        theme: '',
       })
     }
     setFormError('')
@@ -149,6 +152,7 @@ export default function DevicesPage() {
             establishment_id: form.establishment_id,
             is_active: form.is_active,
             viva_terminal_id: form.viva_terminal_id || null,
+            config: { ...(editingDevice.config || {}), theme: form.theme || null },
           })
           .eq('id', editingDevice.id)
         
@@ -163,6 +167,7 @@ export default function DevicesPage() {
             establishment_id: form.establishment_id,
             is_active: form.is_active,
             viva_terminal_id: form.viva_terminal_id || null,
+            config: form.theme ? { theme: form.theme } : {},
           })
         
         if (error) throw error
@@ -465,6 +470,20 @@ export default function DevicesPage() {
                   <option value="counter">📋 Caisse / Comptoir</option>
                 </select>
               </div>
+
+              {form.device_type === 'kiosk' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Thème de la borne</label>
+                  <select
+                    value={form.theme}
+                    onChange={e => setForm({ ...form, theme: e.target.value })}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  >
+                    <option value="">Standard MDjambo</option>
+                    <option value="halloween-borinage">🎃 Halloween Boribar</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">

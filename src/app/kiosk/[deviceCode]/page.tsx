@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { HALLOWEEN_THEME, CORAIL, titre, gras, GHOSTFACE, LOGO_BORIBAR, photoHalloween } from './halloween'
 import { estDansSaPlage } from '@/lib/product-availability'
 import { estCategorieProposee, fautProposerBoisson } from '@/lib/suggestion-boisson'
 import { contexteDepuisProduits, taxeDesLignes, ventilerLignes } from '@/lib/menu-ventilation'
@@ -95,6 +96,7 @@ type DeviceInfo = {
   type: string
   vivaTerminalId: string | null
   establishmentId: string
+  theme?: string | null
 }
 
 // Icônes par catégorie
@@ -214,7 +216,8 @@ export default function KioskDevicePage() {
         return
       }
 
-      setDevice(data.device)
+      const themeUrl = new URLSearchParams(window.location.search).get('theme')
+      setDevice({ ...data.device, theme: themeUrl ?? data.device.theme ?? null })
       setAuthStatus('authenticated')
       loadData(data.device.establishmentId)
     } catch (error) {
@@ -872,6 +875,55 @@ export default function KioskDevicePage() {
     )
   }
 
+  const halloween = device?.theme === HALLOWEEN_THEME
+
+  if (!orderType && !orderNumber && halloween) {
+    const boutonHalloween = `${gras.className} rounded-3xl p-8 border-2 bg-white/5 hover:bg-white/10 transition-all text-white`
+    return (
+      <div className="min-h-screen bg-black p-4 flex">
+        <div className="flex-1 rounded-3xl border-2 overflow-hidden flex flex-col landscape:flex-row" style={{ borderColor: CORAIL }}>
+          <div className="landscape:w-5/12 portrait:h-[42vh] flex items-end justify-center overflow-hidden">
+            <img src={GHOSTFACE} alt="" className="h-full w-full object-contain object-bottom" />
+          </div>
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+            <span className={`${gras.className} inline-block -rotate-2 px-6 py-2 rounded-md text-white text-2xl mb-6`} style={{ background: CORAIL }}>
+              VENDREDI 30.10 AU BORIBAR
+            </span>
+            <h1 className={`${titre.className} text-white text-8xl leading-none`}>BLIND TEST</h1>
+            <p className={`${gras.className} text-5xl leading-tight mt-4`} style={{ color: CORAIL }}>
+              LES GROS MORTS<br />ONT FAIM.
+            </p>
+            <p className={`${gras.className} text-white/80 text-xl mt-6 mb-10`}>Touchez pour commander</p>
+
+            <div className="grid grid-cols-2 gap-6 w-full max-w-2xl">
+              {eatInEnabled ? (
+                <button onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }} className={boutonHalloween} style={{ borderColor: CORAIL }}>
+                  <span className="text-6xl block mb-3">🍽️</span>
+                  <span className="text-3xl block">SUR PLACE</span>
+                </button>
+              ) : (
+                <button onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }} className={boutonHalloween} style={{ borderColor: CORAIL }}>
+                  <span className="text-6xl block mb-3">☕</span>
+                  <span className="text-3xl block">MANGER AU BUX</span>
+                </button>
+              )}
+              <button onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }} className={boutonHalloween} style={{ borderColor: CORAIL }}>
+                <span className="text-6xl block mb-3">🥡</span>
+                <span className="text-3xl block">À EMPORTER</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-5 mt-12">
+              <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="h-16 w-16" />
+              <span className={`${gras.className} text-2xl`} style={{ color: CORAIL }}>×</span>
+              <img src={LOGO_BORIBAR} alt="Boribar" className="h-12" />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // --- NOUVEAU : Écran de sélection du type de commande ---
   if (!orderType && !orderNumber) {
     return (
@@ -991,109 +1043,195 @@ export default function KioskDevicePage() {
   const filteredProducts = products.filter(
     p => p.category_id === categorieActive && estDansSaPlage(p.availability_schedule, minuteCourante)
   )
+  // Borne Halloween : tous les produits visibles sur un seul écran, sans onglets
+  const produitsHalloween = products.filter(
+    p => categoriesVisibles.some(c => c.id === p.category_id) && estDansSaPlage(p.availability_schedule, minuteCourante)
+  )
   const currentGroup = currentPropositions[currentPropositionIndex]
 
   return (
-    <div className="min-h-screen bg-[#FFF9E6] flex flex-col">
-      {/* Header */}
-      <header className="bg-white shadow-md px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button onClick={() => { setOrderType(null); setCart([]); setIsBuxMode(false) }} className="text-[#3D2314]/50 hover:text-[#3D2314]">
-            ← Retour
-          </button>
-          <div className="w-12 h-12">
-            <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
-          </div>
-          <span className="text-2xl font-black text-[#E63329]">MDjambo</span>
-        </div>
-        
-        {/* Toggle eat_in / takeaway dans le header — respecte le quota */}
-        <div className="flex items-center gap-2 bg-[#FFF9E6] rounded-full p-1">
-          {eatInEnabled ? (
-            <button
-              onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }}
-              className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
-                orderType === 'eat_in' ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
-              }`}
-            >
-              🍽️ Sur place
+    <div className={`min-h-screen flex flex-col ${halloween ? 'bg-black' : 'bg-[#FFF9E6]'}`}>
+      {halloween ? (
+        <>
+          <header className="bg-black px-6 py-4 flex items-center justify-between border-b-2" style={{ borderColor: CORAIL }}>
+            <button onClick={() => { setOrderType(null); setCart([]); setIsBuxMode(false) }} className="text-white/60 hover:text-white text-lg">
+              ← Retour
             </button>
-          ) : (
-            <button
-              onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }}
-              className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
-                isBuxMode ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
-              }`}
-            >
-              ☕ Bux
-            </button>
-          )}
-          <button
-            onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
-              orderType === 'takeaway' && !isBuxMode ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
-            }`}
-          >
-            🥡 À emporter
-          </button>
-        </div>
-      </header>
-
-      {/* Categories */}
-      <nav className="bg-white border-b-2 border-[#F7B52C]/30">
-        <div className="flex gap-2 overflow-x-auto py-3 px-6">
-          {categoriesVisibles.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`flex items-center gap-2 px-5 py-3 rounded-full font-bold whitespace-nowrap transition-all ${
-                categorieActive === cat.id
-                  ? 'bg-[#E63329] text-white shadow-lg scale-105'
-                  : 'bg-[#FFF9E6] text-[#3D2314] hover:bg-[#F7B52C]/20'
-              }`}
-            >
-              <span className="text-xl">{getCategoryIcon(cat.name)}</span>
-              <span>{cat.name}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
-
-      {/* Products */}
-      <main className="flex-1 overflow-y-auto p-6">
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <p className="text-[#3D2314]/50">Chargement...</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {filteredProducts.map(product => (
+            <span className={`${gras.className} text-white text-2xl`}>
+              MDJAMBO <span style={{ color: CORAIL }}>×</span> BORIBAR
+            </span>
+            <div className="flex items-center gap-2 bg-white/10 rounded-full p-1">
+              {eatInEnabled ? (
+                <button
+                  onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }}
+                  className={`px-5 py-2 rounded-full font-semibold transition-all ${orderType === 'eat_in' ? 'text-white' : 'text-white/60'}`}
+                  style={orderType === 'eat_in' ? { background: CORAIL } : undefined}
+                >
+                  🍽️ Sur place
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }}
+                  className={`px-5 py-2 rounded-full font-semibold transition-all ${isBuxMode ? 'text-white' : 'text-white/60'}`}
+                  style={isBuxMode ? { background: CORAIL } : undefined}
+                >
+                  ☕ Bux
+                </button>
+              )}
               <button
-                key={product.id}
-                onClick={() => openProductModal(product)}
-                className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left"
+                onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }}
+                className={`px-5 py-2 rounded-full font-semibold transition-all ${orderType === 'takeaway' && !isBuxMode ? 'text-white' : 'text-white/60'}`}
+                style={orderType === 'takeaway' && !isBuxMode ? { background: CORAIL } : undefined}
               >
-                <div className="aspect-square bg-[#FFF9E6] flex items-center justify-center">
-                  {product.image_url ? (
-                    <img src={product.image_url} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-6xl">🍔</span>
-                  )}
-                </div>
-                <div className="p-3">
-                  <h3 className="font-bold text-[#3D2314] text-sm leading-tight line-clamp-2 min-h-[2.5rem]">{product.name}</h3>
-                  <p className="text-xl font-black text-[#E63329] mt-1">{product.price.toFixed(2)} €</p>
-                </div>
+                🥡 À emporter
+              </button>
+            </div>
+          </header>
+
+          <main className="flex-1 overflow-y-auto p-6 md:p-10">
+            <div className="text-center mb-8">
+              <span className={`${gras.className} inline-block -rotate-2 px-5 py-2 rounded-md text-white text-xl`} style={{ background: CORAIL }}>
+                BLIND TEST · LES GROS MORTS ONT FAIM
+              </span>
+            </div>
+            {loading ? (
+              <div className="flex items-center justify-center h-64">
+                <p className="text-white/50">Chargement...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 landscape:grid-cols-3 gap-6 max-w-6xl mx-auto">
+                {produitsHalloween.map(product => {
+                  const photo = photoHalloween(product)
+                  return (
+                    <button
+                      key={product.id}
+                      onClick={() => openProductModal(product)}
+                      className="bg-black rounded-3xl overflow-hidden border-2 hover:scale-[1.02] transition-all text-left flex portrait:flex-row landscape:flex-col"
+                      style={{ borderColor: CORAIL }}
+                    >
+                      <div className="portrait:w-2/5 landscape:w-full aspect-square bg-black flex items-center justify-center shrink-0">
+                        {photo ? (
+                          <img src={photo} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-7xl">🍔</span>
+                        )}
+                      </div>
+                      <div className="p-6 flex-1 flex flex-col justify-center">
+                        <h3 className={`${gras.className} text-white text-3xl leading-tight uppercase`}>{product.name}</h3>
+                        {product.description && <p className="text-white/60 text-lg mt-2">{product.description}</p>}
+                        <p className={`${gras.className} text-4xl mt-4`} style={{ color: CORAIL }}>{product.price.toFixed(2)} €</p>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </main>
+        </>
+      ) : (
+        <>
+        {/* Header */}
+        <header className="bg-white shadow-md px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button onClick={() => { setOrderType(null); setCart([]); setIsBuxMode(false) }} className="text-[#3D2314]/50 hover:text-[#3D2314]">
+              ← Retour
+            </button>
+            <div className="w-12 h-12">
+              <img src="/Logo_Mdjambo.svg" alt="MDjambo" className="w-full h-full" />
+            </div>
+            <span className="text-2xl font-black text-[#E63329]">MDjambo</span>
+          </div>
+        
+          {/* Toggle eat_in / takeaway dans le header — respecte le quota */}
+          <div className="flex items-center gap-2 bg-[#FFF9E6] rounded-full p-1">
+            {eatInEnabled ? (
+              <button
+                onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }}
+                className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+                  orderType === 'eat_in' ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
+                }`}
+              >
+                🍽️ Sur place
+              </button>
+            ) : (
+              <button
+                onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }}
+                className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+                  isBuxMode ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
+                }`}
+              >
+                ☕ Bux
+              </button>
+            )}
+            <button
+              onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }}
+              className={`flex items-center gap-2 px-5 py-2 rounded-full font-semibold transition-all ${
+                orderType === 'takeaway' && !isBuxMode ? 'bg-[#E63329] text-white shadow-md' : 'text-[#3D2314]/60'
+              }`}
+            >
+              🥡 À emporter
+            </button>
+          </div>
+        </header>
+
+        {/* Categories */}
+        <nav className="bg-white border-b-2 border-[#F7B52C]/30">
+          <div className="flex gap-2 overflow-x-auto py-3 px-6">
+            {categoriesVisibles.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`flex items-center gap-2 px-5 py-3 rounded-full font-bold whitespace-nowrap transition-all ${
+                  categorieActive === cat.id
+                    ? 'bg-[#E63329] text-white shadow-lg scale-105'
+                    : 'bg-[#FFF9E6] text-[#3D2314] hover:bg-[#F7B52C]/20'
+                }`}
+              >
+                <span className="text-xl">{getCategoryIcon(cat.name)}</span>
+                <span>{cat.name}</span>
               </button>
             ))}
           </div>
-        )}
-      </main>
+        </nav>
+
+        {/* Products */}
+        <main className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <p className="text-[#3D2314]/50">Chargement...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {filteredProducts.map(product => (
+                <button
+                  key={product.id}
+                  onClick={() => openProductModal(product)}
+                  className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl hover:scale-[1.02] transition-all text-left"
+                >
+                  <div className="aspect-square bg-[#FFF9E6] flex items-center justify-center">
+                    {product.image_url ? (
+                      <img src={product.image_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-6xl">🍔</span>
+                    )}
+                  </div>
+                  <div className="p-3">
+                    <h3 className="font-bold text-[#3D2314] text-sm leading-tight line-clamp-2 min-h-[2.5rem]">{product.name}</h3>
+                    <p className="text-xl font-black text-[#E63329] mt-1">{product.price.toFixed(2)} €</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </main>
+        </>
+      )}
 
       {/* Cart bar */}
       {cart.length > 0 && (
         <div 
-          className="bg-[#E63329] text-white px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-[#c42a22]"
+          className={`text-white px-6 py-4 flex items-center justify-between cursor-pointer ${halloween ? '' : 'bg-[#E63329] hover:bg-[#c42a22]'}`}
+          style={halloween ? { background: CORAIL } : undefined}
           onClick={() => setShowCart(true)}
         >
           <div className="flex items-center gap-4">
