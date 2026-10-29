@@ -896,23 +896,11 @@ export default function KioskDevicePage() {
             </div>
             <p className={`${gras.className} text-white/80 text-[3vmin]`}>Touchez pour commander</p>
 
-            <div className="grid grid-cols-2 gap-[3vmin] w-full max-w-[80vmin]">
-              {eatInEnabled ? (
-                <button onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }} className={boutonHalloween} style={{ borderColor: CORAIL }}>
-                  <span className="text-[7vmin] block mb-[1vmin]">🍽️</span>
-                  <span className="text-[3.4vmin] block whitespace-nowrap">SUR PLACE</span>
-                </button>
-              ) : (
-                <button onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }} className={boutonHalloween} style={{ borderColor: CORAIL }}>
-                  <span className="text-[7vmin] block mb-[1vmin]">☕</span>
-                  <span className="text-[3.4vmin] block whitespace-nowrap">MANGER AU BUX</span>
-                </button>
-              )}
-              <button onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }} className={boutonHalloween} style={{ borderColor: CORAIL }}>
-                <span className="text-[7vmin] block mb-[1vmin]">🥡</span>
-                <span className="text-[3.4vmin] block whitespace-nowrap">À EMPORTER</span>
-              </button>
-            </div>
+            {/* Événement : uniquement à emporter, un seul bouton */}
+            <button onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }} className={`${boutonHalloween} w-full max-w-[60vmin]`} style={{ borderColor: CORAIL }}>
+              <span className="text-[7vmin] block mb-[1vmin]">🎃</span>
+              <span className="text-[4.5vmin] block whitespace-nowrap">COMMANDER</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1057,32 +1045,9 @@ export default function KioskDevicePage() {
               <span className={`${gras.className} text-2xl`} style={{ color: CORAIL }}>×</span>
               <img src={LOGO_BORIBAR} alt="Boribar" className="h-9" />
             </div>
-            <div className="flex items-center gap-2 bg-white/10 rounded-full p-1">
-              {eatInEnabled ? (
-                <button
-                  onClick={() => { setOrderType('eat_in'); setIsBuxMode(false) }}
-                  className={`px-4 py-2 rounded-full font-semibold transition-all ${orderType === 'eat_in' ? 'text-white' : 'text-white/60'}`}
-                  style={orderType === 'eat_in' ? { background: CORAIL } : undefined}
-                >
-                  🍽️ Sur place
-                </button>
-              ) : (
-                <button
-                  onClick={() => { setOrderType('takeaway'); setIsBuxMode(true) }}
-                  className={`px-4 py-2 rounded-full font-semibold transition-all ${isBuxMode ? 'text-white' : 'text-white/60'}`}
-                  style={isBuxMode ? { background: CORAIL } : undefined}
-                >
-                  ☕ Bux
-                </button>
-              )}
-              <button
-                onClick={() => { setOrderType('takeaway'); setIsBuxMode(false) }}
-                className={`px-4 py-2 rounded-full font-semibold transition-all ${orderType === 'takeaway' && !isBuxMode ? 'text-white' : 'text-white/60'}`}
-                style={orderType === 'takeaway' && !isBuxMode ? { background: CORAIL } : undefined}
-              >
-                🥡 À emporter
-              </button>
-            </div>
+            <span className="px-4 py-2 rounded-full font-semibold text-white" style={{ background: CORAIL }}>
+              🥡 À emporter
+            </span>
           </header>
 
           <main className="flex-1 min-h-0 overflow-y-auto p-[3vmin]">
