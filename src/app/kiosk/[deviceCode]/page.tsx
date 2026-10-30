@@ -1329,9 +1329,10 @@ export default function KioskDevicePage() {
       {/* Product modal */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeProductModal}>
-          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="relative">
-              <div className={`aspect-video flex items-center justify-center ${halloween ? 'bg-black' : 'bg-[#FFF9E6]'}`}>
+          <div className={`bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden ${halloween ? 'flex flex-col' : ''}`} onClick={e => e.stopPropagation()}>
+            {/* Halloween (paysage) : la photo rétrécit pour laisser voir Suivant / Ajouter */}
+            <div className={`relative ${halloween ? 'shrink min-h-0' : ''}`}>
+              <div className={`flex items-center justify-center ${halloween ? 'bg-black h-[32vh]' : 'aspect-video bg-[#FFF9E6]'}`}>
                 {selectedProduct.image_url ? (
                   <img
                     src={(halloween ? photoHalloween(selectedProduct) : null) ?? selectedProduct.image_url}
@@ -1345,7 +1346,7 @@ export default function KioskDevicePage() {
               <button onClick={closeProductModal} className="absolute top-4 right-4 w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-lg">✕</button>
             </div>
             
-            <div className="p-6 overflow-y-auto max-h-[40vh]">
+            <div className={`p-6 overflow-y-auto ${halloween ? 'flex-1 min-h-0' : 'max-h-[40vh]'}`}>
               {currentPropositions.length === 0 ? (
                 <div>
                   <h2 className="text-2xl font-bold text-[#3D2314] mb-2">{selectedProduct.name}</h2>
@@ -1397,7 +1398,7 @@ export default function KioskDevicePage() {
             </div>
             
             {currentPropositions.length > 0 && (
-              <div className="p-6 border-t-2 border-[#F7B52C]/30 bg-[#FFF9E6] flex items-center justify-between">
+              <div className={`p-6 border-t-2 border-[#F7B52C]/30 bg-[#FFF9E6] flex items-center justify-between ${halloween ? 'shrink-0 py-4' : ''}`}>
                 <button onClick={currentPropositionIndex === 0 ? closeProductModal : prevProposition} className="px-6 py-3 rounded-xl border-2 border-[#3D2314]/20 font-semibold">
                   {currentPropositionIndex === 0 ? 'Annuler' : '← Retour'}
                 </button>
