@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { calculateInvoiceTotals } from '@/lib/invoice/calculate'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -45,6 +46,9 @@ const CreateInvoiceBodySchema = z.object({
 // to the declared establishmentId (cross-tenant cannot be forged).
 
 export async function POST(req: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const body = await req.json()
     const parsed = CreateInvoiceBodySchema.safeParse(body)

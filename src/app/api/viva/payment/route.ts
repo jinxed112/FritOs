@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 // Supabase client with service role for server-side updates
 const supabase = createClient(
@@ -8,6 +9,9 @@ const supabase = createClient(
 )
 
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { amount, orderId, terminalId } = await request.json()
 
@@ -149,6 +153,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { searchParams } = new URL(request.url)
     const sessionId = searchParams.get('sessionId')
@@ -291,6 +298,9 @@ export async function GET(request: NextRequest) {
 // Ne décide pas du sort de la commande : la caisse relit le statut de la session ensuite,
 // car le client peut avoir payé juste avant l'annulation.
 export async function DELETE(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const sessionId = new URL(request.url).searchParams.get('sessionId')
     if (!sessionId) {

@@ -2,6 +2,16 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  // L'ancienne page de commande publique de la caisse (/order/<site>) n'a jamais
+  // reçu une seule commande : la commande en ligne passe par mdjambo.be. Sa route
+  // POST /api/orders est désormais réservée au personnel, donc on envoie le
+  // visiteur au bon endroit plutôt que sur une page qui ne peut plus commander.
+  const anciennePage = request.nextUrl.pathname.match(/^\/order\/([a-z0-9-]+)\/?$/)
+  if (anciennePage && anciennePage[1] !== 'confirmation') {
+    const site = ['boussu', 'jurbise'].includes(anciennePage[1]) ? anciennePage[1] : ''
+    return NextResponse.redirect(`https://mdjambo.be/${site}`, 302)
+  }
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 // API d'autocomplétion d'adresse utilisant Nominatim (OpenStreetMap)
 // Gratuit et sans clé API
 
 export async function GET(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { searchParams } = new URL(request.url)
     const query = searchParams.get('q')

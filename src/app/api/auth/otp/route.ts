@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,6 +14,9 @@ function generateOTP(): string {
 
 // POST: Envoyer un OTP par email
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { email, establishmentId } = await request.json()
 
@@ -155,6 +159,9 @@ export async function POST(request: NextRequest) {
 
 // PUT: Vérifier un OTP
 export async function PUT(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { email, otpCode, establishmentId } = await request.json()
 
@@ -279,6 +286,9 @@ export async function PUT(request: NextRequest) {
 
 // GET: Vérifier une session existante
 export async function GET(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { searchParams } = new URL(request.url)
     const sessionToken = searchParams.get('token')

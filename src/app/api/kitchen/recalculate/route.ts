@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,6 +11,9 @@ const supabase = createClient(
 // Elle doit être appelée régulièrement (toutes les minutes via cron ou realtime)
 
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { establishmentId } = await request.json()
 
@@ -117,6 +121,9 @@ export async function POST(request: NextRequest) {
 
 // GET pour obtenir l'état actuel sans modifier
 export async function GET(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { searchParams } = new URL(request.url)
     const establishmentId = searchParams.get('establishmentId')

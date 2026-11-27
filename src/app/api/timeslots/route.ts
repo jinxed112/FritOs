@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +21,9 @@ type DaySlots = {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { searchParams } = new URL(request.url)
     const establishmentId = searchParams.get('establishmentId')
@@ -215,6 +219,9 @@ function formatDayLabel(date: Date): string {
 
 // POST: Réserver un créneau (incrémenter le compteur)
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { establishmentId, slotDate, slotTime } = await request.json()
 
