@@ -1,5 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
+
+// SÉCURITÉ (27/11/2026) : cette route change le mot de passe de N'IMPORTE QUEL
+// compte de la base partagée (caisse, OrderMdj, Flexi) avec la clé service_role.
+// Elle était ouverte à tous, sans connexion. Désormais : session Supabase
+// valide ET rôle super_admin ou admin dans profiles, sinon 401 / 403.
+const ROLES_AUTORISES = ['super_admin', 'admin']
 
 // Client admin avec service_role key
 const supabaseAdmin = createClient(
@@ -10,6 +17,20 @@ const supabaseAdmin = createClient(
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createServerSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
+    }
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    if (!profile || !ROLES_AUTORISES.includes(profile.role)) {
+      return NextResponse.json({ error: 'Accès refusé' }, { status: 403 })
+    }
+
     const { auth_user_id, new_password } = await request.json()
 
     if (!auth_user_id || !new_password) {
