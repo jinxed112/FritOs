@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const DEVICE_COOKIE_NAME = 'selected_device'
 
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     // 1. Récupérer le device depuis le cookie
     const cookieStore = await cookies()

@@ -5,6 +5,7 @@ import { getCurrentEstablishment } from '@/lib/establishment/server'
 import { decrireSchedule, estDansSaPlage } from '@/lib/product-availability'
 import { estCategorieProposee, normaliserCategorie } from '@/lib/suggestion-boisson'
 import { contexteDepuisProduits, ventilerLignes } from '@/lib/menu-ventilation'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -83,6 +84,9 @@ const OrderBodySchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const rawBody = await request.json().catch(() => null)
     if (!rawBody || typeof rawBody !== 'object') {

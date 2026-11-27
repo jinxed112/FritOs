@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,6 +10,9 @@ const supabase = createClient(
 // Impression ESC/POS sur imprimante réseau
 // Pour Epson TM-T20III ou similaire
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { orderId, type, printerIp } = await request.json()
 

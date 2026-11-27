@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { generateUBLInvoice } from '@/lib/invoice/ubl'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,6 +30,9 @@ const admin = createClient(
 //                          comptable et même boîte UBL).
 
 export async function POST(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   const params = await props.params;
   try {
     // 1. Charger la facture + l'établissement
@@ -192,6 +196,9 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
 
 // GET — récupère l'UBL généré sans l'envoyer (debug / téléchargement manuel)
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   const params = await props.params;
   try {
     const { data: invoice, error: invErr } = await admin

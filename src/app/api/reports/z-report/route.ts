@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentEstablishment } from '@/lib/establishment/server'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -65,6 +66,9 @@ type TopProduct = {
 
 // GET - Récupérer les rapports Z existants
 export async function GET(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { searchParams } = new URL(request.url)
     const establishmentId = await resolveEstablishmentId(searchParams.get('establishmentId'))
@@ -94,6 +98,9 @@ export async function GET(request: NextRequest) {
 
 // POST - Créer un nouveau rapport Z (clôture)
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const body = await request.json()
     const {

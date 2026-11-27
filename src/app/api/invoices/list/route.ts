@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,6 +13,9 @@ const admin = createClient(
 // status : 'pending' | 'paid' | 'overdue' | 'all' (default all)
 
 export async function GET(req: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   const { searchParams } = new URL(req.url)
   const establishmentId = searchParams.get('establishmentId')
   const status = (searchParams.get('status') || 'all').toLowerCase()

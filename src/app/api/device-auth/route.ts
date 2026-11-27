@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
+import { requireStaff } from '@/lib/auth/require-staff'
 
 const DEVICE_COOKIE_NAME = 'selected_device'
 
 // POST: Sélectionner un device (après login Supabase)
 export async function POST(request: NextRequest) {
+  const auth = await requireStaff()
+  if (auth.response) return auth.response
+
   try {
     const { deviceId } = await request.json()
     
