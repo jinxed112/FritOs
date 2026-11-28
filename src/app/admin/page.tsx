@@ -59,6 +59,9 @@ export default function PromotionsPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<ActiveTab>('codes')
   const [showCodeModal, setShowCodeModal] = useState(false)
+  // Les codes expirés ou épuisés sont masqués par défaut : ils restent en base
+  // pour l'historique des commandes et des campagnes.
+  const [voirAnciens, setVoirAnciens] = useState(false)
   const [showPromoModal, setShowPromoModal] = useState(false)
   const [editingCode, setEditingCode] = useState<PromoCode | null>(null)
   const [editingPromo, setEditingPromo] = useState<Promotion | null>(null)
@@ -226,6 +229,16 @@ export default function PromotionsPage() {
     return { label: '✅ Actif', color: 'bg-green-100 text-green-600' }
   }
 
+  // Un code « ancien » ne peut plus servir : sa date est passée ou il est épuisé.
+  // Un code désactivé à la main ou programmé reste affiché (on peut encore agir dessus).
+  function estAncien(c: PromoCode) {
+    if (c.end_date && new Date(c.end_date) < new Date()) return true
+    if (c.usage_limit && c.usage_count >= c.usage_limit) return true
+    return false
+  }
+  const nbAnciens = promoCodes.filter(estAncien).length
+  const codesAffiches = voirAnciens ? promoCodes : promoCodes.filter(c => !estAncien(c))
+
   function getDiscount(type: string, value: number) {
     return type === 'percentage' ? `${value}%` : (type === 'fixed' || type === 'fixed_amount') ? `${value}€` : '🎁'
   }
@@ -246,7 +259,7 @@ export default function PromotionsPage() {
       <div className="flex gap-2 mb-6">
         <button onClick={() => setActiveTab('codes')}
           className={`px-6 py-3 rounded-xl font-medium ${activeTab === 'codes' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
-          🏷️ Codes Promo ({promoCodes.length})
+          🏷️ Codes Promo ({promoCodes.length - nbAnciens})
         </button>
         <button onClick={() => setActiveTab('promos')}
           className={`px-6 py-3 rounded-xl font-medium ${activeTab === 'promos' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
@@ -256,14 +269,24 @@ export default function PromotionsPage() {
 
       {loading ? <div className="bg-white rounded-2xl p-12 text-center text-gray-400">Chargement...</div> :
       activeTab === 'codes' ? (
-        promoCodes.length === 0 ? (
+        codesAffiches.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center">
             <span className="text-5xl block mb-4">🏷️</span>
-            <p className="text-gray-500">Aucun code promo</p>
+            <p className="text-gray-500">{nbAnciens > 0 ? 'Aucun code utilisable pour le moment' : 'Aucun code promo'}</p>
+            {nbAnciens > 0 && (
+              <button onClick={() => setVoirAnciens(true)} className="mt-4 px-4 py-2 rounded-xl bg-gray-100 text-gray-600 font-medium">
+                Voir les anciens codes ({nbAnciens})
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid gap-4">
-            {promoCodes.map(c => {
+            {nbAnciens > 0 && (
+              <button onClick={() => setVoirAnciens(!voirAnciens)} className="justify-self-start px-4 py-2 rounded-xl bg-gray-100 text-gray-600 font-medium">
+                {voirAnciens ? 'Masquer les anciens codes' : `Voir les anciens codes (${nbAnciens})`}
+              </button>
+            )}
+            {codesAffiches.map(c => {
               const status = getCodeStatus(c)
               return (
                 <div key={c.id} className={`bg-white rounded-2xl p-6 border border-gray-100 ${!c.is_active ? 'opacity-60' : ''}`}>
