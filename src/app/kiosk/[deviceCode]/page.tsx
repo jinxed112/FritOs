@@ -7,6 +7,7 @@ import { HALLOWEEN_THEME, CORAIL, titre, gras, GHOSTFACE, LOGO_BORIBAR, LOGO_MDJ
 import { estDansSaPlage } from '@/lib/product-availability'
 import { estCategorieProposee, fautProposerBoisson } from '@/lib/suggestion-boisson'
 import { contexteDepuisProduits, taxeDesLignes, ventilerLignes } from '@/lib/menu-ventilation'
+import { montantRemise, normaliserCode, repartirRemise } from '@/lib/promo'
 
 // Types
 type OptionGroupItem = {
@@ -116,6 +117,19 @@ function getCategoryIcon(categoryName: string): string {
   return '🍽️'
 }
 
+// Code promo accepté par /api/promo/validate (les règles complètes restent côté serveur)
+type PromoBorne = {
+  id: string
+  code: string
+  discount_type: string
+  discount_value: number
+  minimum_purchase: number
+}
+
+// Clavier à l'écran de la saisie du code : la borne n'a pas de clavier physique
+const CLAVIER_PROMO = ['1234567890', 'AZERTYUIOP', 'QSDFGHJKLM', 'WXCVBN-']
+const LONGUEUR_MAX_CODE = 24
+
 export default function KioskDevicePage() {
   const params = useParams()
   const router = useRouter()
@@ -158,6 +172,13 @@ export default function KioskDevicePage() {
   const [suggestionVue, setSuggestionVue] = useState(false)
   const [boissonsSuggerees, setBoissonsSuggerees] = useState(0)
 
+  // Code promo : un seul par commande, saisi depuis le panier
+  const [promo, setPromo] = useState<PromoBorne | null>(null)
+  const [showPromo, setShowPromo] = useState(false)
+  const [promoSaisie, setPromoSaisie] = useState('')
+  const [promoErreur, setPromoErreur] = useState<string | null>(null)
+  const [promoVerif, setPromoVerif] = useState(false)
+
   // --- NOUVEAU : plafonnement eat_in + mode Bux ---
   const [eatInEnabled, setEatInEnabled] = useState(true)
   const [isBuxMode, setIsBuxMode] = useState(false)
@@ -184,6 +205,9 @@ export default function KioskDevicePage() {
     if (cart.length === 0) {
       setSuggestionVue(false)
       setBoissonsSuggerees(0)
+      setPromo(null)
+      setPromoErreur(null)
+      setShowPromo(false)
     }
   }, [cart.length])
 
@@ -576,8 +600,55 @@ export default function KioskDevicePage() {
     return cart.reduce((sum, item) => sum + (item.price + item.options_total) * item.quantity, 0)
   }
 
+  // Remise du code promo sur le panier du moment. Si le panier ne remplit plus
+  // les conditions (minimum, remise qui couvrirait tout), la remise tombe à 0 et
+  // `motif` dit pourquoi ; le code reste saisi et revient si le panier change.
+  function getPromoEtat(): { remise: number; motif: string | null } {
+    if (!promo) return { remise: 0, motif: null }
+    const sousTotal = getCartSubtotal()
+    if (promo.minimum_purchase > 0 && sousTotal < promo.minimum_purchase) {
+      return { remise: 0, motif: `Minimum de commande : ${promo.minimum_purchase.toFixed(2)} €` }
+    }
+    const remise = montantRemise(promo, sousTotal)
+    if (Math.round((sousTotal - remise) * 100) <= 0) {
+      return { remise: 0, motif: 'Ce code couvre toute la commande : présentez-le au comptoir' }
+    }
+    return { remise, motif: null }
+  }
+
   function getCartTotal(): number {
-    return getCartSubtotal()
+    return Math.round((getCartSubtotal() - getPromoEtat().remise) * 100) / 100
+  }
+
+  function ouvrirSaisiePromo() {
+    setPromoSaisie('')
+    setPromoErreur(null)
+    setShowPromo(true)
+  }
+
+  async function validerPromo() {
+    const code = normaliserCode(promoSaisie)
+    if (!code || !device || promoVerif) return
+    setPromoVerif(true)
+    setPromoErreur(null)
+    try {
+      const response = await fetch('/api/promo/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, establishmentId: device.establishmentId, subtotal: getCartSubtotal() }),
+      })
+      const data = await response.json()
+      if (data.valid && data.promo) {
+        setPromo(data.promo)
+        setShowPromo(false)
+      } else {
+        setPromoErreur(data.error || 'Code inconnu')
+      }
+    } catch (error) {
+      setPromoErreur('Vérification impossible, réessayez')
+    } finally {
+      setPromoVerif(false)
+    }
   }
 
   function getVatRate(): number {
@@ -657,6 +728,19 @@ export default function KioskDevicePage() {
       .from('orders')
       .update({ status: 'pending', payment_status: 'paid' })
       .eq('id', orderId)
+
+    // Le code promo n'est compté qu'une fois la commande payée
+    if (promo && getPromoEtat().remise > 0) {
+      try {
+        await fetch('/api/promo/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId }),
+        })
+      } catch (error) {
+        console.error('Décompte du code promo impossible:', error)
+      }
+    }
     
     const { data } = await supabase
       .from('orders')
@@ -678,10 +762,36 @@ export default function KioskDevicePage() {
     setIsSubmitting(true)
     
     try {
-      const totalTTC = getCartTotal()
+      // Code promo : revérifié par le serveur avec le panier définitif. S'il
+      // n'est plus valable, on rouvre le panier au lieu d'encaisser un autre
+      // montant que celui affiché.
+      let remise = getPromoEtat().remise
+      if (promo && remise > 0) {
+        let refus: string | null = null
+        try {
+          const response = await fetch('/api/promo/validate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: promo.code, establishmentId: device.establishmentId, subtotal: getCartSubtotal() }),
+          })
+          const data = await response.json()
+          if (data.valid) remise = Number(data.discount) || 0
+          else refus = data.error || 'Code inconnu'
+        } catch (error) {
+          refus = 'Vérification impossible, réessayez'
+        }
+        if (refus) {
+          setPromoErreur(`Code ${promo.code} : ${refus}`)
+          setPromo(null)
+          setShowCart(true)
+          setIsSubmitting(false)
+          return
+        }
+      }
+      const totalTTC = Math.round((getCartSubtotal() - remise) * 100) / 100
       // Un plat passé en menu sort en deux lignes (plat + boisson) pour que la
       // boisson garde son propre taux sur place : cf. lib/menu-ventilation
-      const lignes = ventilerLignes(
+      const lignesPleinTarif = ventilerLignes(
         cart.map(item => ({
           product_id: item.product_id,
           product_name: item.name,
@@ -694,7 +804,14 @@ export default function KioskDevicePage() {
         })),
         contexteDepuisProduits(products, orderType === 'eat_in', p => estCategorieProposee(nomCategorie(p.category_id))),
       )
+      // La remise est répartie sur les lignes : la TVA se lit ligne par ligne
+      const lignes = repartirRemise(lignesPleinTarif, remise)
       const taxAmount = taxeDesLignes(lignes)
+      const metadata = {
+        // Mesure de la suggestion boisson (point du lundi) : absente si non proposée
+        ...(suggestionVue ? { suggestion_boisson: boissonsSuggerees > 0 ? 'acceptee' : 'refusee', boissons_suggerees: boissonsSuggerees } : {}),
+        ...(promo && remise > 0 ? { promo_code: promo.code } : {}),
+      }
       const subtotalHT = totalTTC - taxAmount
       
       const { data: order, error: orderError } = await supabase
@@ -713,8 +830,8 @@ export default function KioskDevicePage() {
           payment_status: 'pending',
           device_id: device.id,
           notes: isBuxMode ? 'BUX' : null, // --- NOUVEAU ---
-          // Mesure de la suggestion boisson (point du lundi) : absente si non proposée
-          ...(suggestionVue ? { metadata: { suggestion_boisson: boissonsSuggerees > 0 ? 'acceptee' : 'refusee', boissons_suggerees: boissonsSuggerees } } : {}),
+          ...(promo && remise > 0 ? { promo_code_id: promo.id, promo_discount: remise } : {}),
+          ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         })
         .select()
         .single()
@@ -1249,6 +1366,38 @@ export default function KioskDevicePage() {
                 <span className="text-[#3D2314]/70">Sous-total</span>
                 <span className="font-semibold">{getCartSubtotal().toFixed(2)} €</span>
               </div>
+              {promo ? (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-[#3D2314]/70 truncate">Code promo <span className="font-bold text-[#3D2314]">{promo.code}</span></span>
+                      <button
+                        onClick={() => { setPromo(null); setPromoErreur(null) }}
+                        aria-label="Retirer le code promo"
+                        className="w-10 h-10 shrink-0 rounded-full bg-[#3D2314]/10 flex items-center justify-center text-[#3D2314]"
+                      >✕</button>
+                    </div>
+                    <span className="font-semibold text-[#2E7D32] whitespace-nowrap">
+                      {getPromoEtat().remise > 0 ? `− ${getPromoEtat().remise.toFixed(2)} €` : '0.00 €'}
+                    </span>
+                  </div>
+                  {getPromoEtat().motif && (
+                    <p className="text-sm text-[#E63329] mt-1">{getPromoEtat().motif}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="mb-4">
+                  <button
+                    onClick={ouvrirSaisiePromo}
+                    className="w-full py-3 rounded-2xl border-2 border-dashed border-[#3D2314]/30 text-[#3D2314] font-semibold text-lg"
+                  >
+                    🎟️ J&apos;ai un code promo
+                  </button>
+                  {promoErreur && !showPromo && (
+                    <p className="text-sm text-[#E63329] mt-2 text-center">{promoErreur}</p>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between mb-6">
                 <span className="text-xl font-bold text-[#3D2314]">TOTAL</span>
                 <span className="text-3xl font-black text-[#E63329]">{getCartTotal().toFixed(2)} €</span>
@@ -1259,6 +1408,61 @@ export default function KioskDevicePage() {
                 className="w-full bg-[#E63329] text-white font-bold py-5 rounded-2xl text-xl disabled:opacity-50"
               >
                 💳 PAYER {getCartTotal().toFixed(2)} €
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Saisie du code promo */}
+      {showPromo && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4" onClick={() => setShowPromo(false)}>
+          <div className="bg-white rounded-3xl w-full max-w-3xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-[#FFF9E6] px-6 py-5 border-b-2 border-[#F7B52C]/30 flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-[#3D2314]">🎟️ Code promo</h2>
+              <button onClick={() => setShowPromo(false)} aria-label="Fermer" className="w-10 h-10 rounded-full bg-[#3D2314]/10 flex items-center justify-center">✕</button>
+            </div>
+            <div className="p-6">
+              <div className={`h-20 rounded-2xl border-4 flex items-center justify-center px-4 mb-2 ${promoErreur ? 'border-[#E63329]' : 'border-[#F7B52C]'}`}>
+                <span className={`text-4xl font-black tracking-widest ${promoSaisie ? 'text-[#3D2314]' : 'text-[#3D2314]/30'}`}>
+                  {promoSaisie || 'Votre code'}
+                </span>
+              </div>
+              <p className="h-7 text-center text-lg font-semibold text-[#E63329] mb-3">{promoErreur || ''}</p>
+              <div className="flex flex-col gap-2">
+                {CLAVIER_PROMO.map(rangee => (
+                  <div key={rangee} className="flex justify-center gap-2">
+                    {rangee.split('').map(touche => (
+                      <button
+                        key={touche}
+                        onClick={() => { setPromoErreur(null); setPromoSaisie(s => (s.length < LONGUEUR_MAX_CODE ? s + touche : s)) }}
+                        className="flex-1 max-w-[4.5rem] h-16 rounded-xl bg-[#FFF9E6] border-2 border-[#F7B52C]/40 text-2xl font-bold text-[#3D2314] active:bg-[#F7B52C]"
+                      >{touche}</button>
+                    ))}
+                    {rangee.endsWith('-') && (
+                      <button
+                        onClick={() => { setPromoErreur(null); setPromoSaisie(s => s.slice(0, -1)) }}
+                        aria-label="Effacer"
+                        className="flex-[2] max-w-[9.5rem] h-16 rounded-xl bg-[#3D2314]/10 text-2xl font-bold text-[#3D2314] active:bg-[#3D2314]/30"
+                      >⌫</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="p-6 border-t-2 border-[#F7B52C]/30 bg-[#FFF9E6] flex items-center gap-4">
+              <button
+                onClick={() => setShowPromo(false)}
+                className="flex-1 py-4 rounded-2xl border-2 border-[#3D2314]/20 font-semibold text-[#3D2314] text-lg"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={validerPromo}
+                disabled={!promoSaisie || promoVerif}
+                className="flex-1 bg-[#E63329] text-white font-bold py-4 rounded-2xl text-xl disabled:opacity-40"
+              >
+                {promoVerif ? 'Vérification...' : 'Valider'}
               </button>
             </div>
           </div>

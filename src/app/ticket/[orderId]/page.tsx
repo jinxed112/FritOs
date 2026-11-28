@@ -17,6 +17,7 @@ type Order = {
   order_type: string
   status: string
   total: number
+  promo_discount?: number | null
   created_at: string
   order_items: OrderItem[]
   establishment: {
@@ -205,8 +206,18 @@ export default function TicketPage() {
       doc.line(5, y, pageWidth - 5, y)
       y += 6
 
-      // Total
+      // Remise du code promo : les lignes sont au prix carte
       doc.setLineDashPattern([], 0)
+      const remisePromo = Number(order.promo_discount) || 0
+      if (remisePromo > 0) {
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'normal')
+        doc.text('Code promo', 5, y)
+        doc.text(`-${remisePromo.toFixed(2)}€`, pageWidth - 5, y, { align: 'right' })
+        y += 6
+      }
+
+      // Total
       doc.setFontSize(12)
       doc.setFont('helvetica', 'bold')
       doc.text('TOTAL', 5, y)
@@ -384,6 +395,12 @@ export default function TicketPage() {
 
           {/* Total */}
           <div className="mt-6 pt-4 border-t-2 border-gray-200">
+            {(Number(order.promo_discount) || 0) > 0 && (
+              <div className="flex justify-between items-center text-gray-600 mb-2">
+                <span>Code promo</span>
+                <span>-{Number(order.promo_discount).toFixed(2)}€</span>
+              </div>
+            )}
             <div className="flex justify-between items-center text-xl font-bold">
               <span>Total</span>
               <span className="text-[#E63329]">{(order.total || subtotal).toFixed(2)}€</span>
