@@ -15,8 +15,23 @@ type PromoCode = {
   end_date: string | null
   usage_limit: number | null
   usage_count: number
+  valid_channels: string[] | null
   is_active: boolean
   created_at: string
+}
+
+// Où un code est accepté. « kiosk » = les bornes ; les deux autres = la commande en ligne.
+const CANAUX_CODE = [
+  { id: 'pickup', label: 'En ligne, retrait' },
+  { id: 'delivery', label: 'En ligne, livraison' },
+  { id: 'kiosk', label: 'Borne' },
+]
+const CANAUX_EN_LIGNE = ['pickup', 'delivery']
+const TOUS_LES_CANAUX = CANAUX_CODE.map(c => c.id)
+
+// Liste vide ou absente en base = valable partout
+function canauxDuCode(code: { valid_channels: string[] | null }): string[] {
+  return code.valid_channels && code.valid_channels.length > 0 ? code.valid_channels : TOUS_LES_CANAUX
 }
 
 type Promotion = {
@@ -51,6 +66,7 @@ export default function PromotionsPage() {
   const [codeForm, setCodeForm] = useState({
     code: '', description: '', discount_type: 'percentage', discount_value: 10,
     minimum_purchase: 0, start_date: '', end_date: '', usage_limit: 0, is_active: true,
+    valid_channels: CANAUX_EN_LIGNE,
   })
   
   const [promoForm, setPromoForm] = useState({
@@ -74,8 +90,12 @@ export default function PromotionsPage() {
   async function loadData() {
     if (!establishmentId) return
     setLoading(true)
-    const [{ data: codes }, { data: promos }] = await Promise.all([
-      supabase.from('promo_codes').select('*').eq('establishment_id', establishmentId).order('created_at', { ascending: false }),
+    const [codes, { data: promos }] = await Promise.all([
+      // Les codes se lisent côté serveur (/api/promo/codes)
+      fetch(`/api/promo/codes?establishmentId=${establishmentId}`, { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : { codes: [] }))
+        .then(d => d.codes || [])
+        .catch(() => []),
       supabase.from('promotions').select('*').eq('establishment_id', establishmentId).order('created_at', { ascending: false }),
     ])
     setPromoCodes(codes || [])
@@ -95,9 +115,11 @@ export default function PromotionsPage() {
       discount_value: code.discount_value, minimum_purchase: code.minimum_purchase || 0,
       start_date: code.start_date?.split('T')[0] || '', end_date: code.end_date?.split('T')[0] || '',
       usage_limit: code.usage_limit || 0, is_active: code.is_active,
+      valid_channels: canauxDuCode(code),
     } : {
       code: generateCode(), description: '', discount_type: 'percentage', discount_value: 10,
       minimum_purchase: 0, start_date: '', end_date: '', usage_limit: 0, is_active: true,
+      valid_channels: CANAUX_EN_LIGNE,
     })
     setFormError('')
     setShowCodeModal(true)
@@ -107,9 +129,11 @@ export default function PromotionsPage() {
     e.preventDefault()
     if (!codeForm.code.trim()) { setFormError('Code obligatoire'); return }
     if (!establishmentId) { setFormError('Aucun établissement sélectionné'); return }
+    if (codeForm.valid_channels.length === 0) { setFormError('Cochez au moins un endroit où le code est valable'); return }
     setSaving(true)
     try {
       const data = {
+        valid_channels: TOUS_LES_CANAUX.filter(c => codeForm.valid_channels.includes(c)),
         code: codeForm.code.toUpperCase(), description: codeForm.description || null,
         discount_type: codeForm.discount_type, discount_value: codeForm.discount_value,
         minimum_purchase: codeForm.minimum_purchase || null,
@@ -203,7 +227,7 @@ export default function PromotionsPage() {
   }
 
   function getDiscount(type: string, value: number) {
-    return type === 'percentage' ? `${value}%` : type === 'fixed' ? `${value}€` : '🎁'
+    return type === 'percentage' ? `${value}%` : (type === 'fixed' || type === 'fixed_amount') ? `${value}€` : '🎁'
   }
 
   return (
@@ -259,6 +283,7 @@ export default function PromotionsPage() {
                           {c.minimum_purchase && c.minimum_purchase > 0 && <span>Min: {c.minimum_purchase}€</span>}
                           {c.usage_limit && <span>Utilisations: {c.usage_count}/{c.usage_limit}</span>}
                           {c.end_date && <span>Expire: {new Date(c.end_date).toLocaleDateString('fr-BE')}</span>}
+                          <span>Valable : {CANAUX_CODE.filter(canal => canauxDuCode(c).includes(canal.id)).map(canal => canal.label.toLowerCase()).join(' · ')}</span>
                         </div>
                       </div>
                     </div>
@@ -342,7 +367,7 @@ export default function PromotionsPage() {
                   <select value={codeForm.discount_type} onChange={e => setCodeForm({...codeForm, discount_type: e.target.value})}
                     className="w-full px-4 py-3 rounded-xl border border-gray-200">
                     <option value="percentage">% Pourcentage</option>
-                    <option value="fixed">€ Montant fixe</option>
+                    <option value="fixed_amount">€ Montant fixe</option>
                   </select>
                 </div>
                 <div>
@@ -362,6 +387,32 @@ export default function PromotionsPage() {
                   <input type="date" value={codeForm.end_date} onChange={e => setCodeForm({...codeForm, end_date: e.target.value})}
                     className="w-full px-4 py-3 rounded-xl border border-gray-200" />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Valable sur</label>
+                <div className="flex flex-wrap gap-x-6 gap-y-2">
+                  {CANAUX_CODE.map(canal => (
+                    <label key={canal.id} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={codeForm.valid_channels.includes(canal.id)}
+                        onChange={e => setCodeForm({
+                          ...codeForm,
+                          valid_channels: e.target.checked
+                            ? [...codeForm.valid_channels, canal.id]
+                            : codeForm.valid_channels.filter(c => c !== canal.id),
+                        })}
+                        className="w-5 h-5 rounded"
+                      />
+                      <span>{canal.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {codeForm.valid_channels.includes('kiosk') && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    À la borne, le client n&apos;est pas identifié : la limite « une fois par client » ne s&apos;y applique pas.
+                  </p>
+                )}
               </div>
               <label className="flex items-center gap-3">
                 <input type="checkbox" checked={codeForm.is_active} onChange={e => setCodeForm({...codeForm, is_active: e.target.checked})} className="w-5 h-5 rounded" />
